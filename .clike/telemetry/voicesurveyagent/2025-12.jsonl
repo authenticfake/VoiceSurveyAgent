@@ -1,0 +1,1 @@
+{"project_id":"voicesurveyagent","run_id":"772c2ffe05616819af9941469","phase":"idea","timestamp":"2025-12-07T16:11:39.310Z","provider":"openai","model":"gpt-5.1","usage":{},"pricing":{"input_cost":0.007271,"output_cost":0.04016,"total_cost":0.047431,"unit":{"input_per_1k":0.00125,"output_per_1k":0.01}},"files_len":1,"meta":{"client":"vscode","source":"extension"}}
