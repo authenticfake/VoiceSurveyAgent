@@ -4,3 +4,5 @@
 {"ts":1765125367536,"mode":"harper","role":"system","content":"✔ SPEC  done — [echo] manual::gpt-5.1 :: SPEC generation • [files] 1 • [text] 32 chars","model":"gpt-5.1","attachments":[]}
 {"ts":1765125697306,"mode":"harper","role":"user","content":"▶ PLAN  | mode=harper model=gpt-5.1 profile=— core=[\"SPEC.md\",\"TECH_CONSTRAINTS.yaml\"]","model":"gpt-5.1","attachments":[]}
 {"ts":1765125909473,"mode":"harper","role":"system","content":"✔ PLAN  done — [echo] Plan phase: manual::gpt-5.1 :: PLAN generation • [files] 8 • [text] 32 chars","model":"gpt-5.1","attachments":[]}
+{"ts":1765126288618,"mode":"harper","role":"user","content":"▶ KIT  | mode=harper model=gpt-5.1 profile=— core=[\"SPEC.md\",\"PLAN.md\",\"TECH_CONSTRAINTS.yaml\"]","model":"gpt-5.1","attachments":[]}
+{"ts":1765126501655,"mode":"harper","role":"system","content":"✔ KIT  done — [echo] manual::gpt-5.1 :: KIT generation • [files] 14 • [text] 31 chars","model":"gpt-5.1","attachments":[]}
