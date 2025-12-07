@@ -1,0 +1,47 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-004",
+  "lane": "python",
+  "env": {
+    "PYTHONPATH": "."
+  },
+  "cases": [
+    {
+      "name": "tests",
+      "run": "pytest -q runs/kit/REQ-004/test",
+      "cwd": ".",
+      "pip-file": "runs/kit/REQ-004/requirements.txt",
+      "expect": 0
+    }
+  ],
+  "tools": {
+    "tests": true,
+    "lint": false,
+    "types": false,
+    "security": false,
+    "build": false
+  },
+  "commands": {
+    "tests": "pytest -q runs/kit/REQ-004/test"
+  },
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "runs/kit/REQ-004/reports/junit.xml",
+      "format": "junit-xml"
+    }
+  ],
+  "normalize": {
+    "eval.summary.json": [
+      "runs/kit/REQ-004/reports/junit.xml"
+    ]
+  },
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 0.0
+  },
+  "constraints_applied": [
+    "lane: python",
+    "tech_stack: fastapi/sqlalchemy/httpx"
+  ]
+}
