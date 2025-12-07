@@ -1,0 +1,227 @@
+{
+  "snapshot": {
+    "total": 11,
+    "open": 11,
+    "in_progress": 0,
+    "done": 0,
+    "deferred": 0,
+    "progressPct": 0
+  },
+  "reqs": [
+    {
+      "id": "REQ-001",
+      "title": "OIDC auth and RBAC for backend APIs",
+      "acceptance": [
+        "OIDC login exchanges code for tokens and validates ID token",
+        "RBAC middleware enforces role requirements for protected routes",
+        "Unauthorized and unauthenticated requests return structured error responses",
+        "Viewer campaign_manager admin roles behave per SPEC permissions",
+        "Auth modules expose reusable dependencies for other routers"
+      ],
+      "dependsOn": [],
+      "track": "App",
+      "status": "open",
+      "lane": "python",
+      "test_profile": "backend-auth-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-002",
+      "title": "Campaign CRUD and activation rules",
+      "acceptance": [
+        "Campaigns can be created updated fetched with validation",
+        "Lifecycle transitions enforce allowed status changes only",
+        "Activation requires valid contacts scripts retry policy window",
+        "Unauthorized roles cannot mutate campaign resources",
+        "APIs expose filters and pagination for campaign listing"
+      ],
+      "dependsOn": [
+        "REQ-001"
+      ],
+      "track": "App",
+      "status": "open",
+      "lane": "python",
+      "test_profile": "backend-campaigns-core",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-003",
+      "title": "Contact CSV import and exclusion handling",
+      "acceptance": [
+        "CSV upload parses validates rows and reports errors",
+        "At least 95 percent of valid contacts are persisted",
+        "DNC and exclusion entries mark contacts as excluded",
+        "Contact states and attempts default values are correct",
+        "Contact list endpoint exposes state and basic metadata"
+      ],
+      "dependsOn": [
+        "REQ-002"
+      ],
+      "track": "App",
+      "status": "open",
+      "lane": "python",
+      "test_profile": "backend-contacts-csv",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-004",
+      "title": "Call scheduler and telephony provider adapter",
+      "acceptance": [
+        "Scheduler selects eligible contacts respecting time windows",
+        "CallAttempt records created with unique call_id per attempt",
+        "Telephony adapter starts outbound calls with metadata",
+        "Contact state and attempts updated transactionally",
+        "Concurrent calls limited by configurable max_concurrent_calls"
+      ],
+      "dependsOn": [
+        "REQ-003",
+        "REQ-009"
+      ],
+      "track": "App",
+      "status": "open",
+      "lane": "python",
+      "test_profile": "backend-calling-scheduler",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-005",
+      "title": "Dialogue outcome handling and survey responses",
+      "acceptance": [
+        "Webhook endpoint receives telephony events reliably",
+        "Consent outcomes stored with timestamps and final status",
+        "Completed surveys persist three answers linked to attempt",
+        "Contact state transitions follow outcomes and retry rules",
+        "Survey events published with required payload fields"
+      ],
+      "dependsOn": [
+        "REQ-004",
+        "REQ-009"
+      ],
+      "track": "App",
+      "status": "open",
+      "lane": "python",
+      "test_profile": "backend-calling-outcomes",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-006",
+      "title": "Event bus integration and email worker",
+      "acceptance": [
+        "Survey events are published to configured queue abstraction",
+        "Email worker consumes events and sends templated emails",
+        "EmailNotification records track send status and metadata",
+        "Email sending is idempotent across retries and restarts",
+        "Worker exposes metrics or logs for monitoring and debugging"
+      ],
+      "dependsOn": [
+        "REQ-005",
+        "REQ-009"
+      ],
+      "track": "App",
+      "status": "open",
+      "lane": "python",
+      "test_profile": "backend-events-email",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-007",
+      "title": "Dashboard stats and CSV export APIs",
+      "acceptance": [
+        "Stats endpoint returns counts and completion refusal rates",
+        "Contacts endpoint lists paginated contacts with outcomes",
+        "CSV export returns required columns and no duplicates",
+        "Exports exclude transcripts and unnecessary PII fields",
+        "Endpoints enforce RBAC and handle missing campaigns cleanly"
+      ],
+      "dependsOn": [
+        "REQ-002",
+        "REQ-003",
+        "REQ-005",
+        "REQ-009"
+      ],
+      "track": "App",
+      "status": "open",
+      "lane": "python",
+      "test_profile": "backend-reporting-export",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-008",
+      "title": "Admin configuration and retention settings APIs",
+      "acceptance": [
+        "Admin endpoints expose provider and retention configuration",
+        "Only admin role can modify provider and retention settings",
+        "Configuration changes are persisted and retrievable",
+        "Invalid settings are rejected with clear validation errors",
+        "Audit log entries created for configuration modifications"
+      ],
+      "dependsOn": [
+        "REQ-001",
+        "REQ-009"
+      ],
+      "track": "App",
+      "status": "open",
+      "lane": "python",
+      "test_profile": "backend-admin-config",
+      "gate_policy_ref": "docs/harper/lane-guides/python.md"
+    },
+    {
+      "id": "REQ-009",
+      "title": "Database schema models and migrations",
+      "acceptance": [
+        "ORM models defined for all specified entities",
+        "Alembic migrations create tables constraints and indexes",
+        "Enum and foreign key relationships align with data model",
+        "Migrations apply cleanly on fresh and existing databases",
+        "Connection management configured with pooling and settings"
+      ],
+      "dependsOn": [],
+      "track": "Infra",
+      "status": "open",
+      "lane": "sql",
+      "test_profile": "infra-db-schema",
+      "gate_policy_ref": "docs/harper/lane-guides/sql.md"
+    },
+    {
+      "id": "REQ-010",
+      "title": "Messaging and worker infra scaffolding",
+      "acceptance": [
+        "Messaging abstraction wraps SQS configuration and publishing",
+        "Worker entrypoints implemented for scheduler and email worker",
+        "Config loader reads messaging and provider settings",
+        "Observability helpers configure logging metrics tracing hooks",
+        "Deployment notes describe running workers on EKS"
+      ],
+      "dependsOn": [
+        "REQ-009"
+      ],
+      "track": "Infra",
+      "status": "open",
+      "lane": "infra",
+      "test_profile": "infra-messaging-workers",
+      "gate_policy_ref": "docs/harper/lane-guides/infra.md"
+    },
+    {
+      "id": "REQ-011",
+      "title": "Web console for campaigns and monitoring",
+      "acceptance": [
+        "Frontend allows campaign creation editing and listing",
+        "CSV upload and activation available via UI using backend APIs",
+        "Dashboard pages display stats and contact lists",
+        "Export controls trigger and download CSV exports",
+        "RBAC enforced in UI based on user role information"
+      ],
+      "dependsOn": [
+        "REQ-001",
+        "REQ-002",
+        "REQ-003",
+        "REQ-007"
+      ],
+      "track": "App",
+      "status": "open",
+      "lane": "node",
+      "test_profile": "frontend-console-core",
+      "gate_policy_ref": "docs/harper/lane-guides/node.md"
+    }
+  ]
+}
