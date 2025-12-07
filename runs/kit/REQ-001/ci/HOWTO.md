@@ -1,59 +1,84 @@
-# HOWTO — Execute REQ-001 Suite
+# HOWTO — REQ-001 Execution
 
 ## Prerequisites
-- Python 3.12 with `venv`.
-- Network access to your IdP endpoints (or ability to mock via `respx` in tests).
-- Environment variables (override defaults):
-  - `DATABASE_URL` (async SQLAlchemy URL, e.g. `sqlite+aiosqlite:///./auth.db` or `postgresql+asyncpg://user:pass@host/db`)
-  - `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`
-  - `OIDC_AUTHORIZATION_URL`, `OIDC_TOKEN_URL`, `OIDC_JWKS_URL`, `OIDC_ISSUER`
-  - `APP_JWT_SECRET`
+- Python 3.12
+- Recommended virtual environment
+- Network access to the configured OIDC issuer (for real runs)
+- Environment variables:
+  - `OIDC_ISSUER`
+  - `OIDC_CLIENT_ID`
+  - `OIDC_CLIENT_SECRET`
+  - `OIDC_TOKEN_ENDPOINT`
+  - `OIDC_JWKS_URI`
+  - Optional: `OIDC_AUDIENCE`
 
-## Local Setup
+## Setup
 ```bash
-cd runs/kit/REQ-001
 python -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-export DATABASE_URL="sqlite+aiosqlite:///./.tmp/auth.db"
-export OIDC_CLIENT_ID="local-client"
-# ...set remaining env vars...
+pip install -r runs/kit/REQ-001/requirements.txt
+export PYTHONPATH=.
 ```
 
 ## Running Tests
 ```bash
-pytest -q
+pytest -q runs/kit/REQ-001/test
 ```
-Tests mock IdP interactions with `respx`, no real network calls occur.
 
-## Running the API
-```bash
-uvicorn app.main:app --reload --port 8000
+## Local API Smoke
+```python
+from app.infra.config import ConfigLoader
+from app.auth.domain.role_mapper import ConfigurableRoleMapper
+from app.auth.oidc.client import OIDCClient
+from app.auth.domain.service import AuthService
+from app.auth.rbac import CurrentUserProvider, RBACDependencies
+from app.api.http.auth.router import build_auth_router
+from app.main import create_app
+
+settings = ConfigLoader().load()
+oidc_client = OIDCClient(settings.oidc)
+role_mapper = ConfigurableRoleMapper({"roles": {"viewer": Role.viewer}})
+user_repo = ...  # inject SQL-backed implementation
+auth_service = AuthService(user_repo, oidc_client, role_mapper)
+rbac = RBACDependencies(CurrentUserProvider(oidc_client, user_repo, role_mapper))
+app = create_app(build_auth_router(auth_service, rbac))
 ```
-Then:
-1. `GET /api/auth/login?redirect_uri=https://app.local/auth/callback`
-2. Complete IdP login, exchange code via `POST /api/auth/callback`.
-3. Use returned `app_access_token` for protected endpoints.
 
-## CI / Enterprise Runners
-- Use the provided `ci/LTC.json` definition.
-- Ensure secrets are injected via runner vault (GitHub Actions env, Jenkins credentials, etc.).
-- For Jenkins: add a pipeline stage executing `pip install -r runs/kit/REQ-001/requirements.txt && pytest -q runs/kit/REQ-001/test`.
+## Enterprise Runner Notes
+- Jenkins/GitHub Actions should execute the LTC case:
+  ```bash
+  pytest -q runs/kit/REQ-001/test
+  ```
+- Ensure `PYTHONPATH=.` during jobs.
 
 ## Troubleshooting
-- **Import errors**: confirm `PYTHONPATH` includes `runs/kit/REQ-001/src` (e.g., `export PYTHONPATH=$PWD/src:$PYTHONPATH`).
-- **SQLite path issues**: ensure `.tmp/` directory exists or point `DATABASE_URL` elsewhere.
-- **Invalid token errors**: verify IdP JWKS URL reachable and matching algorithms; for local tests rely on defaults/mocks.
-- **RBAC 403**: check the role embedded in `app_access_token`; only `campaign_manager` or `admin` can hit `/api/auth/manager/ping`.
-
-```
+- **Missing env vars:** `app.infra.config.ConfigLoader` raises `OIDCConfigurationError`.
+- **Invalid tokens:** `AuthenticationError` surfaces as `401/403` with structured JSON.
+- **Import errors:** verify `PYTHONPATH=.` and that the virtualenv is active.
 
 KIT Iteration Log
------------------
-- **Targeted REQ-ID(s)**: REQ-001 (foundational auth/RBAC per PLAN order).
-- **In/Out of scope**: Implemented OIDC callback, JWT issuance, RBAC deps, user persistence. UI, downstream routers, and nonce storage left for future REQs.
+- **Targeted REQ-ID(s)**: REQ-001 (first open dependency-free App track item; foundational for later KITs)
+- **In/Out of scope**: Implemented OIDC callback, token validation, role mapping, RBAC dependencies, FastAPI router, config loader, and tests. Persistence, session storage, and DB wiring deferred to REQ-009.
 - **How to run tests**: `pytest -q runs/kit/REQ-001/test`
-- **Prerequisites**: Python 3.12, ability to install dependencies from `requirements.txt`, configured OIDC+DB env vars (defaults included for local dev).
-- **Dependencies and mocks**: External IdP endpoints mocked via `respx` in tests; SQLite used for persistence with SQLAlchemy async engine.
-- **Product Owner Notes**: Future REQs should reuse `get_current_user`/`require_roles`; state/nonce validation and audit logging to be layered later.
-- **RAG citations**: SPEC.md (auth requirements), PLAN.md (module map), plan.json (lane + acceptance).
+- **Prerequisites**: Python 3.12, ability to install requirements. Real runs need OIDC env vars; tests rely solely on bundled fakes.
+- **Dependencies and mocks**: Used in-memory user repo and fake OIDC client inside tests only, as production code stays abstracted via interfaces.
+- **Product Owner Notes**: Admin ping route serves as RBAC reference implementation; future routers should reuse `RBACDependencies`.
+- **RAG citations**: SPEC.md (auth requirements), PLAN.md (module layout, acceptance), plan.json (lane metadata), TECH_CONSTRAINTS.yaml (Python lane expectations)
+
+```json
+{
+  "index": [
+    {
+      "req": "REQ-001",
+      "src": [
+        "runs/kit/REQ-001/src/app/auth/*",
+        "runs/kit/REQ-001/src/app/api/http/auth/*",
+        "runs/kit/REQ-001/src/app/infra/config/*",
+        "runs/kit/REQ-001/src/app/main.py"
+      ],
+      "tests": [
+        "runs/kit/REQ-001/test/test_auth_flow.py"
+      ]
+    }
+  ]
+}

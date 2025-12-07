@@ -1,20 +1,14 @@
-from __future__ import annotations
-
-from enum import Enum
-
-
-class AuthErrorCode(str, Enum):
-    INVALID_TOKEN = "invalid_token"
-    UNAUTHORIZED = "unauthorized"
-    FORBIDDEN = "forbidden"
-    OIDC_EXCHANGE_FAILED = "oidc_exchange_failed"
-    INVALID_CONFIGURATION = "invalid_configuration"
-
-
 class AuthError(Exception):
-    """Domain-level exception for auth failures."""
+    """Base authentication error."""
 
-    def __init__(self, code: AuthErrorCode, description: str):
-        self.code = code
-        self.description = description
-        super().__init__(description)
+
+class AuthenticationError(AuthError):
+    """Raised when authentication cannot be completed."""
+
+
+class AuthorizationError(AuthError):
+    """Raised when role checks fail."""
+
+
+class OIDCConfigurationError(AuthError):
+    """Raised when OIDC configuration is invalid or incomplete."""

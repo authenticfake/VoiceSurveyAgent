@@ -1,37 +1,18 @@
-from __future__ import annotations
-
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
 from typing import Any
-from uuid import UUID, uuid4
-
-from sqlalchemy import DateTime, Enum as SAEnum, String, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.orm import Mapped, mapped_column
-
-from app.infra.db.base import Base
+from uuid import UUID
 
 
 class Role(str, Enum):
-    """System-supported RBAC roles."""
-
-    ADMIN = "admin"
-    CAMPAIGN_MANAGER = "campaign_manager"
-    VIEWER = "viewer"
-
-    @classmethod
-    def from_claim(cls, claim: str) -> "Role | None":
-        try:
-            return cls(claim)
-        except ValueError:
-            return None
+    viewer = "viewer"
+    campaign_manager = "campaign_manager"
+    admin = "admin"
 
 
 @dataclass(slots=True)
-class UserProfile:
-    """Domain representation of an authenticated user."""
-
+class User:
     id: UUID
     oidc_sub: str
     email: str
@@ -42,68 +23,29 @@ class UserProfile:
 
 
 @dataclass(slots=True)
-class OidcProfile:
-    """Subset of OIDC claims relevant for persistence."""
-
+class OIDCProfile:
     sub: str
     email: str
-    name: str
-    role: Role
+    name: str | None = None
+    roles: list[str] | None = None
 
 
-class UserORM(Base):
-    """SQLAlchemy ORM model for users derived from OIDC login."""
-
-    __tablename__ = "users"
-    __table_args__ = (UniqueConstraint("oidc_sub", name="uq_users_oidc_sub"),)
-
-    id: Mapped[UUID] = mapped_column(
-        PGUUID(as_uuid=True),
-        primary_key=True,
-        default=uuid4,
-    )
-    oidc_sub: Mapped[str] = mapped_column(String(255), nullable=False)
-    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    role: Mapped[Role] = mapped_column(SAEnum(Role, name="role_enum"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, nullable=False
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow
-    )
-
-    def to_domain(self) -> UserProfile:
-        return UserProfile(
-            id=self.id,
-            oidc_sub=self.oidc_sub,
-            email=self.email,
-            name=self.name,
-            role=self.role,
-            created_at=self.created_at,
-            updated_at=self.updated_at,
-        )
-
-    def apply_profile(self, profile: OidcProfile) -> None:
-        self.email = profile.email
-        self.name = profile.name
-        self.role = profile.role
+@dataclass(slots=True)
+class TokenSet:
+    access_token: str
+    id_token: str
+    expires_in: int
+    refresh_token: str | None = None
+    token_type: str = "Bearer"
 
 
-def derive_role_from_claims(
-    claims: dict[str, Any], role_claim_key: str, priority: list[str]
-) -> Role:
-    """Resolve a domain Role based on configured claim key and priority ordering."""
-    raw_claim = claims.get(role_claim_key)
-    ordered = raw_claim or []
-    if isinstance(ordered, str):
-        ordered = [ordered]
-    if not isinstance(ordered, list):
-        ordered = []
-    normalized = [str(item).lower() for item in ordered]
-    for candidate in priority:
-        if candidate in normalized:
-            resolved = Role.from_claim(candidate)
-            if resolved:
-                return resolved
-    return Role.VIEWER
+@dataclass(slots=True)
+class IDTokenClaims:
+    subject: str
+    email: str | None
+    name: str | None
+    issuer: str
+    audience: tuple[str, ...]
+    issued_at: datetime
+    expires_at: datetime
+    raw_claims: dict[str, Any]

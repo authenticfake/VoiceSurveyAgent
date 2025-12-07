@@ -1,90 +1,49 @@
-from __future__ import annotations
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Callable, Mapping, Optional
 
-from typing import Annotated, Callable, Coroutine, Optional
-from uuid import UUID
+from fastapi import Depends, Header
 
-import jwt
-from fastapi import Depends, Header, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.auth.domain.models import Role, UserProfile
-from app.auth.domain.repository import SqlAlchemyUserRepository
-from app.auth.domain.schemas import ErrorResponse
-from app.auth.errors import AuthErrorCode
-from app.infra.config.settings import Settings, get_settings
-from app.infra.db.session import get_session
+from app.api.http.errors import forbidden, unauthorized
+from app.auth.domain.models import Role, User
+from app.auth.domain.repository import UserRepository
+from app.auth.domain.role_mapper import RoleMapper
+from app.auth.domain.service import OIDCClientProtocol
+from app.auth.errors import AuthenticationError
+from app.auth.domain.models import OIDCProfile
 
 
-async def _decode_app_token(token: str, settings: Settings) -> dict:
-    return jwt.decode(
-        token,
-        settings.app_jwt_secret.get_secret_value(),
-        algorithms=[settings.app_jwt_algorithm],
-        audience=settings.oidc_client_id,
-        issuer=settings.app_name,
-    )
+@dataclass(slots=True)
+class CurrentUserProvider:
+    oidc_client: OIDCClientProtocol
+    user_repo: UserRepository
+    role_mapper: RoleMapper
+
+    async def __call__(self, authorization: Optional[str] = Header(default=None)) -> User:
+        if not authorization or not authorization.startswith("Bearer "):
+            raise unauthorized("Missing bearer token")
+        token = authorization.removeprefix("Bearer ").strip()
+        if not token:
+            raise unauthorized("Empty bearer token")
+        claims = await self.oidc_client.verify_id_token(token)
+        if not claims.email:
+            raise AuthenticationError("Token missing email claim")
+        user = await self.user_repo.get_by_oidc_sub(claims.subject)
+        if user:
+            return user
+        profile = OIDCProfile(sub=claims.subject, email=claims.email, name=claims.name)
+        role = self.role_mapper.map_role(claims.raw_claims)
+        return await self.user_repo.upsert_from_oidc_profile(profile, role)
 
 
-async def get_current_user(
-    authorization: Annotated[str | None, Header(alias="Authorization")] = None,
-    session: AsyncSession = Depends(get_session),
-    settings: Settings = Depends(get_settings),
-) -> UserProfile:
-    if not authorization or not authorization.lower().startswith("bearer "):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=ErrorResponse(
-                error=AuthErrorCode.UNAUTHORIZED.value,
-                error_description="Missing bearer token",
-            ).model_dump(),
-        )
-    token = authorization.split(" ", 1)[1]
-    try:
-        payload = await _decode_app_token(token, settings)
-    except jwt.PyJWTError as exc:  # type: ignore[attr-defined]
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=ErrorResponse(
-                error=AuthErrorCode.INVALID_TOKEN.value,
-                error_description=str(exc),
-            ).model_dump(),
-        ) from exc
+@dataclass(slots=True)
+class RBACDependencies:
+    current_user: CurrentUserProvider
 
-    user_id = payload.get("sub")
-    if not user_id:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=ErrorResponse(
-                error=AuthErrorCode.INVALID_TOKEN.value,
-                error_description="Token missing subject",
-            ).model_dump(),
-        )
+    def require_roles(self, *roles: Role) -> Callable[[User], User]:
+        async def _checker(user: User = Depends(self.current_user)) -> User:
+            if user.role not in roles:
+                raise forbidden(f"Route requires roles: {[role.value for role in roles]}")
+            return user
 
-    repository = SqlAlchemyUserRepository(session)
-    user = await repository.get_by_id(UUID(user_id))
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=ErrorResponse(
-                error=AuthErrorCode.UNAUTHORIZED.value,
-                error_description="User not found",
-            ).model_dump(),
-        )
-    return user
-
-
-def require_roles(*allowed_roles: Role) -> Callable[[UserProfile], UserProfile]:
-    """Dependency factory enforcing RBAC membership."""
-
-    async def _dependency(user: UserProfile = Depends(get_current_user)) -> UserProfile:
-        if allowed_roles and user.role not in allowed_roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=ErrorResponse(
-                    error=AuthErrorCode.FORBIDDEN.value,
-                    error_description="Insufficient role",
-                ).model_dump(),
-            )
-        return user
-
-    return _dependency
+        return _checker

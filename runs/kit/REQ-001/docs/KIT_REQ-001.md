@@ -1,48 +1,25 @@
-# KIT — REQ-001 (OIDC auth and RBAC)
+# KIT — REQ-001 Auth Foundations
 
 ## Scope
-
-Implements the authentication slice defined in SPEC/PLAN:
-- OIDC authorization-code callback flow with ID token validation via JWKS.
-- User persistence after OIDC login (SQLAlchemy model + repository).
-- Application-issued JWT used for backend RBAC.
-- FastAPI router exposing `/api/auth/login`, `/api/auth/callback`, `/api/auth/me`, plus role-protected probes.
-- RBAC dependency ensuring viewer/campaign_manager/admin access policies.
+Implements the authentication backbone for `voicesurveyagent`:
+- OIDC authorization-code callback that exchanges the code for tokens and validates the ID token signature.
+- Role mapping abstractions that normalize IdP claims to internal roles.
+- FastAPI dependencies for authenticated user resolution and RBAC guards.
+- HTTP router exposing `/api/auth/oidc/callback`, `/api/auth/me`, and `/api/auth/admin/ping`.
 
 ## Architecture Notes
-
-- `app.infra.config` centralizes env-driven settings (OIDC endpoints, DB URL, JWT secret).
-- `app.infra.db` provides async SQLAlchemy engine/session factory and metadata init.
-- `app.auth.domain` contains role enum, domain models, ORM entity, and repository.
-- `app.auth.oidc` handles provider integration (token exchange + JWKS cache).
-- `app.auth.service` orchestrates login, persists/updates users, and issues app JWT.
-- `app.auth.rbac` exposes FastAPI dependencies for current user resolution and role enforcement.
-- `app.api.http.auth.router` wires HTTP endpoints.
-
-Composition-first seams:
-- Repository protocol allows swapping persistence implementation once REQ-009 formalizes migrations.
-- `AppTokenEncoder` isolates JWT issuance for reuse by future routers/workers.
-- JWKS cache is self-contained for reuse by future modules needing identity verification.
+- `app.auth.domain` hosts pure domain types (`Role`, `User`, `OIDCProfile`, `TokenSet`, `IDTokenClaims`) and repository interfaces.
+- `app.auth.oidc` provides a production-grade `OIDCClient` that uses `httpx` and `python-jose` to execute the OAuth code exchange and JWKS-backed token validation.
+- `app.auth.domain.role_mapper` offers a configurable mapper so future REQs can inject custom claim translations without touching auth service logic.
+- `app.auth.rbac` exposes `CurrentUserProvider` and `RBACDependencies` which downstream routers can reuse to guard endpoints with `require_roles`.
+- `app.api.http.auth.router.build_auth_router` wires the service & RBAC dependencies into FastAPI routes; no global state is created, keeping composition-first principles intact.
 
 ## Testing
+`pytest` suite covers:
+- Successful OIDC callback flow with token exchange (using fakes) and response payload structure.
+- Authenticated `/me` endpoint requiring bearer tokens.
+- RBAC enforcement for admin-only endpoint.
 
-Pytest suite (`test/auth/test_auth_flow.py`) covers:
-- Happy-path OIDC callback with mocked token + JWKS endpoints, verifying `app_access_token` and `/api/auth/me`.
-- RBAC enforcement blocking viewer-level token from manager route.
-
-Respx mocks external HTTP calls. Tests use httpx `ASGITransport` per constraint and SQLite (aiosqlite) for persistence.
-
-## Configuration
-
-Environment variables (see `settings.py`) drive endpoints/secrets. Defaults support local dev but **must** be overridden in real deployments.
-
-Key vars:
-- `DATABASE_URL`
-- `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `OIDC_AUTHORIZATION_URL`, `OIDC_TOKEN_URL`, `OIDC_JWKS_URL`, `OIDC_ISSUER`
-- `APP_JWT_SECRET`, `APP_JWT_ALGORITHM`, `APP_JWT_EXPIRES_SECONDS`
-
-## Next Steps
-
-- REQ-009 will formalize migrations/enums referencing `users` table.
-- Downstream REQs should reuse `get_current_user`/`require_roles`.
-- Add session storage/state nonce validation once frontend integration arrives (future REQ).
+Run tests via:
+```bash
+pytest -q runs/kit/REQ-001/test

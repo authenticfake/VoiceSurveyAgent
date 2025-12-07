@@ -10,48 +10,38 @@
     "build": false
   },
   "commands": {
-    "tests": "pytest -q"
+    "tests": "pytest -q runs/kit/REQ-001/test"
   },
   "cases": [
     {
       "name": "tests",
-      "run": "pytest -q",
-      "cwd": "runs/kit/REQ-001",
+      "run": "pytest -q runs/kit/REQ-001/test",
+      "cwd": ".",
       "pip-file": "runs/kit/REQ-001/requirements.txt",
       "expect": 0
     }
   ],
-  "reports": [],
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "runs/kit/REQ-001/reports/junit.xml",
+      "format": "junit-xml"
+    }
+  ],
   "env": {
-    "DATABASE_URL": "sqlite+aiosqlite:///./runs/kit/REQ-001/.tmp/test.db",
-    "APP_JWT_SECRET": "local-dev-secret",
-    "OIDC_CLIENT_ID": "dev-client",
-    "OIDC_CLIENT_SECRET": "dev-secret",
-    "OIDC_AUTHORIZATION_URL": "https://idp.example.com/authorize",
-    "OIDC_TOKEN_URL": "https://idp.example.com/token",
-    "OIDC_JWKS_URL": "https://idp.example.com/jwks",
-    "OIDC_ISSUER": "https://idp.example.com/"
+    "PYTHONPATH": "."
   },
   "normalize": {
-    "outputs": [
-      {
-        "path": "runs/kit/REQ-001/eval.summary.json",
-        "summary": [
-          "tests_passed"
-        ]
-      }
-    ]
-  },
-  "gate_policy": {
-    "tests_pass": true,
-    "coverage_min": 0.0,
-    "security": {
-      "critical": 0
+    "eval.summary.json": {
+      "tests_pass": "cases[].status"
     }
   },
+  "gate_policy": {
+    "tests_pass": true
+  },
+  "external_runner": null,
   "constraints_applied": [
-    "TECH_CONSTRAINTS.yaml@voicesurveyagent",
-    "SPEC.md@REQ-001",
-    "PLAN.md@ModulePlan"
+    "TECH_CONSTRAINTS:v1.1.0",
+    "PLAN:REQ-001 composition-first"
   ]
 }

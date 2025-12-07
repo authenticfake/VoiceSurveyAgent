@@ -1,30 +1,112 @@
-# REQ-001 — Auth & RBAC Implementation
+# REQ-001 – OIDC Auth & RBAC
 
-## Key Endpoints
-| Method | Path | Description |
-|--------|------|-------------|
-| GET    | `/api/auth/login` | Returns authorization URL, state, and nonce for browser redirect |
-| POST   | `/api/auth/callback` | Exchanges OIDC code, validates ID token, persists user, issues app JWT |
-| GET    | `/api/auth/me` | Returns current authenticated user profile (viewer+ roles) |
-| GET    | `/api/auth/manager/ping` | Example endpoint requiring `campaign_manager` or `admin` |
-| GET    | `/api/auth/admin/ping` | Example endpoint requiring `admin` |
+## Contents
+- `src/app/auth/*`: Domain models, service layer, OIDC client, RBAC helpers.
+- `src/app/api/http/auth/*`: FastAPI router and schemas.
+- `src/app/infra/config`: Environment-driven loader that produces `OIDCConfig`.
+- `test/`: Pytest suite with fakes for OIDC client and user repository.
 
 ## Usage
-1. Call `/api/auth/login?redirect_uri=https://app/callback` to build redirect link.
-2. After user authenticates and IdP calls back with `code`, POST to `/api/auth/callback`.
-3. Store `app_access_token` returned by callback; supply as `Authorization: Bearer <token>` for protected APIs.
-4. Use `/api/auth/me` to obtain role/email for UI rendering.
 
-## Components
-- `app.auth.domain`: roles, ORM, repository.
-- `app.auth.oidc`: HTTP client + JWKS cache.
-- `app.auth.service`: orchestration and JWT issuance.
-- `app.auth.rbac`: FastAPI dependencies for RBAC enforcement.
-- `app.api.http.auth`: HTTP router.
+1. **Install dependencies**
+   ```bash
+   pip install -r runs/kit/REQ-001/requirements.txt
+   ```
 
-## Running Tests
-```
-pytest -q runs/kit/REQ-001/test
-```
+2. **Configure environment**  
+   Set the following before wiring the router into the main API service:
+   - `OIDC_ISSUER`
+   - `OIDC_CLIENT_ID`
+   - `OIDC_CLIENT_SECRET`
+   - `OIDC_TOKEN_ENDPOINT`
+   - `OIDC_JWKS_URI`
+   - `OIDC_AUDIENCE` (optional)
 
-Ensure env vars for OIDC endpoints and secrets are set (or rely on defaults for local).
+3. **Wire dependencies**
+   ```python
+   from app.infra.config import ConfigLoader
+   from app.auth.oidc.client import OIDCClient
+   from app.auth.domain.role_mapper import ConfigurableRoleMapper
+   from app.auth.rbac import CurrentUserProvider, RBACDependencies
+   from app.api.http.auth.router import build_auth_router
+   from app.main import create_app
+
+   settings = ConfigLoader().load()
+   oidc_client = OIDCClient(settings.oidc)
+   role_mapper = ConfigurableRoleMapper({"roles": {...}})
+   user_repo = ...  # real implementation (REQ-009)
+   auth_service = AuthService(user_repo, oidc_client, role_mapper)
+   current_user = CurrentUserProvider(oidc_client, user_repo, role_mapper)
+   app = create_app(build_auth_router(auth_service, RBACDependencies(current_user)))
+   ```
+
+4. **Run tests**
+   ```bash
+   pytest -q runs/kit/REQ-001/test
+   ```
+
+file:/runs/kit/REQ-001/ci/LTC.json
+{
+  "version": "1.0",
+  "req_id": "REQ-001",
+  "lane": "python",
+  "tools": {
+    "tests": true,
+    "lint": false,
+    "types": false,
+    "security": false,
+    "build": false
+  },
+  "commands": {
+    "tests": "pytest -q runs/kit/REQ-001/test"
+  },
+  "cases": [
+    {
+      "name": "tests",
+      "run": "pytest -q runs/kit/REQ-001/test",
+      "cwd": ".",
+      "pip-file": "runs/kit/REQ-001/requirements.txt",
+      "expect": 0
+    }
+  ],
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "runs/kit/REQ-001/reports/junit.xml",
+      "format": "junit-xml"
+    }
+  ],
+  "env": {
+    "PYTHONPATH": "."
+  },
+  "normalize": {
+    "eval.summary.json": {
+      "tests_pass": "cases[].status"
+    }
+  },
+  "gate_policy": {
+    "tests_pass": true
+  },
+  "external_runner": null,
+  "constraints_applied": [
+    "TECH_CONSTRAINTS:v1.1.0",
+    "PLAN:REQ-001 composition-first"
+  ]
+}
+
+file:/runs/kit/REQ-001/ci/HOWTO.md
+# HOWTO — REQ-001 Execution
+
+## Prerequisites
+- Python 3.12
+- Recommended virtual environment
+- Network access to the configured OIDC issuer (for real runs)
+- Environment variables:
+  - `OIDC_ISSUER`
+  - `OIDC_CLIENT_ID`
+  - `OIDC_CLIENT_SECRET`
+  - `OIDC_TOKEN_ENDPOINT`
+  - `OIDC_JWKS_URI`
+  - Optional: `OIDC_AUDIENCE`
+
+## Setup

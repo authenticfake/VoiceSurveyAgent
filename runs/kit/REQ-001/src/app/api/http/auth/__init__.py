@@ -1,0 +1,3 @@
+"""
+Auth HTTP router wiring.
+"""
