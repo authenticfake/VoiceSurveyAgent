@@ -235,12 +235,11 @@ tech_constraints:
     allowed_providers:
       - "openai"
       - "anthropic"
-      - "azure-openai"
       - "google"
     allowed_models:
-      - "gpt-4.1-mini"
-      - "gpt-4.1"
-      - "claude-3.5-sonnet"
+      - "gpt-5.1-mini"
+      - "gpt-5.1"
+      - "claude-4.5-sonnet"
     data_boundary: "EU-preferred_processing; vendor-specific regions configured where possible."
     logging:
       prompt_logging_enabled: false

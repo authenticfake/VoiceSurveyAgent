@@ -1,7 +1,204 @@
-version: 1.0.0
-profiles: []
-capabilities: []
-# NOTE:
-# - Keep this file as the canonical human-edited source of Technology Constraints.
-# - JSON mirror (TECH_CONSTRAINTS.json) must stay in sync.
-# - The lock file (TECH_CONSTRAINTS.lock.json) is for orchestrator/gateway to maintain.
+tech_constraints:
+  version: 1.1.0
+
+  metadata:
+    name: "voicesurveyagent"
+    description: "AI voice agent to run compliant 3-question phone surveys with automated call orchestration and structured results."
+    owner: "survey-platform-team"  # Assumption
+    environment: [dev, qa, uat, prod]
+    criticality: medium
+    complexity: medium
+    domain: "survey_automation"
+    compliance:
+      - "GDPR"  # consent, logging, retention
+      - "local_telemarketing_rules"  # Assumption placeholder
+
+  classification:
+    solution_type: "web"
+    location: "cloud"  # Assumption
+    cloud_provider: "aws"  # Assumption
+    tenant_model: "single"
+    data_sensitivity: "internal"
+
+  project_definition:
+    type: "web_application"
+    framework: "fastapi-react"  # Backend FastAPI + React-based front-end (assumption)
+    language: "python-typescript"
+    deployment_target: "aws-eks"  # Assumption
+
+  technology_stack:
+    core:
+      framework: "FastAPI backend, React/Next.js frontend"  # Assumption
+      language: "Python 3.12+, TypeScript"
+      runtime: "Node.js 20+, CPython 3.12"
+    styling:
+      primary: "Tailwind CSS"
+      components: "Headless UI or similar"
+      icons: "Lucide"
+    state_management:
+      server_state: "REST/React Query"
+      client_state: "Local state or lightweight store"
+    database_and_backend:
+      orm: "SQLAlchemy"  # Assumption
+      database: "PostgreSQL"
+      cache: "Redis"
+      vector_store: "None for slice-1"
+      auth: "OIDC-compatible provider (e.g., corporate IdP)"  # Assumption
+    messaging:
+      broker: "SQS_or_Kafka"  # abstracted; concrete choice in /spec
+      event_stream: "Internal event bus abstraction"
+    observability_stack:
+      logging: "Centralized JSON logging (e.g., CloudWatch)"
+      tracing: "OpenTelemetry"
+      metrics: "Prometheus-compatible metrics"
+
+  lanes:
+    - name: "backend"
+      lane: "python"
+      purpose: "Survey campaigns, call orchestration APIs, provider webhooks, email triggers, logging"
+      allowed_frameworks:
+        - "FastAPI"
+      forbidden_technologies:
+        - "Flask_without_ASGI"
+      default_test_profile:
+        coverage_min: 80
+        required_checks:
+          - tests
+          - lint
+          - types
+          - security
+          - build
+    - name: "frontend"
+      lane: "js-ts"
+      purpose: "Campaign setup UI and monitoring dashboard"
+      allowed_frameworks:
+        - "Next.js"
+        - "React"
+      forbidden_technologies:
+        - "jQuery"
+        - "Bootstrap"
+      default_test_profile:
+        coverage_min: 75
+        required_checks:
+          - tests
+          - lint
+          - types
+          - build
+
+  profiles:
+    - name: "app-core"
+      runtime: "python@3.12"
+      platform: "aws-eks"
+      api:
+        - "rest"
+        - "webhooks"
+      storage:
+        - "postgres"
+        - "redis"
+      messaging:
+        - "sqs"
+      auth:
+        - "oidc"
+      observability:
+        - "cloudwatch"
+        - "prometheus"
+    - name: "ai-rag"
+      runtime: "python@3.12"
+      platform: "aws-lambda"  # Assumption; used if future LLM knowledge features are added
+      api:
+        - "rest"
+      storage:
+        - "s3"
+      messaging:
+        - "sns"
+      auth:
+        - "iam"
+      observability:
+        - "cloudwatch"
+      rag_formats_supported:
+        - "pdf"
+        - "docx"
+        - "pptx"
+        - "xlsx"
+        - "txt"
+
+  ci_cd:
+    system: "github_actions"
+    runners: "ubuntu-latest"
+    pipelines:
+      main_branch: ".github/workflows/ci.yml"
+      deploy_pipeline: ".github/workflows/cd.yml"
+    external_quality_gates:
+      sonar:
+        enabled: false  # Assumption
+        project_key: ""
+      security_scanner:
+        enabled: true
+        tool: "Trivy_or_Snyk"
+    default_branch_protection:
+      require_pr: true
+      require_reviews: 1
+      require_status_checks: true
+
+  security:
+    internet_egress: "restricted"
+    allowed_endpoints:
+      - "https://api.openai.com"  # Assumption if GPT used
+      - "https://api.anthropic.com"  # Assumption if Claude used
+      - "https://generativelanguage.googleapis.com"  # Assumption if Gemini used
+      - "https://api.twilio.com"  # Example telephony provider; swap per chosen vendor
+    secrets_management: "AWS Secrets Manager"
+    dependency_policy:
+      allowlist:
+        - "fastapi"
+        - "pydantic"
+        - "sqlalchemy"
+      denylist:
+        - "requests<2.32.0"
+    authentication:
+      user_auth: "OIDC"
+      service_auth: "IAM_roles_or_JWT"
+    authorization:
+      method: "RBAC"
+      policies_source: "app_database"
+    data_protection:
+      encryption_at_rest: true
+      encryption_in_transit: true
+      pii_handling: "PII (contact data, call transcripts) stored in Postgres with role-based access; transcripts and recordings subject to configurable retention and anonymization policies."
+
+  data_management:
+    primary_stores:
+      - name: "core-db"
+        engine: "postgres"
+        region: "eu-central-1"  # Assumption; EU to align with GDPR
+    backup_policy:
+      rpo_minutes: 15
+      rto_minutes: 60
+    retention_policy:
+      transactional_data_days: 3650
+      logs_days: 365
+    migration_strategy: "Alembic_or_compatible_migrations"
+  
+  eval_profiles:
+    default:
+      coverage_min: 80
+      max_critical_vulns: 0
+      lint_must_be_clean: true
+      allow_snapshot_tests: true
+    relaxed_non_prod:
+      coverage_min: 60
+      max_critical_vulns: 0
+      allow_flaky_tests: true
+
+  ai_policies:
+    allowed_providers:
+      - "openai"
+      - "anthropic"
+    allowed_models:
+      - "gpt-5.1-mini"
+      - "gpt-5.1"
+      - "claude-4.5-sonnet"
+    data_boundary: "EU-preferred_processing; vendor-specific regions configured where possible."
+    logging:
+      prompt_logging_enabled: false
+      redaction_required: true
