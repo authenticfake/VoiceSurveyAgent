@@ -1,0 +1,87 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-009",
+  "lane": "sql",
+  "tools": {
+    "tests": [
+      "pytest"
+    ],
+    "lint": [],
+    "types": [],
+    "security": [],
+    "build": []
+  },
+  "commands": {
+    "tests": "pytest -q runs/kit/REQ-009/test --junitxml runs/kit/REQ-009/reports/junit.xml --cov=app --cov-report=xml:runs/kit/REQ-009/reports/coverage.xml"
+  },
+  "cases": [
+    {
+      "name": "tests",
+      "run": "pytest -q runs/kit/REQ-009/test --junitxml runs/kit/REQ-009/reports/junit.xml --cov=app --cov-report=xml:runs/kit/REQ-009/reports/coverage.xml",
+      "cwd": ".",
+      "pip-file": "runs/kit/REQ-009/requirements.txt",
+      "expect": 0,
+      "timeout": 900
+    }
+  ],
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "runs/kit/REQ-009/reports/junit.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "runs/kit/REQ-009/reports/coverage.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "env": {
+    "PYTEST_ADDOPTS": "-p no:cacheprovider",
+    "DISABLE_TESTCONTAINERS": "0"
+  },
+  "normalize": {
+    "junit": "runs/kit/REQ-009/reports/junit.xml",
+    "coverage": "runs/kit/REQ-009/reports/coverage.xml"
+  },
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 0.0,
+    "security": {
+      "blocking_vulnerabilities": 0
+    }
+  },
+  "constraints_applied": [
+    "single_source_schema_spec",
+    "postgres_only_engine",
+    "idempotent_versioned_migrations"
+  ]
+}
+
+
+KIT Iteration Log
+- **Targeted REQ-IDs**: REQ-009 (next open Infra item per PLAN). Delivered schema spec, migrations, seeds, ORM, tooling, and tests to unblock dependent REQs.
+- **In Scope**: Canonical spec, SQL migrations with ledger, SQLAlchemy models/session helpers, seed data, upgrade/downgrade scripts, pytest coverage, LTC/HOWTO/docs.
+- **Out of Scope**: Service-layer usage of models, Alembic autogeneration, higher-order infra (messaging, API integration) belonging to later REQs.
+- **How to Run Tests**: `pip install -r runs/kit/REQ-009/requirements.txt && pytest -q runs/kit/REQ-009/test --junitxml runs/kit/REQ-009/reports/junit.xml --cov=app --cov-report=xml:runs/kit/REQ-009/reports/coverage.xml`
+- **Prerequisites**: Python 3.12+, Docker (or `TEST_DATABASE_URL`), Postgres client tools (`psql`), SHA256 utility, network access to Docker daemon if using Testcontainers.
+- **Dependencies and Mocks**: Tests prefer `testcontainers.postgres.PostgresContainer`; fall back to `TEST_DATABASE_URL` or skip when neither Docker nor a DB is available to avoid hard failures.
+- **Product Owner Notes**: Schema adheres strictly to SPEC enumerations and PLAN namespaces; seeds limited to 10 idempotent statements. Ledger keeps SHA256 digests for audit-ready migrations.
+- **RAG Citations**: SPEC.md §§Data Model & Acceptance (for entities/enums, consent logging); PLAN.md §§Module Plan & KIT Readiness (namespace, file layout, SQL lane scaffold); plan.json (lane metadata, dependencies); TECH_CONSTRAINTS.yaml (Postgres, SQLAlchemy, Testcontainers expectations).
+
+{
+  "index": [
+    {
+      "req": "REQ-009",
+      "src": [
+        "runs/kit/REQ-009/src/app/infra/db",
+        "runs/kit/REQ-009/src/storage/schema/spec.yaml",
+        "runs/kit/REQ-009/src/storage/sql",
+        "runs/kit/REQ-009/scripts"
+      ],
+      "tests": [
+        "runs/kit/REQ-009/test"
+      ]
+    }
+  ]
+}

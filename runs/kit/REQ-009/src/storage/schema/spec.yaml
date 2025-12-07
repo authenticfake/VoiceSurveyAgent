@@ -1,0 +1,218 @@
+version: 1
+engine: postgres
+description: >
+  Canonical schema specification for voicesurveyagent slice-1. All SQL
+  migrations, ORM models, and seeds derive from this document.
+enums:
+  user_role_enum:
+    values: [admin, campaign_manager, viewer]
+  campaign_status_enum:
+    values: [draft, scheduled, running, paused, completed, cancelled]
+  campaign_language_enum:
+    values: [en, it]
+  question_type_enum:
+    values: [free_text, numeric, scale]
+  contact_state_enum:
+    values: [pending, in_progress, completed, refused, not_reached, excluded]
+  contact_language_enum:
+    values: [auto, en, it]
+  call_outcome_enum:
+    values: [completed, refused, no_answer, busy, failed]
+  event_type_enum:
+    values: ["survey.completed", "survey.refused", "survey.not_reached"]
+  email_template_type_enum:
+    values: [completed, refused, not_reached]
+  email_notification_status_enum:
+    values: [pending, sent, failed]
+  provider_type_enum:
+    values: [telephony_api, voice_ai_platform]
+  llm_provider_enum:
+    values: [openai, anthropic, azure-openai, google]
+tables:
+  schema_migrations:
+    description: Migration ledger for deterministic upgrades/downgrades.
+    columns:
+      version: {type: varchar(32), pk: true}
+      checksum: {type: varchar(128), nullable: false}
+      status: {type: varchar(32), nullable: false, default: applied}
+      applied_at: {type: timestamptz, nullable: false, default: now()}
+  users:
+    description: Authenticated operators sourced from OIDC.
+    columns:
+      id: {type: uuid, pk: true, default: uuid_generate_v4()}
+      oidc_sub: {type: text, unique: true, nullable: false}
+      email: {type: text, unique: true, nullable: false}
+      name: {type: text, nullable: false}
+      role: {type: user_role_enum, nullable: false}
+      created_at: {type: timestamptz, nullable: false, default: now()}
+      updated_at: {type: timestamptz, nullable: false, default: now()}
+  email_templates:
+    description: Localized transactional templates.
+    unique:
+      - [type, locale]
+    columns:
+      id: {type: uuid, pk: true, default: uuid_generate_v4()}
+      name: {type: text, nullable: false}
+      type: {type: email_template_type_enum, nullable: false}
+      locale: {type: campaign_language_enum, nullable: false}
+      subject: {type: text, nullable: false}
+      body_html: {type: text, nullable: false}
+      body_text: {type: text}
+      created_at: {type: timestamptz, nullable: false, default: now()}
+      updated_at: {type: timestamptz, nullable: false, default: now()}
+  campaigns:
+    description: Outbound 3-question survey configurations.
+    indexes:
+      - [status]
+      - [language]
+    columns:
+      id: {type: uuid, pk: true, default: uuid_generate_v4()}
+      name: {type: text, nullable: false}
+      description: {type: text}
+      status: {type: campaign_status_enum, nullable: false, default: draft}
+      language: {type: campaign_language_enum, nullable: false, default: en}
+      intro_script: {type: text, nullable: false}
+      question_1_text: {type: text, nullable: false}
+      question_1_type: {type: question_type_enum, nullable: false}
+      question_2_text: {type: text, nullable: false}
+      question_2_type: {type: question_type_enum, nullable: false}
+      question_3_text: {type: text, nullable: false}
+      question_3_type: {type: question_type_enum, nullable: false}
+      max_attempts: {type: smallint, nullable: false}
+      retry_interval_minutes: {type: smallint, nullable: false}
+      allowed_call_start_local: {type: time, nullable: false}
+      allowed_call_end_local: {type: time, nullable: false}
+      email_completed_template_id: {type: uuid, fk: email_templates.id}
+      email_refused_template_id: {type: uuid, fk: email_templates.id}
+      email_not_reached_template_id: {type: uuid, fk: email_templates.id}
+      created_by_user_id: {type: uuid, fk: users.id}
+      created_at: {type: timestamptz, nullable: false, default: now()}
+      updated_at: {type: timestamptz, nullable: false, default: now()}
+  exclusion_list_entries:
+    description: Global DNC tracking.
+    columns:
+      id: {type: uuid, pk: true, default: uuid_generate_v4()}
+      phone_number: {type: text, unique: true, nullable: false}
+      reason: {type: text}
+      source: {type: text, nullable: false}
+      created_at: {type: timestamptz, nullable: false, default: now()}
+      updated_at: {type: timestamptz, nullable: false, default: now()}
+  contacts:
+    description: Campaign-specific contacts and dialing state.
+    unique:
+      - [campaign_id, external_contact_id]
+      - [campaign_id, phone_number]
+    indexes:
+      - [campaign_id, state]
+      - [phone_number]
+    columns:
+      id: {type: uuid, pk: true, default: uuid_generate_v4()}
+      campaign_id: {type: uuid, fk: campaigns.id, nullable: false}
+      external_contact_id: {type: text}
+      phone_number: {type: text, nullable: false}
+      email: {type: text}
+      preferred_language: {type: contact_language_enum, nullable: false, default: auto}
+      has_prior_consent: {type: boolean, nullable: false, default: false}
+      do_not_call: {type: boolean, nullable: false, default: false}
+      state: {type: contact_state_enum, nullable: false, default: pending}
+      attempts_count: {type: integer, nullable: false, default: 0}
+      last_attempt_at: {type: timestamptz}
+      last_outcome: {type: call_outcome_enum}
+      created_at: {type: timestamptz, nullable: false, default: now()}
+      updated_at: {type: timestamptz, nullable: false, default: now()}
+  call_attempts:
+    description: Dial attempts per contact.
+    unique:
+      - [call_id]
+      - [provider_call_id]
+    indexes:
+      - [contact_id]
+      - [campaign_id]
+    columns:
+      id: {type: uuid, pk: true, default: uuid_generate_v4()}
+      campaign_id: {type: uuid, fk: campaigns.id, nullable: false}
+      contact_id: {type: uuid, fk: contacts.id, nullable: false}
+      attempt_number: {type: smallint, nullable: false}
+      call_id: {type: text, nullable: false}
+      provider_call_id: {type: text, nullable: false}
+      started_at: {type: timestamptz, nullable: false}
+      answered_at: {type: timestamptz}
+      ended_at: {type: timestamptz}
+      outcome: {type: call_outcome_enum}
+      provider_raw_status: {type: text}
+      error_code: {type: text}
+      metadata: {type: jsonb, nullable: false, default: "{}"}
+      created_at: {type: timestamptz, nullable: false, default: now()}
+      updated_at: {type: timestamptz, nullable: false, default: now()}
+  survey_responses:
+    description: Structured 3-question responses.
+    unique:
+      - [contact_id]
+    columns:
+      id: {type: uuid, pk: true, default: uuid_generate_v4()}
+      contact_id: {type: uuid, fk: contacts.id, nullable: false}
+      campaign_id: {type: uuid, fk: campaigns.id, nullable: false}
+      call_attempt_id: {type: uuid, fk: call_attempts.id, nullable: false}
+      q1_answer: {type: text, nullable: false}
+      q2_answer: {type: text, nullable: false}
+      q3_answer: {type: text, nullable: false}
+      q1_confidence: {type: numeric(3,2)}
+      q2_confidence: {type: numeric(3,2)}
+      q3_confidence: {type: numeric(3,2)}
+      completed_at: {type: timestamptz, nullable: false}
+      created_at: {type: timestamptz, nullable: false, default: now()}
+      updated_at: {type: timestamptz, nullable: false, default: now()}
+  events:
+    description: Survey outcome events for workers.
+    indexes:
+      - [campaign_id, event_type]
+    columns:
+      id: {type: uuid, pk: true, default: uuid_generate_v4()}
+      event_type: {type: event_type_enum, nullable: false}
+      campaign_id: {type: uuid, fk: campaigns.id, nullable: false}
+      contact_id: {type: uuid, fk: contacts.id, nullable: false}
+      call_attempt_id: {type: uuid, fk: call_attempts.id}
+      payload: {type: jsonb, nullable: false, default: "{}"}
+      created_at: {type: timestamptz, nullable: false, default: now()}
+      updated_at: {type: timestamptz, nullable: false, default: now()}
+  email_notifications:
+    description: Email send attempts tied to events.
+    indexes:
+      - [status]
+    columns:
+      id: {type: uuid, pk: true, default: uuid_generate_v4()}
+      event_id: {type: uuid, fk: events.id, nullable: false}
+      contact_id: {type: uuid, fk: contacts.id, nullable: false}
+      campaign_id: {type: uuid, fk: campaigns.id, nullable: false}
+      template_id: {type: uuid, fk: email_templates.id}
+      to_email: {type: text, nullable: false}
+      status: {type: email_notification_status_enum, nullable: false, default: pending}
+      provider_message_id: {type: text}
+      error_message: {type: text}
+      created_at: {type: timestamptz, nullable: false, default: now()}
+      updated_at: {type: timestamptz, nullable: false, default: now()}
+  provider_configurations:
+    description: Deployment-wide telephony and LLM config.
+    unique:
+      - [provider_type]
+    columns:
+      id: {type: uuid, pk: true, default: uuid_generate_v4()}
+      provider_type: {type: provider_type_enum, nullable: false}
+      provider_name: {type: text, nullable: false}
+      outbound_number: {type: text, nullable: false}
+      max_concurrent_calls: {type: smallint, nullable: false}
+      llm_provider: {type: llm_provider_enum, nullable: false}
+      llm_model: {type: text, nullable: false}
+      recording_retention_days: {type: integer, nullable: false}
+      transcript_retention_days: {type: integer, nullable: false}
+      created_at: {type: timestamptz, nullable: false, default: now()}
+      updated_at: {type: timestamptz, nullable: false, default: now()}
+  transcript_snippets:
+    description: Optional redacted transcript segments.
+    columns:
+      id: {type: uuid, pk: true, default: uuid_generate_v4()}
+      call_attempt_id: {type: uuid, fk: call_attempts.id, nullable: false}
+      transcript_text: {type: text, nullable: false}
+      language: {type: campaign_language_enum, nullable: false}
+      created_at: {type: timestamptz, nullable: false, default: now()}
+      updated_at: {type: timestamptz, nullable: false, default: now()}
