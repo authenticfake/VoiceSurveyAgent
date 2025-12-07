@@ -1,76 +1,30 @@
-# REQ-001 — OIDC auth and RBAC for backend APIs
+# REQ-001 — Auth & RBAC Implementation
 
-This REQ implements foundational authentication and authorization for the `voicesurveyagent` backend.
-
-## Modules
-
-- `app.auth.domain`
-  - `UserRole` — enum for `admin`, `campaign_manager`, `viewer`.
-  - `User` — domain model for authenticated users.
-  - `UserRepository` — protocol for persistence (to be implemented in infra).
-  - `map_roles_from_claims` — maps IdP claims/groups to a `UserRole`.
-- `app.auth.oidc`
-  - `OIDCConfig` — OIDC settings.
-  - `OIDCAuthenticator` — builds authorize URL, exchanges code for tokens, validates ID tokens, and upserts users.
-- `app.api.http.auth.dependencies`
-  - `AuthenticatedUser` — Pydantic model for route context.
-  - `get_current_user` — FastAPI dependency; authenticates bearer tokens.
-  - `require_roles(*roles)` — RBAC guard for routes.
-  - `AdminUser`, `ManagerOrAdminUser` — common role aliases.
-- `app.api.http.auth.routes`
-  - `GET /api/auth/login-url` — returns IdP authorization URL + state echo.
-  - `GET /api/auth/callback` — completes auth-code flow and returns `{ token, user }`.
-  - `GET /api/auth/me` — returns the authenticated user.
-- `app.infra.config`
-  - `Settings` — loads OIDC-related configuration from environment.
-- `app.main`
-  - `create_app()` — application factory that wires the auth router.
-  - `app` — FastAPI instance.
-
-## Configuration
-
-Set the following environment variables (or use a `.env` file):
-
-- `OIDC_ISSUER`
-- `OIDC_CLIENT_ID`
-- `OIDC_CLIENT_SECRET`
-- `OIDC_AUTH_ENDPOINT`
-- `OIDC_TOKEN_ENDPOINT`
-- `OIDC_JWKS_URI`
-- `OIDC_REDIRECT_URI`
-- `OIDC_AUDIENCE` (optional)
-- `OIDC_SCOPE` (optional, default `openid profile email`)
+## Key Endpoints
+| Method | Path | Description |
+|--------|------|-------------|
+| GET    | `/api/auth/login` | Returns authorization URL, state, and nonce for browser redirect |
+| POST   | `/api/auth/callback` | Exchanges OIDC code, validates ID token, persists user, issues app JWT |
+| GET    | `/api/auth/me` | Returns current authenticated user profile (viewer+ roles) |
+| GET    | `/api/auth/manager/ping` | Example endpoint requiring `campaign_manager` or `admin` |
+| GET    | `/api/auth/admin/ping` | Example endpoint requiring `admin` |
 
 ## Usage
+1. Call `/api/auth/login?redirect_uri=https://app/callback` to build redirect link.
+2. After user authenticates and IdP calls back with `code`, POST to `/api/auth/callback`.
+3. Store `app_access_token` returned by callback; supply as `Authorization: Bearer <token>` for protected APIs.
+4. Use `/api/auth/me` to obtain role/email for UI rendering.
 
-- Protect a route with authentication only:
+## Components
+- `app.auth.domain`: roles, ORM, repository.
+- `app.auth.oidc`: HTTP client + JWKS cache.
+- `app.auth.service`: orchestration and JWT issuance.
+- `app.auth.rbac`: FastAPI dependencies for RBAC enforcement.
+- `app.api.http.auth`: HTTP router.
 
-  ```python
-  from fastapi import APIRouter
-  from app.api.http.auth.dependencies import CurrentUser
+## Running Tests
+```
+pytest -q runs/kit/REQ-001/test
+```
 
-  router = APIRouter()
-
-  @router.get("/whoami")
-  async def whoami(user: CurrentUser):
-      return {"email": user.email, "role": user.role.value}
-  ```
-
-- Protect a route with RBAC:
-
-  ```python
-  from app.api.http.auth.dependencies import AdminUser
-
-  @router.post("/admin/task")
-  async def admin_only_task(user: AdminUser):
-      ...
-  ```
-
-Other REQs (campaigns, contacts, admin, reporting) should import these dependencies rather than re-implementing auth or RBAC.
-
-## Tests
-
-Run tests for this REQ:
-
-```bash
-pytest -p no:cacheprovider -q runs/kit/REQ-001/test
+Ensure env vars for OIDC endpoints and secrets are set (or rely on defaults for local).

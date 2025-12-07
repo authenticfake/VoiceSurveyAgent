@@ -2,26 +2,6 @@
   "version": "1.0",
   "req_id": "REQ-001",
   "lane": "python",
-  "env": {
-    "PYTHONPATH": ".",
-    "OIDC_ISSUER": "https://example-issuer",
-    "OIDC_CLIENT_ID": "client-id",
-    "OIDC_CLIENT_SECRET": "client-secret",
-    "OIDC_AUTH_ENDPOINT": "https://idp.example.com/auth",
-    "OIDC_TOKEN_ENDPOINT": "https://idp.example.com/token",
-    "OIDC_JWKS_URI": "https://idp.example.com/jwks",
-    "OIDC_REDIRECT_URI": "https://app.example.com/callback"
-  },
-  "cases": [
-    {
-      "name": "tests",
-      "run": "pytest -p no:cacheprovider -q runs/kit/REQ-001/test",
-      "cwd": ".",
-      "pip-file": "runs/kit/REQ-001/requirements.txt",
-      "expect": 0,
-      "timeout": 600
-    }
-  ],
   "tools": {
     "tests": true,
     "lint": false,
@@ -30,49 +10,48 @@
     "build": false
   },
   "commands": {
-    "tests": "pytest -p no:cacheprovider -q runs/kit/REQ-001/test"
+    "tests": "pytest -q"
   },
-  "reports": [
+  "cases": [
     {
-      "kind": "junit",
-      "path": "reports/req-001/junit.xml",
-      "format": "junit-xml"
-    },
-    {
-      "kind": "coverage",
-      "path": "reports/req-001/coverage.xml",
-      "format": "coverage-xml"
+      "name": "tests",
+      "run": "pytest -q",
+      "cwd": "runs/kit/REQ-001",
+      "pip-file": "runs/kit/REQ-001/requirements.txt",
+      "expect": 0
     }
   ],
+  "reports": [],
+  "env": {
+    "DATABASE_URL": "sqlite+aiosqlite:///./runs/kit/REQ-001/.tmp/test.db",
+    "APP_JWT_SECRET": "local-dev-secret",
+    "OIDC_CLIENT_ID": "dev-client",
+    "OIDC_CLIENT_SECRET": "dev-secret",
+    "OIDC_AUTHORIZATION_URL": "https://idp.example.com/authorize",
+    "OIDC_TOKEN_URL": "https://idp.example.com/token",
+    "OIDC_JWKS_URL": "https://idp.example.com/jwks",
+    "OIDC_ISSUER": "https://idp.example.com/"
+  },
   "normalize": {
-    "summary_file": "reports/req-001/eval.summary.json"
+    "outputs": [
+      {
+        "path": "runs/kit/REQ-001/eval.summary.json",
+        "summary": [
+          "tests_passed"
+        ]
+      }
+    ]
   },
   "gate_policy": {
     "tests_pass": true,
     "coverage_min": 0.0,
     "security": {
-      "bandit_high": 0
+      "critical": 0
     }
   },
-  "external_runner": null,
-  "constraints_applied": {
-    "lane_guide": "docs/harper/lane-guides/python.md",
-    "coverage_min": 0.0
-  }
+  "constraints_applied": [
+    "TECH_CONSTRAINTS.yaml@voicesurveyagent",
+    "SPEC.md@REQ-001",
+    "PLAN.md@ModulePlan"
+  ]
 }
-
-
-file:/runs/kit/REQ-001/ci/HOWTO.md
-# HOWTO — REQ-001 OIDC Auth and RBAC
-
-This document explains how to run and test the REQ‑001 implementation locally or in CI.
-
-## 1. Prerequisites
-
-- Python 3.12 (recommended) installed and on `PATH`.
-- Access to a shell (bash, zsh, PowerShell, etc.).
-- Optional: a running OIDC IdP for manual end-to-end testing.
-
-## 2. Environment Setup
-
-Create and activate a Python virtual environment:

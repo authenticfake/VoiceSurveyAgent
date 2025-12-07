@@ -1,0 +1,78 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-001",
+  "lane": "python",
+  "env": {
+    "PYTHONPATH": ".",
+    "OIDC_ISSUER": "https://example-issuer",
+    "OIDC_CLIENT_ID": "client-id",
+    "OIDC_CLIENT_SECRET": "client-secret",
+    "OIDC_AUTH_ENDPOINT": "https://idp.example.com/auth",
+    "OIDC_TOKEN_ENDPOINT": "https://idp.example.com/token",
+    "OIDC_JWKS_URI": "https://idp.example.com/jwks",
+    "OIDC_REDIRECT_URI": "https://app.example.com/callback"
+  },
+  "cases": [
+    {
+      "name": "tests",
+      "run": "pytest -p no:cacheprovider -q runs/kit/REQ-001/test",
+      "cwd": ".",
+      "pip-file": "runs/kit/REQ-001/requirements.txt",
+      "expect": 0,
+      "timeout": 600
+    }
+  ],
+  "tools": {
+    "tests": true,
+    "lint": false,
+    "types": false,
+    "security": false,
+    "build": false
+  },
+  "commands": {
+    "tests": "pytest -p no:cacheprovider -q runs/kit/REQ-001/test"
+  },
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "reports/req-001/junit.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "reports/req-001/coverage.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "normalize": {
+    "summary_file": "reports/req-001/eval.summary.json"
+  },
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 0.0,
+    "security": {
+      "bandit_high": 0
+    }
+  },
+  "external_runner": null,
+  "constraints_applied": {
+    "lane_guide": "docs/harper/lane-guides/python.md",
+    "coverage_min": 0.0
+  }
+}
+
+
+file:/runs/kit/REQ-001/ci/HOWTO.md
+# HOWTO — REQ-001 OIDC Auth and RBAC
+
+This document explains how to run and test the REQ‑001 implementation locally or in CI.
+
+## 1. Prerequisites
+
+- Python 3.12 (recommended) installed and on `PATH`.
+- Access to a shell (bash, zsh, PowerShell, etc.).
+- Optional: a running OIDC IdP for manual end-to-end testing.
+
+## 2. Environment Setup
+
+Create and activate a Python virtual environment:
