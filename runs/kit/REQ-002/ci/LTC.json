@@ -1,0 +1,108 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-002",
+  "lane": "python",
+  "tools": {
+    "tests": [
+      "tests"
+    ],
+    "lint": [
+      "lint"
+    ],
+    "types": [
+      "types"
+    ],
+    "security": [
+      "security"
+    ],
+    "build": [
+      "build"
+    ]
+  },
+  "commands": {
+    "tests": "pytest -q runs/kit/REQ-002/test",
+    "lint": "ruff check runs/kit/REQ-002/src",
+    "types": "mypy runs/kit/REQ-002/src",
+    "security": "bandit -q -r runs/kit/REQ-002/src",
+    "build": "python -m compileall runs/kit/REQ-002/src"
+  },
+  "cases": [
+    {
+      "name": "lint",
+      "run": "ruff check runs/kit/REQ-002/src",
+      "cwd": ".",
+      "pip-file": "runs/kit/REQ-002/requirements.txt",
+      "expect": 0
+    },
+    {
+      "name": "types",
+      "run": "mypy runs/kit/REQ-002/src",
+      "cwd": ".",
+      "pip-file": "runs/kit/REQ-002/requirements.txt",
+      "expect": 0
+    },
+    {
+      "name": "security",
+      "run": "bandit -q -r runs/kit/REQ-002/src",
+      "cwd": ".",
+      "pip-file": "runs/kit/REQ-002/requirements.txt",
+      "expect": 0
+    },
+    {
+      "name": "build",
+      "run": "python -m compileall runs/kit/REQ-002/src",
+      "cwd": ".",
+      "pip-file": "runs/kit/REQ-002/requirements.txt",
+      "expect": 0
+    },
+    {
+      "name": "tests",
+      "run": "pytest -q runs/kit/REQ-002/test",
+      "cwd": ".",
+      "pip-file": "runs/kit/REQ-002/requirements.txt",
+      "expect": 0
+    }
+  ],
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "runs/kit/REQ-002/reports/junit.xml",
+      "format": "junit-xml"
+    }
+  ],
+  "env": {
+    "PYTHONPATH": "runs/kit/REQ-002/src",
+    "VSA_DATABASE_URL": "sqlite+pysqlite:///./runs/kit/REQ-002/.local.db"
+  },
+  "normalize": {
+    "summary": {
+      "tests": [
+        "tests"
+      ],
+      "lint": [
+        "lint"
+      ],
+      "types": [
+        "types"
+      ],
+      "security": [
+        "security"
+      ],
+      "build": [
+        "build"
+      ]
+    }
+  },
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 0.8,
+    "security": {
+      "bandit_high": 0
+    }
+  },
+  "constraints_applied": [
+    "SPEC.md",
+    "PLAN.md",
+    "TECH_CONSTRAINTS.yaml"
+  ]
+}

@@ -1,0 +1,1 @@
+"""Authentication package placeholder until REQ-001 wires the real modules."""
