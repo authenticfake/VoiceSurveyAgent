@@ -1,0 +1,35 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-003",
+  "lane": "python",
+  "tools": {
+    "tests": true,
+    "lint": false,
+    "types": false,
+    "security": false,
+    "build": false
+  },
+  "commands": {
+    "tests": "pytest -q runs/kit/REQ-003/test"
+  },
+  "cases": [
+    {
+      "name": "tests",
+      "run": "pytest -q runs/kit/REQ-003/test",
+      "cwd": ".",
+      "pip-file": "runs/kit/REQ-003/requirements.txt",
+      "expect": 0
+    }
+  ],
+  "reports": [],
+  "env": {},
+  "normalize": {},
+  "gate_policy": {
+    "tests_pass": true
+  },
+  "external_runner": null,
+  "constraints_applied": [
+    "lane:python",
+    "tests:httpx-asgi"
+  ]
+}
