@@ -1,0 +1,73 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-004",
+  "lane": "python",
+  "env": {
+    "PYTHONPATH": "src",
+    "DATABASE_URL": "sqlite+aiosqlite:///:memory:",
+    "LOG_LEVEL": "INFO"
+  },
+  "cases": [
+    {
+      "name": "install_deps",
+      "run": "pip install -r requirements.txt",
+      "cwd": "runs/kit/REQ-004",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "test_schemas",
+      "run": "pytest test/test_campaign_crud.py::test_create_campaign_invalid_time_window -v",
+      "cwd": "runs/kit/REQ-004",
+      "expect": 0,
+      "timeout": 30
+    },
+    {
+      "name": "test_service",
+      "run": "pytest test/test_campaign_service.py -v",
+      "cwd": "runs/kit/REQ-004",
+      "expect": 0,
+      "timeout": 30
+    },
+    {
+      "name": "test_repository",
+      "run": "pytest test/test_campaign_repository.py -v",
+      "cwd": "runs/kit/REQ-004",
+      "expect": 0,
+      "timeout": 30
+    },
+    {
+      "name": "test_api",
+      "run": "pytest test/test_campaign_crud.py -v",
+      "cwd": "runs/kit/REQ-004",
+      "expect": 0,
+      "timeout": 30
+    },
+    {
+      "name": "type_check",
+      "run": "python -m mypy src/app/campaigns --ignore-missing-imports",
+      "cwd": "runs/kit/REQ-004",
+      "expect": 0,
+      "timeout": 30
+    }
+  ],
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "reports/junit.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "reports/coverage.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 80.0,
+    "security": {
+      "bandit_high": 0
+    }
+  }
+}
