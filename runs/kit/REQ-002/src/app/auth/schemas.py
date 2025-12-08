@@ -39,66 +39,36 @@ class OIDCConfig(BaseModel):
 
 
 class TokenPayload(BaseModel):
-    """JWT token payload schema."""
+    """JWT token payload after validation."""
 
     model_config = ConfigDict(frozen=True)
 
-    sub: str = Field(..., description="Subject (OIDC subject identifier)")
-    exp: datetime = Field(..., description="Expiration time")
-    iat: datetime = Field(..., description="Issued at time")
-    iss: str | None = Field(None, description="Issuer")
-    aud: str | list[str] | None = Field(None, description="Audience")
+    sub: str = Field(..., description="Subject (OIDC user ID)")
     email: EmailStr | None = Field(None, description="User email")
-    name: str | None = Field(None, description="User name")
-    role: UserRole | None = Field(None, description="User role from claims")
-
-
-class TokenResponse(BaseModel):
-    """OAuth token response schema."""
-
-    model_config = ConfigDict(frozen=True)
-
-    access_token: str = Field(..., description="Access token")
-    token_type: str = Field(default="Bearer", description="Token type")
-    expires_in: int = Field(..., description="Token expiration in seconds")
-    refresh_token: str | None = Field(None, description="Refresh token")
-    id_token: str | None = Field(None, description="OIDC ID token")
-    scope: str | None = Field(None, description="Granted scopes")
+    name: str | None = Field(None, description="User display name")
+    exp: datetime = Field(..., description="Token expiration time")
+    iat: datetime = Field(..., description="Token issued at time")
+    iss: str = Field(..., description="Token issuer")
+    aud: str | list[str] = Field(..., description="Token audience")
 
 
 class UserContext(BaseModel):
-    """Current user context for request handling."""
+    """Authenticated user context for request handling."""
 
     model_config = ConfigDict(frozen=True)
 
-    id: UUID = Field(..., description="User ID")
+    id: UUID = Field(..., description="Internal user ID")
     oidc_sub: str = Field(..., description="OIDC subject identifier")
-    email: str = Field(..., description="User email")
+    email: EmailStr = Field(..., description="User email")
     name: str = Field(..., description="User display name")
-    role: UserRole = Field(..., description="User role")
-
-
-class LoginRequest(BaseModel):
-    """Login initiation request."""
-
-    redirect_url: HttpUrl | None = Field(
-        None,
-        description="URL to redirect after successful login",
-    )
+    role: UserRole = Field(..., description="User role for RBAC")
 
 
 class LoginResponse(BaseModel):
-    """Login initiation response."""
+    """Response for login initiation."""
 
     authorization_url: HttpUrl = Field(..., description="URL to redirect for OIDC login")
-    state: str = Field(..., description="OAuth state parameter")
-
-
-class CallbackRequest(BaseModel):
-    """OAuth callback request."""
-
-    code: str = Field(..., description="Authorization code")
-    state: str = Field(..., description="OAuth state parameter")
+    state: str = Field(..., description="CSRF state parameter")
 
 
 class AuthenticatedResponse(BaseModel):
@@ -107,12 +77,12 @@ class AuthenticatedResponse(BaseModel):
     access_token: str = Field(..., description="JWT access token")
     token_type: str = Field(default="Bearer", description="Token type")
     expires_in: int = Field(..., description="Token expiration in seconds")
-    refresh_token: str | None = Field(None, description="Refresh token for renewal")
+    refresh_token: str | None = Field(None, description="Refresh token if available")
     user: UserContext = Field(..., description="Authenticated user context")
 
 
 class RefreshRequest(BaseModel):
-    """Token refresh request."""
+    """Request to refresh access token."""
 
     refresh_token: str = Field(..., description="Refresh token")
 
@@ -120,10 +90,8 @@ class RefreshRequest(BaseModel):
 class UserProfileResponse(BaseModel):
     """User profile response."""
 
-    id: UUID = Field(..., description="User ID")
-    oidc_sub: str = Field(..., description="OIDC subject identifier")
-    email: str = Field(..., description="User email")
+    id: UUID = Field(..., description="Internal user ID")
+    email: EmailStr = Field(..., description="User email")
     name: str = Field(..., description="User display name")
     role: UserRole = Field(..., description="User role")
-    created_at: datetime = Field(..., description="Account creation timestamp")
-    updated_at: datetime = Field(..., description="Last update timestamp")
+    created_at: datetime = Field(..., description="Account creation time")

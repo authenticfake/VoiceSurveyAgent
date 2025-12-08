@@ -5,7 +5,6 @@ Centralized settings management using Pydantic Settings.
 """
 
 from functools import lru_cache
-from typing import Literal
 
 from pydantic import Field, PostgresDsn, RedisDsn
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -23,20 +22,15 @@ class Settings(BaseSettings):
 
     # Application
     app_name: str = Field(default="voicesurveyagent", description="Application name")
-    app_version: str = Field(default="0.1.0", description="Application version")
+    app_env: str = Field(default="development", description="Environment name")
     debug: bool = Field(default=False, description="Debug mode")
-    environment: Literal["dev", "qa", "uat", "prod"] = Field(
-        default="dev",
-        description="Deployment environment",
-    )
+    log_level: str = Field(default="INFO", description="Logging level")
 
     # Database
     database_url: PostgresDsn = Field(
         ...,
         description="PostgreSQL connection URL",
     )
-    database_pool_size: int = Field(default=5, description="Database pool size")
-    database_max_overflow: int = Field(default=10, description="Database max overflow")
 
     # Redis
     redis_url: RedisDsn = Field(
@@ -45,47 +39,52 @@ class Settings(BaseSettings):
     )
 
     # OIDC Configuration
-    oidc_issuer: str | None = Field(
-        None,
-        description="OIDC issuer URL (e.g., https://auth.example.com)",
+    oidc_issuer: str = Field(
+        ...,
+        description="OIDC issuer URL",
+    )
+    oidc_authorization_endpoint: str = Field(
+        ...,
+        description="OIDC authorization endpoint",
+    )
+    oidc_token_endpoint: str = Field(
+        ...,
+        description="OIDC token endpoint",
+    )
+    oidc_userinfo_endpoint: str = Field(
+        ...,
+        description="OIDC userinfo endpoint",
+    )
+    oidc_jwks_uri: str = Field(
+        ...,
+        description="OIDC JWKS URI",
     )
     oidc_client_id: str = Field(
-        default="voicesurveyagent",
+        ...,
         description="OIDC client ID",
     )
     oidc_client_secret: str = Field(
-        default="",
+        ...,
         description="OIDC client secret",
     )
     oidc_redirect_uri: str = Field(
-        default="http://localhost:8000/api/auth/callback",
+        ...,
         description="OIDC redirect URI",
+    )
+    oidc_scopes: list[str] = Field(
+        default=["openid", "profile", "email"],
+        description="OIDC scopes",
     )
 
     # JWT Configuration
-    jwt_secret_key: str = Field(
-        default="change-me-in-production-use-secrets-manager",
-        description="JWT signing secret key",
-    )
-    jwt_algorithm: str = Field(default="HS256", description="JWT algorithm")
-    jwt_expiration_minutes: int = Field(
+    jwt_algorithm: str = Field(default="RS256", description="JWT algorithm")
+    jwt_access_token_expire_minutes: int = Field(
         default=60,
-        description="JWT expiration time in minutes",
+        description="Access token expiration in minutes",
     )
-    jwt_issuer: str = Field(
-        default="voicesurveyagent",
-        description="JWT issuer claim",
-    )
-    jwt_audience: str = Field(
-        default="voicesurveyagent-api",
-        description="JWT audience claim",
-    )
-
-    # Logging
-    log_level: str = Field(default="INFO", description="Log level")
-    log_format: Literal["json", "console"] = Field(
-        default="json",
-        description="Log format",
+    jwt_refresh_token_expire_days: int = Field(
+        default=7,
+        description="Refresh token expiration in days",
     )
 
 

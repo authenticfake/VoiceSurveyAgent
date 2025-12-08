@@ -1,43 +1,29 @@
 """
 Database session management.
 
-Provides async SQLAlchemy session factory and dependency injection.
+Provides async SQLAlchemy session factory and dependency.
 """
 
-from collections.abc import AsyncGenerator
-from typing import Annotated
+from typing import Annotated, AsyncGenerator
 
 from fastapi import Depends
-from sqlalchemy.ext.asyncio import (
-    AsyncSession,
-    async_sessionmaker,
-    create_async_engine,
-)
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
 
 from app.config import get_settings
 
-
-class Base(DeclarativeBase):
-    """SQLAlchemy declarative base class."""
-
-    pass
-
-
 settings = get_settings()
 
-# Convert sync URL to async
-database_url = str(settings.database_url).replace(
-    "postgresql://", "postgresql+asyncpg://"
-)
-
+# Create async engine
 engine = create_async_engine(
-    database_url,
-    pool_size=settings.database_pool_size,
-    max_overflow=settings.database_max_overflow,
+    str(settings.database_url).replace("postgresql://", "postgresql+asyncpg://"),
     echo=settings.debug,
+    pool_pre_ping=True,
+    pool_size=5,
+    max_overflow=10,
 )
 
+# Create session factory
 async_session_factory = async_sessionmaker(
     engine,
     class_=AsyncSession,
@@ -47,15 +33,19 @@ async_session_factory = async_sessionmaker(
 )
 
 
+class Base(DeclarativeBase):
+    """Base class for SQLAlchemy models."""
+
+    pass
+
+
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
-    """Dependency that provides a database session."""
+    """Dependency to get database session."""
     async with async_session_factory() as session:
         try:
             yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
+        finally:
+            await session.close()
 
 
 # Type alias for dependency injection

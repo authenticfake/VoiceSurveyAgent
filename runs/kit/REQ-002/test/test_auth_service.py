@@ -1,336 +1,267 @@
 """
-Tests for authentication service.
+Unit tests for authentication service.
 
 Tests OIDC flow, JWT validation, and user management.
 """
 
-import pytest
+import secrets
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
-import jwt
-import httpx
-from sqlalchemy.ext.asyncio import AsyncSession
+import pytest
+from jose import jwt
 
+from app.auth.exceptions import (
+    ExpiredTokenError,
+    InvalidStateError,
+    InvalidTokenError,
+    OIDCError,
+)
 from app.auth.schemas import TokenPayload, UserRole
 from app.auth.service import AuthService
-from app.campaigns.models import User, UserRoleEnum
-from app.config import Settings
-from app.shared.exceptions import AuthenticationError, ConfigurationError
 
 
 @pytest.fixture
-def mock_settings() -> Settings:
-    """Create mock settings for testing."""
-    return Settings(
-        database_url="postgresql://test:test@localhost:5432/test",
-        oidc_issuer="https://auth.example.com",
-        oidc_client_id="test-client",
-        oidc_client_secret="test-secret",
-        oidc_redirect_uri="http://localhost:8000/api/auth/callback",
-        jwt_secret_key="test-secret-key-for-testing-only",
-        jwt_algorithm="HS256",
-        jwt_expiration_minutes=60,
-        jwt_issuer="voicesurveyagent",
-        jwt_audience="voicesurveyagent-api",
-    )
+def mock_settings():
+    """Create mock settings."""
+    settings = MagicMock()
+    settings.oidc_issuer = "https://idp.example.com"
+    settings.oidc_authorization_endpoint = "https://idp.example.com/authorize"
+    settings.oidc_token_endpoint = "https://idp.example.com/token"
+    settings.oidc_userinfo_endpoint = "https://idp.example.com/userinfo"
+    settings.oidc_jwks_uri = "https://idp.example.com/.well-known/jwks.json"
+    settings.oidc_client_id = "test-client-id"
+    settings.oidc_client_secret = "test-client-secret"
+    settings.oidc_redirect_uri = "http://localhost:8000/api/auth/callback"
+    settings.oidc_scopes = ["openid", "profile", "email"]
+    return settings
 
 
 @pytest.fixture
-def mock_db_session() -> AsyncMock:
+def mock_db_session():
     """Create mock database session."""
-    session = AsyncMock(spec=AsyncSession)
+    session = AsyncMock()
     return session
 
 
 @pytest.fixture
-def mock_http_client() -> AsyncMock:
-    """Create mock HTTP client."""
-    client = AsyncMock(spec=httpx.AsyncClient)
-    return client
+def auth_service(mock_settings, mock_db_session):
+    """Create auth service instance."""
+    return AuthService(settings=mock_settings, db_session=mock_db_session)
 
 
-@pytest.fixture
-def oidc_discovery_response() -> dict:
-    """OIDC discovery document response."""
-    return {
-        "issuer": "https://auth.example.com",
-        "authorization_endpoint": "https://auth.example.com/authorize",
-        "token_endpoint": "https://auth.example.com/token",
-        "userinfo_endpoint": "https://auth.example.com/userinfo",
-        "jwks_uri": "https://auth.example.com/.well-known/jwks.json",
-    }
-
-
-class TestAuthServiceInitialization:
-    """Tests for AuthService initialization."""
-
-    @pytest.mark.asyncio
-    async def test_initialize_success(
-        self,
-        mock_settings: Settings,
-        mock_db_session: AsyncMock,
-        mock_http_client: AsyncMock,
-        oidc_discovery_response: dict,
-    ) -> None:
-        """Test successful OIDC initialization."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = oidc_discovery_response
-        mock_response.raise_for_status = MagicMock()
-        mock_http_client.get.return_value = mock_response
-
-        service = AuthService(
-            settings=mock_settings,
-            db_session=mock_db_session,
-            http_client=mock_http_client,
-        )
-
-        with patch("app.auth.service.PyJWKClient"):
-            await service.initialize()
-
-        mock_http_client.get.assert_called_once_with(
-            "https://auth.example.com/.well-known/openid-configuration"
-        )
-        assert service._oidc_config is not None
-        assert str(service._oidc_config.issuer) == "https://auth.example.com/"
-
-    @pytest.mark.asyncio
-    async def test_initialize_no_issuer(
-        self,
-        mock_db_session: AsyncMock,
-        mock_http_client: AsyncMock,
-    ) -> None:
-        """Test initialization fails without OIDC issuer."""
-        settings = Settings(
-            database_url="postgresql://test:test@localhost:5432/test",
-            oidc_issuer=None,
-        )
-
-        service = AuthService(
-            settings=settings,
-            db_session=mock_db_session,
-            http_client=mock_http_client,
-        )
-
-        with pytest.raises(ConfigurationError) as exc_info:
-            await service.initialize()
-
-        assert "OIDC issuer not configured" in str(exc_info.value)
-
-    @pytest.mark.asyncio
-    async def test_initialize_http_error(
-        self,
-        mock_settings: Settings,
-        mock_db_session: AsyncMock,
-        mock_http_client: AsyncMock,
-    ) -> None:
-        """Test initialization handles HTTP errors."""
-        mock_http_client.get.side_effect = httpx.HTTPError("Connection failed")
-
-        service = AuthService(
-            settings=mock_settings,
-            db_session=mock_db_session,
-            http_client=mock_http_client,
-        )
-
-        with pytest.raises(ConfigurationError) as exc_info:
-            await service.initialize()
-
-        assert "Failed to fetch OIDC configuration" in str(exc_info.value)
-
-
-class TestAuthorizationUrl:
+class TestGenerateAuthorizationUrl:
     """Tests for authorization URL generation."""
 
-    @pytest.mark.asyncio
-    async def test_generate_authorization_url(
-        self,
-        mock_settings: Settings,
-        mock_db_session: AsyncMock,
-        mock_http_client: AsyncMock,
-        oidc_discovery_response: dict,
-    ) -> None:
-        """Test authorization URL generation."""
-        mock_response = MagicMock()
-        mock_response.json.return_value = oidc_discovery_response
-        mock_response.raise_for_status = MagicMock()
-        mock_http_client.get.return_value = mock_response
+    def test_generates_valid_url(self, auth_service):
+        """Test that authorization URL is generated correctly."""
+        url, state = auth_service.generate_authorization_url()
 
-        service = AuthService(
-            settings=mock_settings,
-            db_session=mock_db_session,
-            http_client=mock_http_client,
-        )
-
-        with patch("app.auth.service.PyJWKClient"):
-            await service.initialize()
-
-        auth_url, state = service.generate_authorization_url()
-
-        assert "https://auth.example.com/authorize" in auth_url
-        assert "client_id=test-client" in auth_url
-        assert "response_type=code" in auth_url
-        assert f"state={state}" in auth_url
+        assert "https://idp.example.com/authorize" in url
+        assert "client_id=test-client-id" in url
+        assert "response_type=code" in url
+        assert "scope=openid+profile+email" in url or "scope=openid%20profile%20email" in url
+        assert f"state={state}" in url
         assert len(state) > 20  # State should be sufficiently random
 
+    def test_generates_unique_states(self, auth_service):
+        """Test that each call generates unique state."""
+        _, state1 = auth_service.generate_authorization_url()
+        _, state2 = auth_service.generate_authorization_url()
+
+        assert state1 != state2
+
+    def test_custom_redirect_url(self, auth_service):
+        """Test custom redirect URL override."""
+        custom_url = "http://custom.example.com/callback"
+        url, _ = auth_service.generate_authorization_url(redirect_url=custom_url)
+
+        assert custom_url in url
+
+
+class TestValidateState:
+    """Tests for CSRF state validation."""
+
+    def test_valid_state(self, auth_service):
+        """Test validation of valid state."""
+        _, state = auth_service.generate_authorization_url()
+
+        assert auth_service.validate_state(state) is True
+
+    def test_invalid_state(self, auth_service):
+        """Test validation of invalid state."""
+        assert auth_service.validate_state("invalid-state") is False
+
+    def test_state_consumed_after_validation(self, auth_service):
+        """Test that state can only be used once."""
+        _, state = auth_service.generate_authorization_url()
+
+        assert auth_service.validate_state(state) is True
+        assert auth_service.validate_state(state) is False
+
+    def test_expired_state(self, auth_service):
+        """Test that expired state is rejected."""
+        _, state = auth_service.generate_authorization_url()
+
+        # Manually expire the state
+        auth_service._state_store[state] = datetime.now(timezone.utc) - timedelta(minutes=1)
+
+        assert auth_service.validate_state(state) is False
+
+
+class TestExchangeCodeForTokens:
+    """Tests for token exchange."""
+
     @pytest.mark.asyncio
-    async def test_generate_authorization_url_not_initialized(
-        self,
-        mock_settings: Settings,
-        mock_db_session: AsyncMock,
-        mock_http_client: AsyncMock,
-    ) -> None:
-        """Test authorization URL fails if not initialized."""
-        service = AuthService(
-            settings=mock_settings,
-            db_session=mock_db_session,
-            http_client=mock_http_client,
-        )
+    async def test_invalid_state_raises_error(self, auth_service):
+        """Test that invalid state raises error."""
+        with pytest.raises(InvalidStateError):
+            await auth_service.exchange_code_for_tokens(
+                code="test-code",
+                state="invalid-state",
+            )
 
-        with pytest.raises(ConfigurationError) as exc_info:
-            service.generate_authorization_url()
+    @pytest.mark.asyncio
+    async def test_successful_exchange(self, auth_service):
+        """Test successful token exchange."""
+        _, state = auth_service.generate_authorization_url()
 
-        assert "OIDC not initialized" in str(exc_info.value)
-
-
-class TestSessionTokenValidation:
-    """Tests for session token validation."""
-
-    def test_validate_session_token_success(
-        self,
-        mock_settings: Settings,
-        mock_db_session: AsyncMock,
-    ) -> None:
-        """Test successful session token validation."""
-        service = AuthService(
-            settings=mock_settings,
-            db_session=mock_db_session,
-        )
-
-        # Create a valid token
-        now = datetime.now(timezone.utc)
-        payload = {
-            "sub": "test-user-sub",
-            "iat": now.timestamp(),
-            "exp": (now + timedelta(hours=1)).timestamp(),
-            "iss": "voicesurveyagent",
-            "aud": "voicesurveyagent-api",
-            "email": "test@example.com",
-            "name": "Test User",
-            "role": "viewer",
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "access_token": "test-access-token",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "refresh_token": "test-refresh-token",
         }
-        token = jwt.encode(payload, mock_settings.jwt_secret_key, algorithm="HS256")
+        mock_response.raise_for_status = MagicMock()
 
-        result = service.validate_session_token(token)
+        with patch.object(auth_service, "_jwks_client") as mock_client:
+            mock_client.post = AsyncMock(return_value=mock_response)
 
-        assert result.sub == "test-user-sub"
-        assert result.email == "test@example.com"
-        assert result.role == UserRole.VIEWER
+            result = await auth_service.exchange_code_for_tokens(
+                code="test-code",
+                state=state,
+            )
 
-    def test_validate_session_token_expired(
-        self,
-        mock_settings: Settings,
-        mock_db_session: AsyncMock,
-    ) -> None:
-        """Test expired token validation."""
-        service = AuthService(
-            settings=mock_settings,
-            db_session=mock_db_session,
-        )
+        assert result["access_token"] == "test-access-token"
+        assert result["refresh_token"] == "test-refresh-token"
 
-        # Create an expired token
-        now = datetime.now(timezone.utc)
-        payload = {
-            "sub": "test-user-sub",
-            "iat": (now - timedelta(hours=2)).timestamp(),
-            "exp": (now - timedelta(hours=1)).timestamp(),
-            "iss": "voicesurveyagent",
-            "aud": "voicesurveyagent-api",
+
+class TestValidateToken:
+    """Tests for JWT token validation."""
+
+    @pytest.fixture
+    def mock_jwks(self):
+        """Create mock JWKS response."""
+        return {
+            "keys": [
+                {
+                    "kty": "RSA",
+                    "kid": "test-key-id",
+                    "use": "sig",
+                    "n": "test-n",
+                    "e": "AQAB",
+                }
+            ]
         }
-        token = jwt.encode(payload, mock_settings.jwt_secret_key, algorithm="HS256")
-
-        with pytest.raises(AuthenticationError) as exc_info:
-            service.validate_session_token(token)
-
-        assert "Token has expired" in str(exc_info.value)
-
-    def test_validate_session_token_invalid(
-        self,
-        mock_settings: Settings,
-        mock_db_session: AsyncMock,
-    ) -> None:
-        """Test invalid token validation."""
-        service = AuthService(
-            settings=mock_settings,
-            db_session=mock_db_session,
-        )
-
-        with pytest.raises(AuthenticationError) as exc_info:
-            service.validate_session_token("invalid-token")
-
-        assert "Invalid token" in str(exc_info.value)
-
-
-class TestUserManagement:
-    """Tests for user management."""
 
     @pytest.mark.asyncio
-    async def test_get_user_by_id(
-        self,
-        mock_settings: Settings,
-        mock_db_session: AsyncMock,
-    ) -> None:
-        """Test getting user by ID."""
-        user_id = uuid4()
-        mock_user = User(
-            id=user_id,
-            oidc_sub="test-sub",
-            email="test@example.com",
-            name="Test User",
-            role=UserRoleEnum.VIEWER,
-        )
-
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_user
-        mock_db_session.execute.return_value = mock_result
-
-        service = AuthService(
-            settings=mock_settings,
-            db_session=mock_db_session,
-        )
-
-        result = await service.get_user_by_id(user_id)
-
-        assert result is not None
-        assert result.id == user_id
-        assert result.email == "test@example.com"
+    async def test_invalid_token_format(self, auth_service):
+        """Test that invalid token format raises error."""
+        with pytest.raises(InvalidTokenError):
+            await auth_service.validate_token("not-a-valid-jwt")
 
     @pytest.mark.asyncio
-    async def test_get_user_by_oidc_sub(
-        self,
-        mock_settings: Settings,
-        mock_db_session: AsyncMock,
-    ) -> None:
-        """Test getting user by OIDC subject."""
-        mock_user = User(
-            id=uuid4(),
-            oidc_sub="test-sub",
-            email="test@example.com",
-            name="Test User",
-            role=UserRoleEnum.VIEWER,
+    async def test_missing_key_raises_error(self, auth_service, mock_jwks):
+        """Test that missing key raises error."""
+        # Create a token with unknown kid
+        token = jwt.encode(
+            {"sub": "test", "exp": datetime.now(timezone.utc) + timedelta(hours=1)},
+            "secret",
+            algorithm="HS256",
+            headers={"kid": "unknown-key-id"},
         )
 
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_user
-        mock_db_session.execute.return_value = mock_result
+        with patch.object(auth_service, "_fetch_jwks", return_value=mock_jwks):
+            with pytest.raises(InvalidTokenError, match="Unable to find matching key"):
+                await auth_service.validate_token(token)
 
-        service = AuthService(
-            settings=mock_settings,
-            db_session=mock_db_session,
+
+class TestGetOrCreateUser:
+    """Tests for user creation and retrieval."""
+
+    @pytest.mark.asyncio
+    async def test_creates_new_user(self, auth_service, mock_db_session):
+        """Test that new user is created when not found."""
+        mock_db_session.execute.return_value.scalar_one_or_none.return_value = None
+
+        token_payload = TokenPayload(
+            sub="new-user-sub",
+            email="new@example.com",
+            name="New User",
+            exp=datetime.now(timezone.utc) + timedelta(hours=1),
+            iat=datetime.now(timezone.utc),
+            iss="https://idp.example.com",
+            aud="test-client-id",
         )
 
-        result = await service.get_user_by_oidc_sub("test-sub")
+        user = await auth_service.get_or_create_user(token_payload)
 
-        assert result is not None
-        assert result.oidc_sub == "test-sub"
+        mock_db_session.add.assert_called_once()
+        mock_db_session.commit.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_returns_existing_user(self, auth_service, mock_db_session):
+        """Test that existing user is returned."""
+        existing_user = MagicMock()
+        existing_user.id = uuid4()
+        existing_user.oidc_sub = "existing-sub"
+        existing_user.email = "existing@example.com"
+        existing_user.name = "Existing User"
+        existing_user.role = "viewer"
+
+        mock_db_session.execute.return_value.scalar_one_or_none.return_value = existing_user
+
+        token_payload = TokenPayload(
+            sub="existing-sub",
+            email="existing@example.com",
+            name="Existing User",
+            exp=datetime.now(timezone.utc) + timedelta(hours=1),
+            iat=datetime.now(timezone.utc),
+            iss="https://idp.example.com",
+            aud="test-client-id",
+        )
+
+        user = await auth_service.get_or_create_user(token_payload)
+
+        assert user == existing_user
+        mock_db_session.add.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_updates_user_info_if_changed(self, auth_service, mock_db_session):
+        """Test that user info is updated if changed."""
+        existing_user = MagicMock()
+        existing_user.id = uuid4()
+        existing_user.oidc_sub = "existing-sub"
+        existing_user.email = "old@example.com"
+        existing_user.name = "Old Name"
+        existing_user.role = "viewer"
+
+        mock_db_session.execute.return_value.scalar_one_or_none.return_value = existing_user
+
+        token_payload = TokenPayload(
+            sub="existing-sub",
+            email="new@example.com",
+            name="New Name",
+            exp=datetime.now(timezone.utc) + timedelta(hours=1),
+            iat=datetime.now(timezone.utc),
+            iss="https://idp.example.com",
+            aud="test-client-id",
+        )
+
+        await auth_service.get_or_create_user(token_payload)
+
+        assert existing_user.email == "new@example.com"
+        assert existing_user.name == "New Name"
+        mock_db_session.commit.assert_called()

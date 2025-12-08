@@ -1,235 +1,163 @@
 """
-Tests for authentication middleware.
+Unit tests for authentication middleware.
 
-Tests JWT validation and user context extraction.
+Tests JWT validation middleware for FastAPI requests.
 """
 
-import pytest
-from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
-import jwt
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
-from httpx import ASGITransport, AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
+import pytest
+from fastapi import Request
+from fastapi.security import HTTPAuthorizationCredentials
 
-from app.auth.middleware import get_current_user, get_token_payload
-from app.auth.schemas import TokenPayload, UserRole
-from app.campaigns.models import User, UserRoleEnum
-from app.config import Settings
-from app.shared.exceptions import AuthenticationError
+from app.auth.exceptions import InvalidTokenError, MissingTokenError
+from app.auth.middleware import AuthMiddleware, get_current_user
+from app.auth.schemas import UserContext, UserRole
 
 
 @pytest.fixture
-def mock_settings() -> Settings:
-    """Create mock settings for testing."""
-    return Settings(
-        database_url="postgresql://test:test@localhost:5432/test",
-        jwt_secret_key="test-secret-key-for-testing-only",
-        jwt_algorithm="HS256",
-        jwt_expiration_minutes=60,
-        jwt_issuer="voicesurveyagent",
-        jwt_audience="voicesurveyagent-api",
-    )
+def mock_request():
+    """Create mock FastAPI request."""
+    request = MagicMock(spec=Request)
+    request.url.path = "/api/test"
+    request.state = MagicMock()
+    return request
 
 
 @pytest.fixture
-def valid_token(mock_settings: Settings) -> str:
-    """Create a valid JWT token."""
-    now = datetime.now(timezone.utc)
-    payload = {
-        "sub": "test-user-sub",
-        "iat": now.timestamp(),
-        "exp": (now + timedelta(hours=1)).timestamp(),
-        "iss": "voicesurveyagent",
-        "aud": "voicesurveyagent-api",
-        "email": "test@example.com",
-        "name": "Test User",
-        "role": "viewer",
-    }
-    return jwt.encode(payload, mock_settings.jwt_secret_key, algorithm="HS256")
+def mock_credentials():
+    """Create mock HTTP credentials."""
+    return HTTPAuthorizationCredentials(scheme="Bearer", credentials="test-token")
 
 
 @pytest.fixture
-def expired_token(mock_settings: Settings) -> str:
-    """Create an expired JWT token."""
-    now = datetime.now(timezone.utc)
-    payload = {
-        "sub": "test-user-sub",
-        "iat": (now - timedelta(hours=2)).timestamp(),
-        "exp": (now - timedelta(hours=1)).timestamp(),
-        "iss": "voicesurveyagent",
-        "aud": "voicesurveyagent-api",
-    }
-    return jwt.encode(payload, mock_settings.jwt_secret_key, algorithm="HS256")
+def mock_db_session():
+    """Create mock database session."""
+    return AsyncMock()
 
 
-class TestGetTokenPayload:
-    """Tests for token payload extraction."""
+@pytest.fixture
+def auth_middleware():
+    """Create auth middleware instance."""
+    return AuthMiddleware()
+
+
+class TestAuthMiddleware:
+    """Tests for AuthMiddleware."""
 
     @pytest.mark.asyncio
-    async def test_valid_token(
+    async def test_missing_credentials_raises_error(
         self,
-        mock_settings: Settings,
-        valid_token: str,
-    ) -> None:
-        """Test extracting payload from valid token."""
-        result = await get_token_payload(
-            authorization=f"Bearer {valid_token}",
-            settings=mock_settings,
-        )
+        auth_middleware,
+        mock_request,
+        mock_db_session,
+    ):
+        """Test that missing credentials raises MissingTokenError."""
+        with pytest.raises(MissingTokenError):
+            await auth_middleware(mock_request, None, mock_db_session)
 
-        assert result.sub == "test-user-sub"
+    @pytest.mark.asyncio
+    async def test_valid_token_returns_user_context(
+        self,
+        auth_middleware,
+        mock_request,
+        mock_credentials,
+        mock_db_session,
+    ):
+        """Test that valid token returns user context."""
+        user_id = uuid4()
+        mock_user = MagicMock()
+        mock_user.id = user_id
+        mock_user.oidc_sub = "test-sub"
+        mock_user.email = "test@example.com"
+        mock_user.name = "Test User"
+        mock_user.role = "viewer"
+
+        mock_token_payload = MagicMock()
+        mock_token_payload.sub = "test-sub"
+        mock_token_payload.email = "test@example.com"
+        mock_token_payload.name = "Test User"
+
+        with patch("app.auth.middleware.AuthService") as MockAuthService:
+            mock_service = AsyncMock()
+            mock_service.validate_token.return_value = mock_token_payload
+            mock_service.get_or_create_user.return_value = mock_user
+            MockAuthService.return_value = mock_service
+
+            # Reset the middleware's cached service
+            auth_middleware._auth_service = None
+
+            result = await auth_middleware(
+                mock_request,
+                mock_credentials,
+                mock_db_session,
+            )
+
+        assert isinstance(result, UserContext)
+        assert result.id == user_id
         assert result.email == "test@example.com"
         assert result.role == UserRole.VIEWER
 
     @pytest.mark.asyncio
-    async def test_missing_authorization(
+    async def test_invalid_token_raises_error(
         self,
-        mock_settings: Settings,
-    ) -> None:
-        """Test missing authorization header."""
-        with pytest.raises(AuthenticationError) as exc_info:
-            await get_token_payload(authorization=None, settings=mock_settings)
+        auth_middleware,
+        mock_request,
+        mock_credentials,
+        mock_db_session,
+    ):
+        """Test that invalid token raises error."""
+        with patch("app.auth.middleware.AuthService") as MockAuthService:
+            mock_service = AsyncMock()
+            mock_service.validate_token.side_effect = InvalidTokenError()
+            MockAuthService.return_value = mock_service
 
-        assert "Missing authorization header" in str(exc_info.value)
+            # Reset the middleware's cached service
+            auth_middleware._auth_service = None
+
+            with pytest.raises(InvalidTokenError):
+                await auth_middleware(
+                    mock_request,
+                    mock_credentials,
+                    mock_db_session,
+                )
 
     @pytest.mark.asyncio
-    async def test_invalid_format(
+    async def test_sets_request_state(
         self,
-        mock_settings: Settings,
-    ) -> None:
-        """Test invalid authorization header format."""
-        with pytest.raises(AuthenticationError) as exc_info:
-            await get_token_payload(
-                authorization="Basic invalid",
-                settings=mock_settings,
-            )
-
-        assert "Invalid authorization header format" in str(exc_info.value)
-
-    @pytest.mark.asyncio
-    async def test_expired_token(
-        self,
-        mock_settings: Settings,
-        expired_token: str,
-    ) -> None:
-        """Test expired token."""
-        with pytest.raises(AuthenticationError) as exc_info:
-            await get_token_payload(
-                authorization=f"Bearer {expired_token}",
-                settings=mock_settings,
-            )
-
-        assert "Token has expired" in str(exc_info.value)
-
-    @pytest.mark.asyncio
-    async def test_invalid_token(
-        self,
-        mock_settings: Settings,
-    ) -> None:
-        """Test invalid token."""
-        with pytest.raises(AuthenticationError) as exc_info:
-            await get_token_payload(
-                authorization="Bearer invalid-token",
-                settings=mock_settings,
-            )
-
-        assert "Invalid token" in str(exc_info.value)
-
-
-class TestGetCurrentUser:
-    """Tests for current user extraction."""
-
-    @pytest.mark.asyncio
-    async def test_existing_user(self) -> None:
-        """Test getting existing user from token."""
+        auth_middleware,
+        mock_request,
+        mock_credentials,
+        mock_db_session,
+    ):
+        """Test that user info is set on request state."""
         user_id = uuid4()
-        mock_user = User(
-            id=user_id,
-            oidc_sub="test-sub",
-            email="test@example.com",
-            name="Test User",
-            role=UserRoleEnum.CAMPAIGN_MANAGER,
-        )
+        mock_user = MagicMock()
+        mock_user.id = user_id
+        mock_user.oidc_sub = "test-sub"
+        mock_user.email = "test@example.com"
+        mock_user.name = "Test User"
+        mock_user.role = "admin"
 
-        mock_db = AsyncMock(spec=AsyncSession)
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = mock_user
-        mock_db.execute.return_value = mock_result
+        mock_token_payload = MagicMock()
+        mock_token_payload.sub = "test-sub"
+        mock_token_payload.email = "test@example.com"
+        mock_token_payload.name = "Test User"
 
-        token = TokenPayload(
-            sub="test-sub",
-            exp=datetime.now(timezone.utc) + timedelta(hours=1),
-            iat=datetime.now(timezone.utc),
-            email="test@example.com",
-            name="Test User",
-        )
+        with patch("app.auth.middleware.AuthService") as MockAuthService:
+            mock_service = AsyncMock()
+            mock_service.validate_token.return_value = mock_token_payload
+            mock_service.get_or_create_user.return_value = mock_user
+            MockAuthService.return_value = mock_service
 
-        result = await get_current_user(token=token, db=mock_db)
+            auth_middleware._auth_service = None
 
-        assert result.id == user_id
-        assert result.email == "test@example.com"
-        assert result.role == UserRole.CAMPAIGN_MANAGER
+            await auth_middleware(
+                mock_request,
+                mock_credentials,
+                mock_db_session,
+            )
 
-    @pytest.mark.asyncio
-    async def test_create_user_on_first_login(self) -> None:
-        """Test creating user on first login."""
-        mock_db = AsyncMock(spec=AsyncSession)
-        mock_result = MagicMock()
-        mock_result.scalar_one_or_none.return_value = None
-        mock_db.execute.return_value = mock_result
-
-        token = TokenPayload(
-            sub="new-user-sub",
-            exp=datetime.now(timezone.utc) + timedelta(hours=1),
-            iat=datetime.now(timezone.utc),
-            email="new@example.com",
-            name="New User",
-        )
-
-        result = await get_current_user(token=token, db=mock_db)
-
-        # Verify user was added to session
-        mock_db.add.assert_called_once()
-        mock_db.flush.assert_called_once()
-        mock_db.refresh.assert_called_once()
-
-        assert result.oidc_sub == "new-user-sub"
-        assert result.role == UserRole.VIEWER  # Default role
-
-
-class TestAuthEndpoints:
-    """Integration tests for auth endpoints."""
-
-    @pytest.fixture
-    def app(self) -> FastAPI:
-        """Create test FastAPI app."""
-        from app.main import app
-        return app
-
-    @pytest.mark.asyncio
-    async def test_health_check(self, app: FastAPI) -> None:
-        """Test health check endpoint."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test",
-        ) as client:
-            response = await client.get("/health")
-
-        assert response.status_code == 200
-        assert response.json() == {"status": "healthy"}
-
-    @pytest.mark.asyncio
-    async def test_protected_endpoint_without_token(self, app: FastAPI) -> None:
-        """Test protected endpoint without token returns 401."""
-        async with AsyncClient(
-            transport=ASGITransport(app=app),
-            base_url="http://test",
-        ) as client:
-            response = await client.get("/api/auth/me")
-
-        assert response.status_code == 401
-        assert "AUTHENTICATION_ERROR" in response.json()["error"]["code"]
+        assert mock_request.state.user_id == str(user_id)
+        assert mock_request.state.user_role == "admin"

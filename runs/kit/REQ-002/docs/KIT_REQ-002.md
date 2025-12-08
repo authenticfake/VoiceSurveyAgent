@@ -2,13 +2,17 @@
 
 ## Overview
 
-This KIT implements OIDC (OpenID Connect) authentication integration for the voicesurveyagent application. It provides:
+This KIT implements OIDC (OpenID Connect) authentication integration for the Voice Survey Agent application. It provides secure user authentication via an external Identity Provider (IdP) using the authorization code flow.
 
-- OIDC authorization code flow with configurable IdP endpoints
-- JWT token validation on every API request via middleware
-- User record creation/update on first login with OIDC subject mapping
-- Session tokens with configurable expiration and refresh capability
-- Proper error handling with 401 responses for invalid/expired tokens
+## Acceptance Criteria Status
+
+| Criterion | Status | Implementation |
+|-----------|--------|----------------|
+| OIDC authorization code flow implemented with configurable IdP endpoints | ✅ | `AuthService.generate_authorization_url()`, `AuthService.exchange_code_for_tokens()` |
+| JWT tokens validated on every API request via middleware | ✅ | `AuthMiddleware`, `get_current_user` dependency |
+| User record created or updated on first login with OIDC subject mapping | ✅ | `AuthService.get_or_create_user()` |
+| Session tokens have configurable expiration with refresh capability | ✅ | `AuthService.refresh_tokens()`, settings-based expiration |
+| Invalid or expired tokens return 401 with appropriate error message | ✅ | `InvalidTokenError`, `ExpiredTokenError` exceptions |
 
 ## Architecture
 
@@ -16,11 +20,12 @@ This KIT implements OIDC (OpenID Connect) authentication integration for the voi
 
 ```
 app/auth/
-├── __init__.py      # Module exports
-├── schemas.py       # Pydantic models for auth data
-├── service.py       # OIDC and JWT business logic
-├── middleware.py    # FastAPI middleware for token validation
-└── router.py        # API endpoints for auth flow
+├── __init__.py          # Module exports
+├── schemas.py           # Pydantic models for auth data
+├── exceptions.py        # Custom authentication exceptions
+├── service.py           # Core authentication logic
+├── middleware.py        # JWT validation middleware
+└── router.py            # REST API endpoints
 ```
 
 ### Flow Diagram
@@ -39,83 +44,45 @@ app/auth/
 
 ## API Endpoints
 
-### GET /api/auth/login
-Initiates OIDC authorization code flow.
-
-**Response:**
-```json
-{
-  "authorization_url": "https://idp.example.com/authorize?...",
-  "state": "random-state-string"
-}
-```
-
-### GET /api/auth/callback
-Handles OIDC callback and exchanges code for tokens.
-
-**Query Parameters:**
-- `code`: Authorization code from IdP
-- `state`: State parameter for validation
-
-**Response:**
-```json
-{
-  "access_token": "jwt-token",
-  "token_type": "Bearer",
-  "expires_in": 3600,
-  "refresh_token": "refresh-token",
-  "user": {
-    "id": "uuid",
-    "email": "user@example.com",
-    "name": "User Name",
-    "role": "viewer"
-  }
-}
-```
-
-### POST /api/auth/refresh
-Refreshes access token using refresh token.
-
-### GET /api/auth/me
-Returns current user profile (requires authentication).
-
-### POST /api/auth/logout
-Logs out current user (client should discard tokens).
+| Method | Path | Description | Auth Required |
+|--------|------|-------------|---------------|
+| GET | `/api/auth/login` | Initiate OIDC login | No |
+| GET | `/api/auth/callback` | Handle OIDC callback | No |
+| POST | `/api/auth/refresh` | Refresh access token | No |
+| GET | `/api/auth/me` | Get current user profile | Yes |
+| POST | `/api/auth/logout` | Logout (client-side) | Yes |
 
 ## Configuration
 
-### Environment Variables
+Required environment variables:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| OIDC_ISSUER | OIDC provider URL | Required |
-| OIDC_CLIENT_ID | OAuth client ID | voicesurveyagent |
-| OIDC_CLIENT_SECRET | OAuth client secret | Required |
-| OIDC_REDIRECT_URI | Callback URL | http://localhost:8000/api/auth/callback |
-| JWT_SECRET_KEY | JWT signing key | Required |
-| JWT_ALGORITHM | JWT algorithm | HS256 |
-| JWT_EXPIRATION_MINUTES | Token expiration | 60 |
-
-## Security Considerations
-
-1. **State Parameter**: Random state is generated for each login to prevent CSRF
-2. **Token Validation**: All tokens are validated for signature, expiration, and audience
-3. **User Creation**: New users are created with minimal permissions (viewer role)
-4. **Secrets**: All secrets should be stored in AWS Secrets Manager in production
+```bash
+OIDC_ISSUER=https://idp.example.com
+OIDC_AUTHORIZATION_ENDPOINT=https://idp.example.com/authorize
+OIDC_TOKEN_ENDPOINT=https://idp.example.com/token
+OIDC_USERINFO_ENDPOINT=https://idp.example.com/userinfo
+OIDC_JWKS_URI=https://idp.example.com/.well-known/jwks.json
+OIDC_CLIENT_ID=your-client-id
+OIDC_CLIENT_SECRET=your-client-secret
+OIDC_REDIRECT_URI=http://localhost:8000/api/auth/callback
+```
 
 ## Dependencies
 
-- `PyJWT`: JWT encoding/decoding
-- `httpx`: Async HTTP client for OIDC discovery
-- `cryptography`: Cryptographic operations for JWT
-- `pydantic`: Data validation and serialization
+- REQ-001: Database schema (User model)
+
+## Security Considerations
+
+1. **CSRF Protection**: State parameter validated on callback
+2. **Token Validation**: RS256 signature verification via JWKS
+3. **Secure Storage**: Client secrets via environment variables
+4. **Token Expiration**: Configurable expiration with refresh capability
 
 ## Testing
 
-Tests cover:
-- OIDC initialization and discovery
-- Authorization URL generation
-- Token exchange and validation
-- User creation and retrieval
-- Middleware authentication flow
-- API endpoint behavior
+```bash
+# Run all auth tests
+pytest runs/kit/REQ-002/test/ -v
+
+# Run with coverage
+pytest runs/kit/REQ-002/test/ --cov=runs/kit/REQ-002/src/app/auth

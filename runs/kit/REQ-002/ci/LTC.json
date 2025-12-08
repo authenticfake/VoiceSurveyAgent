@@ -4,12 +4,15 @@
   "lane": "python",
   "env": {
     "DATABASE_URL": "postgresql://test:test@localhost:5432/voicesurvey_test",
-    "OIDC_ISSUER": "https://auth.example.com",
-    "OIDC_CLIENT_ID": "test-client",
-    "OIDC_CLIENT_SECRET": "test-secret",
-    "JWT_SECRET_KEY": "test-secret-key-for-testing-only",
-    "JWT_ALGORITHM": "HS256",
-    "JWT_EXPIRATION_MINUTES": "60"
+    "REDIS_URL": "redis://localhost:6379/0",
+    "OIDC_ISSUER": "https://idp.example.com",
+    "OIDC_AUTHORIZATION_ENDPOINT": "https://idp.example.com/authorize",
+    "OIDC_TOKEN_ENDPOINT": "https://idp.example.com/token",
+    "OIDC_USERINFO_ENDPOINT": "https://idp.example.com/userinfo",
+    "OIDC_JWKS_URI": "https://idp.example.com/.well-known/jwks.json",
+    "OIDC_CLIENT_ID": "test-client-id",
+    "OIDC_CLIENT_SECRET": "test-client-secret",
+    "OIDC_REDIRECT_URI": "http://localhost:8000/api/auth/callback"
   },
   "cases": [
     {
@@ -19,21 +22,26 @@
       "expect": 0
     },
     {
-      "name": "tests",
-      "run": "pytest runs/kit/REQ-002/test -v --tb=short",
+      "name": "unit_tests",
+      "run": "pytest runs/kit/REQ-002/test/ -v --tb=short",
       "cwd": ".",
       "expect": 0,
       "timeout": 120
     },
     {
       "name": "coverage",
-      "run": "pytest runs/kit/REQ-002/test --cov=runs/kit/REQ-002/src/app --cov-report=xml:runs/kit/REQ-002/reports/coverage.xml --cov-report=term-missing",
+      "run": "pytest runs/kit/REQ-002/test/ --cov=runs/kit/REQ-002/src/app/auth --cov-report=xml:runs/kit/REQ-002/reports/coverage.xml --cov-report=term-missing",
       "cwd": ".",
       "expect": 0,
       "timeout": 120
     }
   ],
   "reports": [
+    {
+      "kind": "junit",
+      "path": "runs/kit/REQ-002/reports/junit.xml",
+      "format": "junit-xml"
+    },
     {
       "kind": "coverage",
       "path": "runs/kit/REQ-002/reports/coverage.xml",
@@ -42,7 +50,7 @@
   ],
   "gate_policy": {
     "tests_pass": true,
-    "coverage_min": 80,
+    "coverage_min": 80.0,
     "security": {
       "bandit_high": 0
     }

@@ -1,128 +1,131 @@
 """
 Authentication middleware.
 
-Provides JWT validation middleware for FastAPI.
+JWT validation middleware for FastAPI requests.
 """
 
 from typing import Annotated
 
-import jwt
-from fastapi import Depends, Header, Request
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import Depends, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.auth.schemas import TokenPayload, UserContext, UserRole
-from app.campaigns.models import User
-from app.config import Settings, get_settings
-from app.shared.database import get_db_session
-from app.shared.exceptions import AuthenticationError
+from app.auth.exceptions import InvalidTokenError, MissingTokenError
+from app.auth.schemas import UserContext, UserRole
+from app.auth.service import AuthService
+from app.config import get_settings
+from app.shared.database import DbSession
 from app.shared.logging import get_logger
 
 logger = get_logger(__name__)
+settings = get_settings()
+
+# HTTP Bearer security scheme
+security = HTTPBearer(auto_error=False)
 
 
-async def get_token_payload(
-    authorization: Annotated[str | None, Header()] = None,
-    settings: Settings = Depends(get_settings),
-) -> TokenPayload:
-    """Extract and validate JWT token from Authorization header.
+class AuthMiddleware:
+    """Middleware for JWT authentication."""
 
-    Args:
-        authorization: Authorization header value
-        settings: Application settings
+    def __init__(self) -> None:
+        """Initialize auth middleware."""
+        self._auth_service: AuthService | None = None
 
-    Returns:
-        Validated token payload
+    async def _get_auth_service(self, db: DbSession) -> AuthService:
+        """Get or create auth service instance."""
+        if self._auth_service is None:
+            self._auth_service = AuthService(settings=settings, db_session=db)
+            await self._auth_service.initialize()
+        return self._auth_service
 
-    Raises:
-        AuthenticationError: If token is missing, invalid, or expired
-    """
-    if not authorization:
-        raise AuthenticationError(message="Missing authorization header")
+    async def __call__(
+        self,
+        request: Request,
+        credentials: HTTPAuthorizationCredentials | None = Depends(security),
+        db: DbSession = None,  # type: ignore[assignment]
+    ) -> UserContext:
+        """
+        Validate JWT token and return user context.
 
-    if not authorization.startswith("Bearer "):
-        raise AuthenticationError(message="Invalid authorization header format")
+        Args:
+            request: FastAPI request
+            credentials: HTTP Bearer credentials
+            db: Database session
 
-    token = authorization[7:]  # Remove "Bearer " prefix
+        Returns:
+            Authenticated user context
 
-    try:
-        payload = jwt.decode(
-            token,
-            settings.jwt_secret_key,
-            algorithms=[settings.jwt_algorithm],
-            audience=settings.jwt_audience,
-        )
+        Raises:
+            MissingTokenError: If no token provided
+            InvalidTokenError: If token is invalid
+        """
+        if credentials is None:
+            logger.warning(
+                "Missing authentication token",
+                extra={"path": request.url.path},
+            )
+            raise MissingTokenError()
 
-        from datetime import datetime, timezone
+        token = credentials.credentials
+        auth_service = await self._get_auth_service(db)
 
-        return TokenPayload(
-            sub=payload["sub"],
-            exp=datetime.fromtimestamp(payload["exp"], tz=timezone.utc),
-            iat=datetime.fromtimestamp(payload["iat"], tz=timezone.utc),
-            iss=payload.get("iss"),
-            aud=payload.get("aud"),
-            email=payload.get("email"),
-            name=payload.get("name"),
-            role=UserRole(payload["role"]) if payload.get("role") else None,
-        )
+        try:
+            # Validate token
+            token_payload = await auth_service.validate_token(token)
 
-    except jwt.ExpiredSignatureError as e:
-        logger.warning("Token expired", error=str(e))
-        raise AuthenticationError(message="Token has expired") from e
-    except jwt.InvalidTokenError as e:
-        logger.warning("Invalid token", error=str(e))
-        raise AuthenticationError(
-            message="Invalid token",
-            details={"error": str(e)},
-        ) from e
+            # Get user from database
+            user = await auth_service.get_or_create_user(token_payload)
+
+            user_context = UserContext(
+                id=user.id,
+                oidc_sub=user.oidc_sub,
+                email=user.email,
+                name=user.name,
+                role=UserRole(user.role),
+            )
+
+            # Add user context to request state for logging
+            request.state.user_id = str(user.id)
+            request.state.user_role = user.role
+
+            logger.debug(
+                "Request authenticated",
+                extra={
+                    "user_id": str(user.id),
+                    "path": request.url.path,
+                },
+            )
+
+            return user_context
+
+        except Exception as e:
+            logger.warning(
+                "Authentication failed",
+                extra={
+                    "path": request.url.path,
+                    "error": str(e),
+                },
+            )
+            raise
+
+
+# Create singleton middleware instance
+_auth_middleware = AuthMiddleware()
 
 
 async def get_current_user(
-    token: Annotated[TokenPayload, Depends(get_token_payload)],
-    db: AsyncSession = Depends(get_db_session),
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
+    db: DbSession,
 ) -> UserContext:
-    """Get current authenticated user from token.
-
-    Args:
-        token: Validated token payload
-        db: Database session
-
-    Returns:
-        Current user context
-
-    Raises:
-        AuthenticationError: If user not found
     """
-    result = await db.execute(
-        select(User).where(User.oidc_sub == token.sub)
-    )
-    user = result.scalar_one_or_none()
+    Dependency to get current authenticated user.
 
-    if not user:
-        # Create user on first login (should have been created during auth flow)
-        logger.warning(
-            "User not found for token, creating",
-            oidc_sub=token.sub,
-        )
-        from app.campaigns.models import UserRoleEnum
-
-        user = User(
-            oidc_sub=token.sub,
-            email=token.email or f"{token.sub}@unknown.local",
-            name=token.name or "Unknown User",
-            role=UserRoleEnum.VIEWER,
-        )
-        db.add(user)
-        await db.flush()
-        await db.refresh(user)
-
-    return UserContext(
-        id=user.id,
-        oidc_sub=user.oidc_sub,
-        email=user.email,
-        name=user.name,
-        role=UserRole(user.role.value),
-    )
+    Usage:
+        @router.get("/protected")
+        async def protected_route(user: CurrentUser):
+            return {"user_id": str(user.id)}
+    """
+    return await _auth_middleware(request, credentials, db)
 
 
 # Type alias for dependency injection

@@ -1,7 +1,7 @@
 """
 Authentication service.
 
-Implements OIDC authorization code flow and JWT token management.
+Handles OIDC flow, JWT validation, and user management.
 """
 
 import secrets
@@ -10,24 +10,28 @@ from typing import Any
 from uuid import UUID
 
 import httpx
-import jwt
-from jwt import PyJWKClient
+from jose import JWTError, jwt
+from jose.exceptions import ExpiredSignatureError
 from pydantic import HttpUrl
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.exceptions import (
+    ExpiredTokenError,
+    InvalidStateError,
+    InvalidTokenError,
+    OIDCError,
+)
 from app.auth.schemas import (
     AuthenticatedResponse,
     OIDCConfig,
     TokenPayload,
-    TokenResponse,
     UserContext,
     UserRole,
 )
-from app.campaigns.models import User, UserRoleEnum
 from app.config import Settings
-from app.shared.exceptions import AuthenticationError, ConfigurationError
 from app.shared.logging import get_logger
+from app.shared.models.user import User
 
 logger = get_logger(__name__)
 
@@ -35,325 +39,231 @@ logger = get_logger(__name__)
 class AuthService:
     """Service for OIDC authentication and JWT management."""
 
-    def __init__(
-        self,
-        settings: Settings,
-        db_session: AsyncSession,
-        http_client: httpx.AsyncClient | None = None,
-    ) -> None:
-        """Initialize auth service with configuration."""
+    def __init__(self, settings: Settings, db_session: AsyncSession) -> None:
+        """Initialize auth service with settings and database session."""
         self._settings = settings
         self._db = db_session
-        self._http_client = http_client or httpx.AsyncClient(timeout=30.0)
-        self._oidc_config: OIDCConfig | None = None
-        self._jwks_client: PyJWKClient | None = None
-        self._state_store: dict[str, dict[str, Any]] = {}  # In production, use Redis
+        self._jwks_client: httpx.AsyncClient | None = None
+        self._jwks_cache: dict[str, Any] = {}
+        self._jwks_cache_expiry: datetime | None = None
+        self._state_store: dict[str, datetime] = {}  # In production, use Redis
 
     async def initialize(self) -> None:
-        """Initialize OIDC configuration from discovery endpoint."""
-        if not self._settings.oidc_issuer:
-            raise ConfigurationError(
-                message="OIDC issuer not configured",
-                details={"setting": "OIDC_ISSUER"},
-            )
+        """Initialize JWKS client for token validation."""
+        if self._jwks_client is None:
+            self._jwks_client = httpx.AsyncClient(timeout=10.0)
 
-        discovery_url = f"{self._settings.oidc_issuer}/.well-known/openid-configuration"
+    async def close(self) -> None:
+        """Close HTTP client."""
+        if self._jwks_client:
+            await self._jwks_client.aclose()
+            self._jwks_client = None
 
-        try:
-            response = await self._http_client.get(discovery_url)
-            response.raise_for_status()
-            config_data = response.json()
-
-            self._oidc_config = OIDCConfig(
-                issuer=config_data["issuer"],
-                authorization_endpoint=config_data["authorization_endpoint"],
-                token_endpoint=config_data["token_endpoint"],
-                userinfo_endpoint=config_data["userinfo_endpoint"],
-                jwks_uri=config_data["jwks_uri"],
-                client_id=self._settings.oidc_client_id,
-                client_secret=self._settings.oidc_client_secret,
-                redirect_uri=self._settings.oidc_redirect_uri,
-            )
-
-            self._jwks_client = PyJWKClient(str(self._oidc_config.jwks_uri))
-
-            logger.info(
-                "OIDC configuration loaded",
-                issuer=str(self._oidc_config.issuer),
-            )
-
-        except httpx.HTTPError as e:
-            logger.error("Failed to fetch OIDC configuration", error=str(e))
-            raise ConfigurationError(
-                message="Failed to fetch OIDC configuration",
-                details={"url": discovery_url, "error": str(e)},
-            ) from e
+    def _get_oidc_config(self) -> OIDCConfig:
+        """Get OIDC configuration from settings."""
+        return OIDCConfig(
+            issuer=HttpUrl(self._settings.oidc_issuer),
+            authorization_endpoint=HttpUrl(self._settings.oidc_authorization_endpoint),
+            token_endpoint=HttpUrl(self._settings.oidc_token_endpoint),
+            userinfo_endpoint=HttpUrl(self._settings.oidc_userinfo_endpoint),
+            jwks_uri=HttpUrl(self._settings.oidc_jwks_uri),
+            client_id=self._settings.oidc_client_id,
+            client_secret=self._settings.oidc_client_secret,
+            redirect_uri=HttpUrl(self._settings.oidc_redirect_uri),
+            scopes=self._settings.oidc_scopes,
+        )
 
     def generate_authorization_url(self, redirect_url: str | None = None) -> tuple[str, str]:
-        """Generate OIDC authorization URL with state parameter.
+        """
+        Generate OIDC authorization URL with CSRF state.
 
         Returns:
             Tuple of (authorization_url, state)
         """
-        if not self._oidc_config:
-            raise ConfigurationError(message="OIDC not initialized")
-
+        config = self._get_oidc_config()
         state = secrets.token_urlsafe(32)
-        nonce = secrets.token_urlsafe(32)
 
-        # Store state for validation
-        self._state_store[state] = {
-            "nonce": nonce,
-            "redirect_url": redirect_url,
-            "created_at": datetime.now(timezone.utc),
+        # Store state with expiration (5 minutes)
+        self._state_store[state] = datetime.now(timezone.utc) + timedelta(minutes=5)
+
+        # Clean expired states
+        now = datetime.now(timezone.utc)
+        self._state_store = {
+            k: v for k, v in self._state_store.items() if v > now
         }
 
         params = {
-            "client_id": self._oidc_config.client_id,
+            "client_id": config.client_id,
             "response_type": "code",
-            "scope": " ".join(self._oidc_config.scopes),
-            "redirect_uri": str(self._oidc_config.redirect_uri),
+            "scope": " ".join(config.scopes),
+            "redirect_uri": redirect_url or str(config.redirect_uri),
             "state": state,
-            "nonce": nonce,
         }
 
-        query_string = "&".join(f"{k}={v}" for k, v in params.items())
-        auth_url = f"{self._oidc_config.authorization_endpoint}?{query_string}"
+        query = "&".join(f"{k}={v}" for k, v in params.items())
+        authorization_url = f"{config.authorization_endpoint}?{query}"
 
-        return auth_url, state
+        logger.info(
+            "Generated authorization URL",
+            extra={"state": state[:8] + "..."},
+        )
+
+        return authorization_url, state
+
+    def validate_state(self, state: str) -> bool:
+        """Validate CSRF state parameter."""
+        if state not in self._state_store:
+            return False
+
+        expiry = self._state_store.pop(state)
+        return datetime.now(timezone.utc) < expiry
 
     async def exchange_code_for_tokens(
         self,
         code: str,
         state: str,
-    ) -> AuthenticatedResponse:
-        """Exchange authorization code for tokens and create/update user.
+        redirect_url: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Exchange authorization code for tokens.
 
         Args:
-            code: Authorization code from callback
-            state: State parameter for validation
+            code: Authorization code from OIDC provider
+            state: CSRF state parameter
+            redirect_url: Optional redirect URL override
 
         Returns:
-            Authenticated response with tokens and user context
+            Token response from OIDC provider
+
+        Raises:
+            InvalidStateError: If state validation fails
+            OIDCError: If token exchange fails
         """
-        if not self._oidc_config:
-            raise ConfigurationError(message="OIDC not initialized")
+        if not self.validate_state(state):
+            logger.warning("Invalid state parameter", extra={"state": state[:8] + "..."})
+            raise InvalidStateError()
 
-        # Validate state
-        state_data = self._state_store.pop(state, None)
-        if not state_data:
-            raise AuthenticationError(
-                message="Invalid or expired state parameter",
-                details={"state": state},
-            )
+        config = self._get_oidc_config()
 
-        # Check state expiration (5 minutes)
-        created_at = state_data["created_at"]
-        if datetime.now(timezone.utc) - created_at > timedelta(minutes=5):
-            raise AuthenticationError(message="State parameter expired")
-
-        # Exchange code for tokens
-        token_data = {
+        data = {
             "grant_type": "authorization_code",
             "code": code,
-            "redirect_uri": str(self._oidc_config.redirect_uri),
-            "client_id": self._oidc_config.client_id,
-            "client_secret": self._oidc_config.client_secret,
+            "redirect_uri": redirect_url or str(config.redirect_uri),
+            "client_id": config.client_id,
+            "client_secret": config.client_secret,
         }
 
+        if self._jwks_client is None:
+            await self.initialize()
+
         try:
-            response = await self._http_client.post(
-                str(self._oidc_config.token_endpoint),
-                data=token_data,
+            response = await self._jwks_client.post(  # type: ignore[union-attr]
+                str(config.token_endpoint),
+                data=data,
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
             response.raise_for_status()
-            token_response = TokenResponse(**response.json())
-
+            return response.json()
         except httpx.HTTPError as e:
-            logger.error("Token exchange failed", error=str(e))
-            raise AuthenticationError(
-                message="Failed to exchange authorization code",
-                details={"error": str(e)},
-            ) from e
+            logger.error("Token exchange failed", extra={"error": str(e)})
+            raise OIDCError(f"Token exchange failed: {e}") from e
 
-        # Validate and decode ID token
-        if not token_response.id_token:
-            raise AuthenticationError(message="No ID token in response")
+    async def _fetch_jwks(self) -> dict[str, Any]:
+        """Fetch and cache JWKS from OIDC provider."""
+        config = self._get_oidc_config()
 
-        token_payload = self._validate_token(token_response.id_token)
+        # Check cache
+        if (
+            self._jwks_cache
+            and self._jwks_cache_expiry
+            and datetime.now(timezone.utc) < self._jwks_cache_expiry
+        ):
+            return self._jwks_cache
 
-        # Create or update user
-        user = await self._get_or_create_user(token_payload)
+        if self._jwks_client is None:
+            await self.initialize()
 
-        # Generate session token
-        session_token, expires_in = self._generate_session_token(user)
+        try:
+            response = await self._jwks_client.get(str(config.jwks_uri))  # type: ignore[union-attr]
+            response.raise_for_status()
+            self._jwks_cache = response.json()
+            self._jwks_cache_expiry = datetime.now(timezone.utc) + timedelta(hours=1)
+            return self._jwks_cache
+        except httpx.HTTPError as e:
+            logger.error("JWKS fetch failed", extra={"error": str(e)})
+            raise OIDCError(f"Failed to fetch JWKS: {e}") from e
 
-        return AuthenticatedResponse(
-            access_token=session_token,
-            token_type="Bearer",
-            expires_in=expires_in,
-            refresh_token=token_response.refresh_token,
-            user=UserContext(
-                id=user.id,
-                oidc_sub=user.oidc_sub,
-                email=user.email,
-                name=user.name,
-                role=UserRole(user.role.value),
-            ),
-        )
-
-    async def refresh_tokens(self, refresh_token: str) -> AuthenticatedResponse:
-        """Refresh access token using refresh token.
-
-        Args:
-            refresh_token: Valid refresh token
-
-        Returns:
-            New authenticated response with fresh tokens
+    async def validate_token(self, token: str) -> TokenPayload:
         """
-        if not self._oidc_config:
-            raise ConfigurationError(message="OIDC not initialized")
-
-        token_data = {
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-            "client_id": self._oidc_config.client_id,
-            "client_secret": self._oidc_config.client_secret,
-        }
-
-        try:
-            response = await self._http_client.post(
-                str(self._oidc_config.token_endpoint),
-                data=token_data,
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
-            response.raise_for_status()
-            token_response = TokenResponse(**response.json())
-
-        except httpx.HTTPError as e:
-            logger.error("Token refresh failed", error=str(e))
-            raise AuthenticationError(
-                message="Failed to refresh token",
-                details={"error": str(e)},
-            ) from e
-
-        # Validate new ID token if present
-        if token_response.id_token:
-            token_payload = self._validate_token(token_response.id_token)
-            user = await self._get_or_create_user(token_payload)
-        else:
-            # Use access token to get user info
-            user = await self._get_user_from_access_token(token_response.access_token)
-
-        # Generate new session token
-        session_token, expires_in = self._generate_session_token(user)
-
-        return AuthenticatedResponse(
-            access_token=session_token,
-            token_type="Bearer",
-            expires_in=expires_in,
-            refresh_token=token_response.refresh_token or refresh_token,
-            user=UserContext(
-                id=user.id,
-                oidc_sub=user.oidc_sub,
-                email=user.email,
-                name=user.name,
-                role=UserRole(user.role.value),
-            ),
-        )
-
-    def validate_session_token(self, token: str) -> TokenPayload:
-        """Validate a session JWT token.
+        Validate JWT token and return payload.
 
         Args:
-            token: JWT token to validate
+            token: JWT access token
 
         Returns:
             Validated token payload
 
         Raises:
-            AuthenticationError: If token is invalid or expired
+            InvalidTokenError: If token is invalid
+            ExpiredTokenError: If token has expired
         """
+        config = self._get_oidc_config()
+        jwks = await self._fetch_jwks()
+
         try:
+            # Decode without verification first to get header
+            unverified_header = jwt.get_unverified_header(token)
+            kid = unverified_header.get("kid")
+
+            # Find matching key
+            rsa_key = None
+            for key in jwks.get("keys", []):
+                if key.get("kid") == kid:
+                    rsa_key = key
+                    break
+
+            if not rsa_key:
+                raise InvalidTokenError("Unable to find matching key")
+
+            # Verify and decode token
             payload = jwt.decode(
                 token,
-                self._settings.jwt_secret_key,
-                algorithms=[self._settings.jwt_algorithm],
-                audience=self._settings.jwt_audience,
+                rsa_key,
+                algorithms=["RS256"],
+                audience=config.client_id,
+                issuer=str(config.issuer),
             )
 
             return TokenPayload(
                 sub=payload["sub"],
-                exp=datetime.fromtimestamp(payload["exp"], tz=timezone.utc),
-                iat=datetime.fromtimestamp(payload["iat"], tz=timezone.utc),
-                iss=payload.get("iss"),
-                aud=payload.get("aud"),
                 email=payload.get("email"),
                 name=payload.get("name"),
-                role=UserRole(payload["role"]) if payload.get("role") else None,
+                exp=datetime.fromtimestamp(payload["exp"], tz=timezone.utc),
+                iat=datetime.fromtimestamp(payload["iat"], tz=timezone.utc),
+                iss=payload["iss"],
+                aud=payload["aud"],
             )
 
-        except jwt.ExpiredSignatureError as e:
-            raise AuthenticationError(message="Token has expired") from e
-        except jwt.InvalidTokenError as e:
-            raise AuthenticationError(
-                message="Invalid token",
-                details={"error": str(e)},
-            ) from e
+        except ExpiredSignatureError as e:
+            logger.warning("Token expired")
+            raise ExpiredTokenError() from e
+        except JWTError as e:
+            logger.warning("Token validation failed", extra={"error": str(e)})
+            raise InvalidTokenError(f"Token validation failed: {e}") from e
 
-    def _validate_token(self, token: str) -> TokenPayload:
-        """Validate OIDC ID token using JWKS.
-
-        Args:
-            token: ID token to validate
-
-        Returns:
-            Validated token payload
+    async def get_or_create_user(self, token_payload: TokenPayload) -> User:
         """
-        if not self._jwks_client or not self._oidc_config:
-            raise ConfigurationError(message="OIDC not initialized")
-
-        try:
-            signing_key = self._jwks_client.get_signing_key_from_jwt(token)
-            payload = jwt.decode(
-                token,
-                signing_key.key,
-                algorithms=["RS256", "ES256"],
-                audience=self._oidc_config.client_id,
-                issuer=str(self._oidc_config.issuer),
-            )
-
-            return TokenPayload(
-                sub=payload["sub"],
-                exp=datetime.fromtimestamp(payload["exp"], tz=timezone.utc),
-                iat=datetime.fromtimestamp(payload["iat"], tz=timezone.utc),
-                iss=payload.get("iss"),
-                aud=payload.get("aud"),
-                email=payload.get("email"),
-                name=payload.get("name"),
-            )
-
-        except jwt.ExpiredSignatureError as e:
-            raise AuthenticationError(message="ID token has expired") from e
-        except jwt.InvalidTokenError as e:
-            raise AuthenticationError(
-                message="Invalid ID token",
-                details={"error": str(e)},
-            ) from e
-
-    async def _get_or_create_user(self, token_payload: TokenPayload) -> User:
-        """Get existing user or create new one from token payload.
+        Get existing user or create new one from OIDC token.
 
         Args:
             token_payload: Validated token payload
 
         Returns:
-            User entity
+            User database record
         """
-        result = await self._db.execute(
-            select(User).where(User.oidc_sub == token_payload.sub)
-        )
+        # Try to find existing user
+        stmt = select(User).where(User.oidc_sub == token_payload.sub)
+        result = await self._db.execute(stmt)
         user = result.scalar_one_or_none()
 
         if user:
@@ -367,125 +277,150 @@ class AuthService:
                 updated = True
 
             if updated:
-                await self._db.flush()
+                await self._db.commit()
                 logger.info(
                     "Updated user from OIDC",
-                    user_id=str(user.id),
-                    oidc_sub=token_payload.sub,
+                    extra={"user_id": str(user.id), "oidc_sub": token_payload.sub},
                 )
-        else:
-            # Create new user with default viewer role
-            user = User(
-                oidc_sub=token_payload.sub,
-                email=token_payload.email or f"{token_payload.sub}@unknown.local",
-                name=token_payload.name or "Unknown User",
-                role=UserRoleEnum.VIEWER,
-            )
-            self._db.add(user)
-            await self._db.flush()
-            await self._db.refresh(user)
 
-            logger.info(
-                "Created new user from OIDC",
-                user_id=str(user.id),
-                oidc_sub=token_payload.sub,
-            )
+            return user
 
-        return user
+        # Create new user with default viewer role
+        new_user = User(
+            oidc_sub=token_payload.sub,
+            email=token_payload.email or f"{token_payload.sub}@unknown.local",
+            name=token_payload.name or "Unknown User",
+            role="viewer",  # Default role for new users
+        )
+        self._db.add(new_user)
+        await self._db.commit()
+        await self._db.refresh(new_user)
 
-    async def _get_user_from_access_token(self, access_token: str) -> User:
-        """Get user info using access token and userinfo endpoint.
-
-        Args:
-            access_token: Valid access token
-
-        Returns:
-            User entity
-        """
-        if not self._oidc_config:
-            raise ConfigurationError(message="OIDC not initialized")
-
-        try:
-            response = await self._http_client.get(
-                str(self._oidc_config.userinfo_endpoint),
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-            response.raise_for_status()
-            userinfo = response.json()
-
-        except httpx.HTTPError as e:
-            logger.error("Failed to fetch user info", error=str(e))
-            raise AuthenticationError(
-                message="Failed to fetch user info",
-                details={"error": str(e)},
-            ) from e
-
-        token_payload = TokenPayload(
-            sub=userinfo["sub"],
-            exp=datetime.now(timezone.utc) + timedelta(hours=1),
-            iat=datetime.now(timezone.utc),
-            email=userinfo.get("email"),
-            name=userinfo.get("name"),
+        logger.info(
+            "Created new user from OIDC",
+            extra={"user_id": str(new_user.id), "oidc_sub": token_payload.sub},
         )
 
-        return await self._get_or_create_user(token_payload)
+        return new_user
 
-    def _generate_session_token(self, user: User) -> tuple[str, int]:
-        """Generate a session JWT token for the user.
+    async def authenticate(
+        self,
+        code: str,
+        state: str,
+        redirect_url: str | None = None,
+    ) -> AuthenticatedResponse:
+        """
+        Complete OIDC authentication flow.
 
         Args:
-            user: User entity
+            code: Authorization code
+            state: CSRF state
+            redirect_url: Optional redirect URL override
 
         Returns:
-            Tuple of (token, expires_in_seconds)
+            Authentication response with tokens and user context
         """
-        expires_in = self._settings.jwt_expiration_minutes * 60
-        now = datetime.now(timezone.utc)
+        # Exchange code for tokens
+        token_response = await self.exchange_code_for_tokens(code, state, redirect_url)
 
-        payload = {
-            "sub": user.oidc_sub,
-            "iat": now,
-            "exp": now + timedelta(seconds=expires_in),
-            "iss": self._settings.jwt_issuer,
-            "aud": self._settings.jwt_audience,
-            "email": user.email,
-            "name": user.name,
-            "role": user.role.value,
-            "user_id": str(user.id),
+        access_token = token_response["access_token"]
+        expires_in = token_response.get("expires_in", 3600)
+        refresh_token = token_response.get("refresh_token")
+
+        # Validate access token
+        token_payload = await self.validate_token(access_token)
+
+        # Get or create user
+        user = await self.get_or_create_user(token_payload)
+
+        user_context = UserContext(
+            id=user.id,
+            oidc_sub=user.oidc_sub,
+            email=user.email,
+            name=user.name,
+            role=UserRole(user.role),
+        )
+
+        logger.info(
+            "User authenticated",
+            extra={"user_id": str(user.id), "role": user.role},
+        )
+
+        return AuthenticatedResponse(
+            access_token=access_token,
+            token_type="Bearer",
+            expires_in=expires_in,
+            refresh_token=refresh_token,
+            user=user_context,
+        )
+
+    async def refresh_tokens(self, refresh_token: str) -> AuthenticatedResponse:
+        """
+        Refresh access token using refresh token.
+
+        Args:
+            refresh_token: Valid refresh token
+
+        Returns:
+            New authentication response with fresh tokens
+        """
+        config = self._get_oidc_config()
+
+        data = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": config.client_id,
+            "client_secret": config.client_secret,
         }
 
-        token = jwt.encode(
-            payload,
-            self._settings.jwt_secret_key,
-            algorithm=self._settings.jwt_algorithm,
+        if self._jwks_client is None:
+            await self.initialize()
+
+        try:
+            response = await self._jwks_client.post(  # type: ignore[union-attr]
+                str(config.token_endpoint),
+                data=data,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            response.raise_for_status()
+            token_response = response.json()
+        except httpx.HTTPError as e:
+            logger.error("Token refresh failed", extra={"error": str(e)})
+            raise OIDCError(f"Token refresh failed: {e}") from e
+
+        access_token = token_response["access_token"]
+        expires_in = token_response.get("expires_in", 3600)
+        new_refresh_token = token_response.get("refresh_token", refresh_token)
+
+        # Validate new access token
+        token_payload = await self.validate_token(access_token)
+
+        # Get user
+        user = await self.get_or_create_user(token_payload)
+
+        user_context = UserContext(
+            id=user.id,
+            oidc_sub=user.oidc_sub,
+            email=user.email,
+            name=user.name,
+            role=UserRole(user.role),
         )
 
-        return token, expires_in
+        logger.info(
+            "Tokens refreshed",
+            extra={"user_id": str(user.id)},
+        )
+
+        return AuthenticatedResponse(
+            access_token=access_token,
+            token_type="Bearer",
+            expires_in=expires_in,
+            refresh_token=new_refresh_token,
+            user=user_context,
+        )
 
     async def get_user_by_id(self, user_id: UUID) -> User | None:
-        """Get user by ID.
-
-        Args:
-            user_id: User UUID
-
-        Returns:
-            User entity or None
-        """
-        result = await self._db.execute(
-            select(User).where(User.id == user_id)
-        )
-        return result.scalar_one_or_none()
-
-    async def get_user_by_oidc_sub(self, oidc_sub: str) -> User | None:
-        """Get user by OIDC subject identifier.
-
-        Args:
-            oidc_sub: OIDC subject identifier
-
-        Returns:
-            User entity or None
-        """
-        result = await self._db.execute(
-            select(User).where(User.oidc_sub == oidc_sub)
-        )
+        """Get user by internal ID."""
+        stmt = select(User).where(User.id == user_id)
+        result = await self._db.execute(stmt)
         return result.scalar_one_or_none()

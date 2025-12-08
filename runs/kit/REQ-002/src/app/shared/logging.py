@@ -6,80 +6,58 @@ Provides JSON-formatted logging with correlation ID support.
 
 import logging
 import sys
+from contextvars import ContextVar
 from typing import Any
 
 import structlog
-from structlog.types import Processor
 
-from app.config import get_settings
-
-
-def get_logger(name: str) -> structlog.stdlib.BoundLogger:
-    """Get a configured logger instance.
-
-    Args:
-        name: Logger name (typically __name__)
-
-    Returns:
-        Configured structlog logger
-    """
-    return structlog.get_logger(name)
+# Context variable for correlation ID
+correlation_id_var: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 
 
-def configure_logging() -> None:
-    """Configure structured logging for the application."""
-    settings = get_settings()
+def get_correlation_id() -> str | None:
+    """Get current correlation ID from context."""
+    return correlation_id_var.get()
 
-    # Determine processors based on format
-    shared_processors: list[Processor] = [
-        structlog.contextvars.merge_contextvars,
-        structlog.stdlib.add_log_level,
-        structlog.stdlib.add_logger_name,
-        structlog.stdlib.PositionalArgumentsFormatter(),
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.UnicodeDecoder(),
-    ]
 
-    if settings.log_format == "json":
-        # JSON format for production
-        processors: list[Processor] = [
-            *shared_processors,
+def set_correlation_id(correlation_id: str) -> None:
+    """Set correlation ID in context."""
+    correlation_id_var.set(correlation_id)
+
+
+def add_correlation_id(
+    logger: logging.Logger,
+    method_name: str,
+    event_dict: dict[str, Any],
+) -> dict[str, Any]:
+    """Add correlation ID to log event."""
+    correlation_id = get_correlation_id()
+    if correlation_id:
+        event_dict["correlation_id"] = correlation_id
+    return event_dict
+
+
+def configure_logging(log_level: str = "INFO") -> None:
+    """Configure structured logging."""
+    structlog.configure(
+        processors=[
+            structlog.contextvars.merge_contextvars,
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            add_correlation_id,
+            structlog.processors.StackInfoRenderer(),
             structlog.processors.format_exc_info,
             structlog.processors.JSONRenderer(),
-        ]
-    else:
-        # Console format for development
-        processors = [
-            *shared_processors,
-            structlog.dev.ConsoleRenderer(colors=True),
-        ]
-
-    structlog.configure(
-        processors=processors,
-        wrapper_class=structlog.stdlib.BoundLogger,
+        ],
+        wrapper_class=structlog.make_filtering_bound_logger(
+            getattr(logging, log_level.upper(), logging.INFO)
+        ),
         context_class=dict,
-        logger_factory=structlog.stdlib.LoggerFactory(),
+        logger_factory=structlog.PrintLoggerFactory(file=sys.stdout),
         cache_logger_on_first_use=True,
     )
 
-    # Configure standard library logging
-    logging.basicConfig(
-        format="%(message)s",
-        stream=sys.stdout,
-        level=getattr(logging, settings.log_level.upper()),
-    )
 
-
-def bind_context(**kwargs: Any) -> None:
-    """Bind context variables for structured logging.
-
-    Args:
-        **kwargs: Context variables to bind
-    """
-    structlog.contextvars.bind_contextvars(**kwargs)
-
-
-def clear_context() -> None:
-    """Clear all bound context variables."""
-    structlog.contextvars.clear_contextvars()
+def get_logger(name: str) -> structlog.BoundLogger:
+    """Get a structured logger instance."""
+    return structlog.get_logger(name)

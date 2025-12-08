@@ -1,42 +1,38 @@
 """
 FastAPI application entry point.
 
-Configures and creates the main application instance.
+Configures and creates the FastAPI application instance.
 """
 
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.auth.exceptions import AuthenticationError
 from app.auth.router import router as auth_router
 from app.config import get_settings
-from app.shared.exceptions import AppError
-from app.shared.logging import configure_logging, get_logger
+from app.shared.logging import configure_logging, get_logger, set_correlation_id
 
 settings = get_settings()
+configure_logging(settings.log_level)
 logger = get_logger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager."""
-    configure_logging()
-    logger.info(
-        "Application starting",
-        app_name=settings.app_name,
-        environment=settings.environment,
-    )
+    logger.info("Starting application", extra={"app_name": settings.app_name})
     yield
-    logger.info("Application shutting down")
+    logger.info("Shutting down application")
 
 
 app = FastAPI(
     title=settings.app_name,
-    version=settings.app_version,
-    debug=settings.debug,
+    description="AI-driven outbound phone survey system",
+    version="1.0.0",
     lifespan=lifespan,
 )
 
@@ -50,24 +46,29 @@ app.add_middleware(
 )
 
 
-@app.exception_handler(AppError)
-async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
-    """Handle application errors."""
-    logger.warning(
-        "Application error",
-        error_code=exc.code,
-        error_message=exc.message,
-        path=str(request.url.path),
-    )
+@app.middleware("http")
+async def correlation_id_middleware(request: Request, call_next):
+    """Add correlation ID to each request."""
+    import uuid
+
+    correlation_id = request.headers.get("X-Correlation-ID", str(uuid.uuid4()))
+    set_correlation_id(correlation_id)
+
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = correlation_id
+    return response
+
+
+@app.exception_handler(AuthenticationError)
+async def authentication_error_handler(
+    request: Request,
+    exc: AuthenticationError,
+) -> JSONResponse:
+    """Handle authentication errors."""
     return JSONResponse(
         status_code=exc.status_code,
-        content={
-            "error": {
-                "code": exc.code,
-                "message": exc.message,
-                "details": exc.details,
-            }
-        },
+        content={"detail": exc.detail},
+        headers=exc.headers,
     )
 
 
@@ -75,7 +76,7 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 app.include_router(auth_router, prefix="/api")
 
 
-@app.get("/health")
+@app.get("/health", tags=["health"])
 async def health_check() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "healthy"}
