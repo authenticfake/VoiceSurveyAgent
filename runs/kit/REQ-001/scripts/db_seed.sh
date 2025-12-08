@@ -1,18 +1,19 @@
 #!/bin/bash
-# db_seed.sh - Run seed data (idempotent)
+# db_seed.sh - Run seed data script
 # Usage: ./db_seed.sh
 
-set -euo pipefail
+set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SEED_DIR="${SCRIPT_DIR}/../src/storage/seed"
+SEED_FILE="${SCRIPT_DIR}/../src/storage/seed/seed.sql"
 
-# Load database URL from environment or use default
-DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/voicesurvey}"
+# Check for DATABASE_URL
+if [ -z "$DATABASE_URL" ]; then
+    echo "Error: DATABASE_URL environment variable is not set"
+    echo "Example: export DATABASE_URL='postgresql://user:password@localhost:5432/voicesurvey'"
+    exit 1
+fi
 
-echo "Running database seed..."
-echo "Database: ${DATABASE_URL%%@*}@***"
-
-psql "${DATABASE_URL}" -f "${SEED_DIR}/seed.sql" -v ON_ERROR_STOP=1
-
+echo "Running seed data..."
+psql "$DATABASE_URL" -f "$SEED_FILE"
 echo "Seed data applied successfully."

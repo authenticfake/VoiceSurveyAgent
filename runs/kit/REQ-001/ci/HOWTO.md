@@ -1,214 +1,140 @@
 # REQ-001: Database Schema and Migrations - Execution Guide
 
-## Overview
-
-This KIT implements the foundational database schema for the voicesurveyagent system, including all entities from the SPEC data model with proper Alembic-compatible migrations.
-
 ## Prerequisites
 
 ### Required Tools
 - PostgreSQL 15+ (local or Docker)
 - Python 3.12+
-- psql CLI (PostgreSQL client)
+- psql CLI tool
 - Docker (optional, for testcontainers)
 
-### Environment Variables
-```bash
-# Required for database operations
-export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/voicesurvey"
+### Environment Setup
 
-# Optional: Disable testcontainers if Docker unavailable
+bash
+# Set database connection URL
+export DATABASE_URL='postgresql://postgres:postgres@localhost:5432/voicesurvey'
+
+# For testing with testcontainers (recommended)
+export DISABLE_TESTCONTAINERS=0
+
+# For testing with local database
 export DISABLE_TESTCONTAINERS=1
-```
-
-## Installation
-
-### 1. Install Python Dependencies
-```bash
-cd /path/to/project
-pip install -r runs/kit/REQ-001/requirements.txt
-```
-
-### 2. Database Setup
-
-#### Option A: Using Docker (Recommended)
-```bash
-# Start PostgreSQL container
-docker run -d \
-  --name voicesurvey-db \
-  -e POSTGRES_USER=postgres \
-  -e POSTGRES_PASSWORD=postgres \
-  -e POSTGRES_DB=voicesurvey \
-  -p 5432:5432 \
-  postgres:15-alpine
-
-# Wait for database to be ready
-sleep 5
-```
-
-#### Option B: Using Local PostgreSQL
-```bash
-# Create database
-createdb voicesurvey
-
-# Or via psql
-psql -U postgres -c "CREATE DATABASE voicesurvey;"
-```
 
 ## Running Migrations
 
-### Apply Migrations (Upgrade)
-```bash
-# Using the provided script
+### Upgrade (Apply Schema)
+bash
+# Make script executable
 chmod +x runs/kit/REQ-001/scripts/db_upgrade.sh
+
+# Run upgrade
 ./runs/kit/REQ-001/scripts/db_upgrade.sh
 
-# Or manually with psql
-psql $DATABASE_URL -f runs/kit/REQ-001/src/storage/sql/V0001.up.sql
-```
-
-### Rollback Migrations (Downgrade)
-```bash
-# Using the provided script
+### Downgrade (Revert Schema)
+bash
+# Make script executable
 chmod +x runs/kit/REQ-001/scripts/db_downgrade.sh
+
+# Run downgrade
 ./runs/kit/REQ-001/scripts/db_downgrade.sh
 
-# Or manually with psql
-psql $DATABASE_URL -f runs/kit/REQ-001/src/storage/sql/V0001.down.sql
-```
-
 ### Apply Seed Data
-```bash
-# Using the provided script
+bash
+# Make script executable
 chmod +x runs/kit/REQ-001/scripts/db_seed.sh
-./runs/kit/REQ-001/scripts/db_seed.sh
 
-# Or manually with psql
-psql $DATABASE_URL -f runs/kit/REQ-001/src/storage/seed/seed.sql
-```
+# Run seed
+./runs/kit/REQ-001/scripts/db_seed.sh
 
 ## Running Tests
 
-### With Testcontainers (Docker Required)
-```bash
-# Tests will automatically spin up a PostgreSQL container
-pytest -v runs/kit/REQ-001/test/test_migration_sql.py
-```
+### With Testcontainers (Recommended)
+bash
+# Install dependencies
+pip install -r runs/kit/REQ-001/requirements.txt
 
-### With External Database
-```bash
-# Set DATABASE_URL to your test database
-export DATABASE_URL="postgresql://user:pass@host:5432/testdb"
+# Run tests (testcontainers will spin up PostgreSQL automatically)
+pytest runs/kit/REQ-001/test/ -v
+
+### With Local PostgreSQL
+bash
+# Create test database
+createdb voicesurvey_test
+
+# Set environment
+export DATABASE_URL='postgresql://postgres:postgres@localhost:5432/voicesurvey_test'
 export DISABLE_TESTCONTAINERS=1
 
-pytest -v runs/kit/REQ-001/test/test_migration_sql.py
-```
+# Run tests
+pytest runs/kit/REQ-001/test/ -v
 
-### Generate JUnit Report
-```bash
-pytest -v runs/kit/REQ-001/test/ \
-  --junitxml=reports/junit.xml \
-  --tb=short
-```
+### With Docker PostgreSQL
+bash
+# Start PostgreSQL container
+docker run -d \
+  --name voicesurvey-postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=voicesurvey_test \
+  -p 5432:5432 \
+  postgres:15-alpine
 
-## Verification Commands
+# Set environment
+export DATABASE_URL='postgresql://postgres:postgres@localhost:5432/voicesurvey_test'
+export DISABLE_TESTCONTAINERS=1
 
-### Check Tables Created
-```bash
-psql $DATABASE_URL -c "\dt"
-```
+# Run tests
+pytest runs/kit/REQ-001/test/ -v
 
-### Check Enum Types
-```bash
-psql $DATABASE_URL -c "SELECT typname FROM pg_type WHERE typtype = 'e';"
-```
+# Cleanup
+docker stop voicesurvey-postgres && docker rm voicesurvey-postgres
 
-### Check Indexes
-```bash
-psql $DATABASE_URL -c "\di"
-```
+## CI/CD Integration
 
-### Verify Seed Data
-```bash
-psql $DATABASE_URL -c "SELECT COUNT(*) FROM users;"
-psql $DATABASE_URL -c "SELECT COUNT(*) FROM campaigns;"
-psql $DATABASE_URL -c "SELECT COUNT(*) FROM contacts;"
-```
+### GitHub Actions
+yaml
+- name: Run REQ-001 Tests
+  env:
+    DISABLE_TESTCONTAINERS: "0"
+  run: |
+    pip install -r runs/kit/REQ-001/requirements.txt
+    pytest runs/kit/REQ-001/test/ -v --junitxml=reports/junit.xml
+
+### Jenkins
+groovy
+stage('REQ-001 Tests') {
+    steps {
+        sh 'pip install -r runs/kit/REQ-001/requirements.txt'
+        sh 'pytest runs/kit/REQ-001/test/ -v --junitxml=reports/junit.xml'
+    }
+}
 
 ## Troubleshooting
 
 ### Common Issues
 
-#### 1. Connection Refused
-```
-psycopg2.OperationalError: could not connect to server
-```
-**Solution**: Ensure PostgreSQL is running and DATABASE_URL is correct.
+1. **psql: command not found**
+   - Install PostgreSQL client tools
+   - macOS: `brew install postgresql`
+   - Ubuntu: `apt-get install postgresql-client`
 
-#### 2. Database Does Not Exist
-```
-FATAL: database "voicesurvey" does not exist
-```
-**Solution**: Create the database first:
-```bash
-createdb voicesurvey
-```
+2. **Connection refused**
+   - Ensure PostgreSQL is running
+   - Check DATABASE_URL is correct
+   - Verify port 5432 is accessible
 
-#### 3. Permission Denied
-```
-ERROR: permission denied for schema public
-```
-**Solution**: Grant permissions:
-```bash
-psql -U postgres -c "GRANT ALL ON SCHEMA public TO your_user;"
-```
+3. **Permission denied on scripts**
+   - Run `chmod +x runs/kit/REQ-001/scripts/*.sh`
 
-#### 4. Testcontainers Not Working
-```
-docker.errors.DockerException: Error while fetching server API version
-```
-**Solution**: Ensure Docker daemon is running, or set `DISABLE_TESTCONTAINERS=1` and use external database.
-
-### Import Path Issues
-
-If running tests from project root:
-```bash
-# Ensure PYTHONPATH includes project root
-export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-pytest -v runs/kit/REQ-001/test/
-```
-
-## CI/CD Integration
-
-### GitHub Actions Example
-```yaml
-- name: Run REQ-001 Tests
-  env:
-    DATABASE_URL: postgresql://postgres:postgres@localhost:5432/voicesurvey
-  run: |
-    pip install -r runs/kit/REQ-001/requirements.txt
-    pytest -v runs/kit/REQ-001/test/ --junitxml=reports/junit.xml
-```
-
-### Jenkins Pipeline
-```groovy
-stage('REQ-001 Tests') {
-    environment {
-        DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/voicesurvey'
-    }
-    steps {
-        sh 'pip install -r runs/kit/REQ-001/requirements.txt'
-        sh 'pytest -v runs/kit/REQ-001/test/ --junitxml=reports/junit.xml'
-    }
-}
-```
+4. **Testcontainers not starting**
+   - Ensure Docker daemon is running
+   - Check Docker permissions
+   - Set `DISABLE_TESTCONTAINERS=1` to use local DB instead
 
 ## Artifacts
 
 | Artifact | Path | Description |
 |----------|------|-------------|
-| Up Migration | `runs/kit/REQ-001/src/storage/sql/V0001.up.sql` | Creates all tables, enums, indexes |
-| Down Migration | `runs/kit/REQ-001/src/storage/sql/V0001.down.sql` | Drops all objects |
-| Seed Data | `runs/kit/REQ-001/src/storage/seed/seed.sql` | Idempotent seed data |
-| Tests | `runs/kit/REQ-001/test/test_migration_sql.py` | Schema validation tests |
-| JUnit Report | `reports/junit.xml` | Test results in JUnit format |
+| Up Migration | `runs/kit/REQ-001/src/storage/sql/V0001.up.sql` | Creates all tables and indexes |
+| Down Migration | `runs/kit/REQ-001/src/storage/sql/V0001.down.sql` | Drops all tables and types |
+| Seed Data | `runs/kit/REQ-001/src/storage/seed/seed.sql` | Initial test data |
+| Tests | `runs/kit/REQ-001/test/test_migration_sql.py` | Migration validation tests |

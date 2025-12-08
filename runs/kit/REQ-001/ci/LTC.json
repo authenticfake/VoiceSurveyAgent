@@ -3,7 +3,7 @@
   "req_id": "REQ-001",
   "lane": "python",
   "env": {
-    "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/voicesurvey",
+    "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/voicesurvey_test",
     "DISABLE_TESTCONTAINERS": "0"
   },
   "cases": [
@@ -16,43 +16,40 @@
     },
     {
       "name": "tests",
-      "run": "pytest -v runs/kit/REQ-001/test/test_migration_sql.py --tb=short",
+      "run": "pytest runs/kit/REQ-001/test/ -v --tb=short",
       "cwd": ".",
       "expect": 0,
       "timeout": 300
     }
   ],
+  "reports": [
+    {"kind": "junit", "path": "reports/junit.xml", "format": "junit-xml"}
+  ],
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 0.0,
+    "security": {"bandit_high": 0}
+  },
   "tools": {
     "tests": "pytest",
     "lint": "ruff",
     "types": "mypy",
     "security": "bandit",
-    "build": "n/a"
+    "build": "docker"
   },
   "commands": {
     "install": "pip install -r runs/kit/REQ-001/requirements.txt",
-    "tests": "pytest -v runs/kit/REQ-001/test/",
+    "test": "pytest runs/kit/REQ-001/test/ -v",
     "upgrade": "bash runs/kit/REQ-001/scripts/db_upgrade.sh",
     "downgrade": "bash runs/kit/REQ-001/scripts/db_downgrade.sh",
     "seed": "bash runs/kit/REQ-001/scripts/db_seed.sh"
   },
-  "reports": [
-    {
-      "kind": "junit",
-      "path": "reports/junit.xml",
-      "format": "junit-xml"
-    }
-  ],
-  "gate_policy": {
-    "tests_pass": true,
-    "coverage_min": 0,
-    "security": {
-      "bandit_high": 0
-    }
+  "normalize": {
+    "test_results": "reports/junit.xml"
   },
   "constraints_applied": {
-    "database": "postgres",
-    "migration_strategy": "versioned_sql",
-    "orm": "SQLAlchemy"
+    "database": "PostgreSQL 15+",
+    "uuid_type": "native UUID",
+    "timestamps": "TIMESTAMP WITH TIME ZONE"
   }
 }

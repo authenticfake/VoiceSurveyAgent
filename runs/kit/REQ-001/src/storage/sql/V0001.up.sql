@@ -30,9 +30,8 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_users_oidc_sub ON users(oidc_sub);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
+CREATE INDEX IF NOT EXISTS idx_users_oidc_sub ON users(oidc_sub);
 
 -- Email templates table (must be created before campaigns due to FK)
 CREATE TABLE IF NOT EXISTS email_templates (
@@ -91,8 +90,8 @@ CREATE TABLE IF NOT EXISTS contacts (
     phone_number VARCHAR(20) NOT NULL,
     email VARCHAR(255),
     preferred_language contact_language NOT NULL DEFAULT 'auto',
-    has_prior_consent BOOLEAN NOT NULL DEFAULT FALSE,
-    do_not_call BOOLEAN NOT NULL DEFAULT FALSE,
+    has_prior_consent BOOLEAN NOT NULL DEFAULT false,
+    do_not_call BOOLEAN NOT NULL DEFAULT false,
     state contact_state NOT NULL DEFAULT 'pending',
     attempts_count INTEGER NOT NULL DEFAULT 0,
     last_attempt_at TIMESTAMP WITH TIME ZONE,
@@ -104,9 +103,8 @@ CREATE TABLE IF NOT EXISTS contacts (
 CREATE INDEX IF NOT EXISTS idx_contacts_campaign_id ON contacts(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_contacts_phone_number ON contacts(phone_number);
 CREATE INDEX IF NOT EXISTS idx_contacts_state ON contacts(state);
-CREATE INDEX IF NOT EXISTS idx_contacts_external_id ON contacts(external_contact_id);
-CREATE INDEX IF NOT EXISTS idx_contacts_campaign_state ON contacts(campaign_id, state);
-CREATE INDEX IF NOT EXISTS idx_contacts_scheduling ON contacts(campaign_id, state, attempts_count, do_not_call);
+CREATE INDEX IF NOT EXISTS idx_contacts_do_not_call ON contacts(do_not_call);
+CREATE INDEX IF NOT EXISTS idx_contacts_attempts ON contacts(attempts_count);
 
 -- Exclusion list entries table
 CREATE TABLE IF NOT EXISTS exclusion_list_entries (
@@ -139,7 +137,6 @@ CREATE TABLE IF NOT EXISTS call_attempts (
 CREATE INDEX IF NOT EXISTS idx_call_attempts_contact_id ON call_attempts(contact_id);
 CREATE INDEX IF NOT EXISTS idx_call_attempts_campaign_id ON call_attempts(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_call_attempts_call_id ON call_attempts(call_id);
-CREATE INDEX IF NOT EXISTS idx_call_attempts_provider_call_id ON call_attempts(provider_call_id);
 CREATE INDEX IF NOT EXISTS idx_call_attempts_outcome ON call_attempts(outcome);
 CREATE INDEX IF NOT EXISTS idx_call_attempts_started_at ON call_attempts(started_at);
 
@@ -152,9 +149,9 @@ CREATE TABLE IF NOT EXISTS survey_responses (
     q1_answer TEXT,
     q2_answer TEXT,
     q3_answer TEXT,
-    q1_confidence NUMERIC(3, 2) CHECK (q1_confidence >= 0 AND q1_confidence <= 1),
-    q2_confidence NUMERIC(3, 2) CHECK (q2_confidence >= 0 AND q2_confidence <= 1),
-    q3_confidence NUMERIC(3, 2) CHECK (q3_confidence >= 0 AND q3_confidence <= 1),
+    q1_confidence NUMERIC(3,2) CHECK (q1_confidence >= 0 AND q1_confidence <= 1),
+    q2_confidence NUMERIC(3,2) CHECK (q2_confidence >= 0 AND q2_confidence <= 1),
+    q3_confidence NUMERIC(3,2) CHECK (q3_confidence >= 0 AND q3_confidence <= 1),
     completed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     UNIQUE(contact_id, campaign_id)
 );
@@ -202,13 +199,13 @@ CREATE INDEX IF NOT EXISTS idx_email_notifications_campaign_id ON email_notifica
 CREATE INDEX IF NOT EXISTS idx_email_notifications_template_id ON email_notifications(template_id);
 CREATE INDEX IF NOT EXISTS idx_email_notifications_status ON email_notifications(status);
 
--- Provider config table (single row or per environment)
+-- Provider configs table (single row or per-env)
 CREATE TABLE IF NOT EXISTS provider_configs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     provider_type provider_type NOT NULL DEFAULT 'telephony_api',
-    provider_name VARCHAR(100) NOT NULL DEFAULT 'twilio',
+    provider_name VARCHAR(100) NOT NULL,
     outbound_number VARCHAR(20) NOT NULL,
-    max_concurrent_calls INTEGER NOT NULL DEFAULT 5 CHECK (max_concurrent_calls >= 1),
+    max_concurrent_calls INTEGER NOT NULL DEFAULT 5,
     llm_provider llm_provider NOT NULL DEFAULT 'openai',
     llm_model VARCHAR(100) NOT NULL DEFAULT 'gpt-4.1-mini',
     recording_retention_days INTEGER NOT NULL DEFAULT 180,
