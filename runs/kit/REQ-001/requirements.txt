@@ -1,0 +1,4 @@
+# REQ-001 test dependencies
+psycopg2-binary>=2.9.9
+pytest>=8.0.0
+testcontainers>=4.0.0

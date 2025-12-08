@@ -1,8 +1,8 @@
 {
   "snapshot": {
     "total": 24,
-    "open": 24,
-    "in_progress": 0,
+    "open": 23,
+    "in_progress": 1,
     "done": 0,
     "deferred": 0,
     "progressPct": 0
@@ -20,7 +20,7 @@
       ],
       "dependsOn": [],
       "track": "Infra",
-      "status": "open",
+      "status": "in_progress",
       "lane": "python",
       "test_profile": "app-core",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"
@@ -35,7 +35,9 @@
         "Session tokens have configurable expiration with refresh capability",
         "Invalid or expired tokens return 401 with appropriate error message"
       ],
-      "dependsOn": ["REQ-001"],
+      "dependsOn": [
+        "REQ-001"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -52,7 +54,9 @@
         "Campaign modification restricted to campaign_manager and admin",
         "Denied access attempts logged with user ID, endpoint, and timestamp"
       ],
-      "dependsOn": ["REQ-002"],
+      "dependsOn": [
+        "REQ-002"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -69,7 +73,9 @@
         "PUT /api/campaigns/{id} validates field changes against current status",
         "Status transitions follow state machine: draft→scheduled→running→paused→completed"
       ],
-      "dependsOn": ["REQ-003"],
+      "dependsOn": [
+        "REQ-003"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -86,7 +92,9 @@
         "Activation blocked if time window invalid (start >= end)",
         "Successful validation transitions status to running or scheduled"
       ],
-      "dependsOn": ["REQ-004"],
+      "dependsOn": [
+        "REQ-004"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -103,7 +111,9 @@
         "Valid rows create Contact records in pending state",
         "At least 95% of valid rows accepted when file has mixed validity"
       ],
-      "dependsOn": ["REQ-004"],
+      "dependsOn": [
+        "REQ-004"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -120,7 +130,9 @@
         "Manual exclusion addition via API supported",
         "Exclusion removal requires admin role"
       ],
-      "dependsOn": ["REQ-006"],
+      "dependsOn": [
+        "REQ-006"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -137,7 +149,9 @@
         "Filters by current time within allowed_call_start/end window",
         "Creates CallAttempt record before initiating call"
       ],
-      "dependsOn": ["REQ-007"],
+      "dependsOn": [
+        "REQ-007"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -154,7 +168,9 @@
         "Adapter configurable via ProviderConfig entity",
         "Adapter is injectable for testing with mock provider"
       ],
-      "dependsOn": ["REQ-001"],
+      "dependsOn": [
+        "REQ-001"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -171,7 +187,9 @@
         "call.no_answer updates attempt outcome and contact state",
         "Duplicate events handled idempotently via call_id"
       ],
-      "dependsOn": ["REQ-009"],
+      "dependsOn": [
+        "REQ-009"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -188,7 +206,9 @@
         "Timeout handling with configurable duration",
         "Gateway errors logged with correlation ID"
       ],
-      "dependsOn": ["REQ-001"],
+      "dependsOn": [
+        "REQ-001"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -205,7 +225,10 @@
         "Negative consent triggers call termination within 10 seconds",
         "survey.refused event published on refusal"
       ],
-      "dependsOn": ["REQ-010", "REQ-011"],
+      "dependsOn": [
+        "REQ-010",
+        "REQ-011"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -222,7 +245,9 @@
         "Repeat request detected and question re-asked once",
         "All 3 answers captured before completion flow"
       ],
-      "dependsOn": ["REQ-012"],
+      "dependsOn": [
+        "REQ-012"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -239,7 +264,9 @@
         "Timestamps recorded for completion",
         "Transaction ensures atomicity of all updates"
       ],
-      "dependsOn": ["REQ-013"],
+      "dependsOn": [
+        "REQ-013"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -256,7 +283,9 @@
         "Message deduplication via call_id",
         "Failed publishes retried with exponential backoff"
       ],
-      "dependsOn": ["REQ-014"],
+      "dependsOn": [
+        "REQ-014"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -273,7 +302,9 @@
         "EmailNotification record created with status",
         "Failed sends retried up to 3 times with backoff"
       ],
-      "dependsOn": ["REQ-015"],
+      "dependsOn": [
+        "REQ-015"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -290,7 +321,9 @@
         "Stats cached with 60-second TTL",
         "Response time under 500ms for campaigns with 10k contacts"
       ],
-      "dependsOn": ["REQ-014"],
+      "dependsOn": [
+        "REQ-014"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -307,7 +340,9 @@
         "Download URL returned with expiration",
         "Export respects RBAC (campaign_manager or admin only)"
       ],
-      "dependsOn": ["REQ-017"],
+      "dependsOn": [
+        "REQ-017"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -324,7 +359,9 @@
         "Config changes logged in audit trail",
         "Admin role required for all config endpoints"
       ],
-      "dependsOn": ["REQ-003"],
+      "dependsOn": [
+        "REQ-003"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -341,7 +378,9 @@
         "Access restricted to campaign_manager and admin",
         "404 returned for non-existent call_id"
       ],
-      "dependsOn": ["REQ-014"],
+      "dependsOn": [
+        "REQ-014"
+      ],
       "track": "App",
       "status": "open",
       "lane": "python",
@@ -358,7 +397,9 @@
         "OpenTelemetry traces for API requests",
         "Log level configurable via environment variable"
       ],
-      "dependsOn": ["REQ-001"],
+      "dependsOn": [
+        "REQ-001"
+      ],
       "track": "Infra",
       "status": "open",
       "lane": "python",
@@ -375,7 +416,9 @@
         "Job handles partial failures gracefully",
         "GDPR deletion requests processed within 72 hours"
       ],
-      "dependsOn": ["REQ-019"],
+      "dependsOn": [
+        "REQ-019"
+      ],
       "track": "Infra",
       "status": "open",
       "lane": "python",
@@ -392,7 +435,10 @@
         "Form validation matches backend rules",
         "Responsive design for desktop and tablet"
       ],
-      "dependsOn": ["REQ-004", "REQ-006"],
+      "dependsOn": [
+        "REQ-004",
+        "REQ-006"
+      ],
       "track": "App",
       "status": "open",
       "lane": "node",
@@ -409,7 +455,10 @@
         "Stats refresh automatically every 60 seconds",
         "Error states with retry options"
       ],
-      "dependsOn": ["REQ-017", "REQ-018"],
+      "dependsOn": [
+        "REQ-017",
+        "REQ-018"
+      ],
       "track": "App",
       "status": "open",
       "lane": "node",
