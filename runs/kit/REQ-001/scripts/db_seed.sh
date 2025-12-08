@@ -14,6 +14,6 @@ if [ -z "$DATABASE_URL" ]; then
     exit 1
 fi
 
-echo "Running seed data..."
+echo "Running database seed..."
 psql "$DATABASE_URL" -f "$SEED_FILE"
-echo "Seed data applied successfully."
+echo "Database seed complete."

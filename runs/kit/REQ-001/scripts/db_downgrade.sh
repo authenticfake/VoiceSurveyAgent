@@ -14,12 +14,13 @@ if [ -z "$DATABASE_URL" ]; then
     exit 1
 fi
 
-echo "Running database migrations (downgrade)..."
+echo "Running database downgrade migrations..."
 
 # Find and run all .down.sql files in reverse order
-for migration in $(ls -1r "${SQL_DIR}"/*.down.sql 2>/dev/null | sort -r); do
-    echo "Reverting: $(basename "$migration")"
+for migration in $(ls -1r "${SQL_DIR}"/*.down.sql 2>/dev/null); do
+    echo "Applying: $(basename "$migration")"
     psql "$DATABASE_URL" -f "$migration"
+    echo "Applied: $(basename "$migration")"
 done
 
-echo "All migrations reverted successfully."
+echo "Database downgrade complete."

@@ -2,139 +2,170 @@
 
 ## Prerequisites
 
-### Required Tools
-- PostgreSQL 15+ (local or Docker)
-- Python 3.12+
-- psql CLI tool
-- Docker (optional, for testcontainers)
+- Docker installed and running (for PostgreSQL container)
+- Python 3.12+ installed
+- `psql` CLI available (for running SQL scripts)
+- pip for installing Python dependencies
 
-### Environment Setup
+## Environment Setup
 
-bash
-# Set database connection URL
-export DATABASE_URL='postgresql://postgres:postgres@localhost:5432/voicesurvey'
+### Environment Variables
 
-# For testing with testcontainers (recommended)
-export DISABLE_TESTCONTAINERS=0
+```bash
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/voicesurvey_test"
+```
 
-# For testing with local database
-export DISABLE_TESTCONTAINERS=1
+### Install Dependencies
 
-## Running Migrations
-
-### Upgrade (Apply Schema)
-bash
-# Make script executable
-chmod +x runs/kit/REQ-001/scripts/db_upgrade.sh
-
-# Run upgrade
-./runs/kit/REQ-001/scripts/db_upgrade.sh
-
-### Downgrade (Revert Schema)
-bash
-# Make script executable
-chmod +x runs/kit/REQ-001/scripts/db_downgrade.sh
-
-# Run downgrade
-./runs/kit/REQ-001/scripts/db_downgrade.sh
-
-### Apply Seed Data
-bash
-# Make script executable
-chmod +x runs/kit/REQ-001/scripts/db_seed.sh
-
-# Run seed
-./runs/kit/REQ-001/scripts/db_seed.sh
-
-## Running Tests
-
-### With Testcontainers (Recommended)
-bash
-# Install dependencies
+```bash
 pip install -r runs/kit/REQ-001/requirements.txt
+```
 
-# Run tests (testcontainers will spin up PostgreSQL automatically)
-pytest runs/kit/REQ-001/test/ -v
+## Running Locally
 
-### With Local PostgreSQL
-bash
-# Create test database
-createdb voicesurvey_test
+### 1. Start PostgreSQL Container
 
-# Set environment
-export DATABASE_URL='postgresql://postgres:postgres@localhost:5432/voicesurvey_test'
-export DISABLE_TESTCONTAINERS=1
-
-# Run tests
-pytest runs/kit/REQ-001/test/ -v
-
-### With Docker PostgreSQL
-bash
-# Start PostgreSQL container
+```bash
 docker run -d \
   --name voicesurvey-postgres \
   -e POSTGRES_PASSWORD=postgres \
   -e POSTGRES_DB=voicesurvey_test \
   -p 5432:5432 \
   postgres:15-alpine
+```
 
-# Set environment
-export DATABASE_URL='postgresql://postgres:postgres@localhost:5432/voicesurvey_test'
-export DISABLE_TESTCONTAINERS=1
+Wait for PostgreSQL to be ready:
+```bash
+sleep 5
+# Or check with:
+docker logs voicesurvey-postgres
+```
 
-# Run tests
-pytest runs/kit/REQ-001/test/ -v
+### 2. Run Migrations
 
-# Cleanup
-docker stop voicesurvey-postgres && docker rm voicesurvey-postgres
+```bash
+# Make scripts executable
+chmod +x runs/kit/REQ-001/scripts/*.sh
 
-## CI/CD Integration
+# Run upgrade (apply schema)
+./runs/kit/REQ-001/scripts/db_upgrade.sh
 
-### GitHub Actions
-yaml
-- name: Run REQ-001 Tests
-  env:
-    DISABLE_TESTCONTAINERS: "0"
-  run: |
-    pip install -r runs/kit/REQ-001/requirements.txt
-    pytest runs/kit/REQ-001/test/ -v --junitxml=reports/junit.xml
+# Run seed data
+./runs/kit/REQ-001/scripts/db_seed.sh
+```
 
-### Jenkins
-groovy
-stage('REQ-001 Tests') {
-    steps {
-        sh 'pip install -r runs/kit/REQ-001/requirements.txt'
-        sh 'pytest runs/kit/REQ-001/test/ -v --junitxml=reports/junit.xml'
-    }
-}
+### 3. Run Tests
+
+```bash
+pytest runs/kit/REQ-001/test/ -v --tb=short
+```
+
+### 4. Cleanup
+
+```bash
+# Run downgrade (remove schema)
+./runs/kit/REQ-001/scripts/db_downgrade.sh
+
+# Stop and remove container
+docker stop voicesurvey-postgres
+docker rm voicesurvey-postgres
+```
+
+## Running via LTC
+
+The LTC.json file defines the complete test sequence:
+
+```bash
+# Using a CI runner that understands LTC format
+# Each case runs in sequence with the specified cwd and environment
+```
 
 ## Troubleshooting
 
-### Common Issues
+### Connection Refused
 
-1. **psql: command not found**
-   - Install PostgreSQL client tools
-   - macOS: `brew install postgresql`
-   - Ubuntu: `apt-get install postgresql-client`
+If you get "connection refused" errors:
+1. Ensure Docker is running
+2. Wait longer for PostgreSQL to start (increase sleep time)
+3. Check if port 5432 is already in use: `lsof -i :5432`
 
-2. **Connection refused**
-   - Ensure PostgreSQL is running
-   - Check DATABASE_URL is correct
-   - Verify port 5432 is accessible
+### Permission Denied on Scripts
 
-3. **Permission denied on scripts**
-   - Run `chmod +x runs/kit/REQ-001/scripts/*.sh`
+```bash
+chmod +x runs/kit/REQ-001/scripts/*.sh
+```
 
-4. **Testcontainers not starting**
-   - Ensure Docker daemon is running
-   - Check Docker permissions
-   - Set `DISABLE_TESTCONTAINERS=1` to use local DB instead
+### psql Not Found
+
+Install PostgreSQL client:
+- macOS: `brew install postgresql`
+- Ubuntu: `apt-get install postgresql-client`
+- Or use Docker: `docker exec -it voicesurvey-postgres psql -U postgres -d voicesurvey_test`
+
+### Tests Skip with "DATABASE_URL not set"
+
+Ensure the environment variable is exported:
+```bash
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/voicesurvey_test"
+```
 
 ## Artifacts
 
 | Artifact | Path | Description |
 |----------|------|-------------|
-| Up Migration | `runs/kit/REQ-001/src/storage/sql/V0001.up.sql` | Creates all tables and indexes |
-| Down Migration | `runs/kit/REQ-001/src/storage/sql/V0001.down.sql` | Drops all tables and types |
-| Seed Data | `runs/kit/REQ-001/src/storage/seed/seed.sql` | Initial test data |
-| Tests | `runs/kit/REQ-001/test/test_migration_sql.py` | Migration validation tests |
+| Up Migration | `src/storage/sql/V0001.up.sql` | Creates all tables, indexes, triggers |
+| Down Migration | `src/storage/sql/V0001.down.sql` | Drops all objects in reverse order |
+| Seed Data | `src/storage/seed/seed.sql` | Idempotent seed with 10-20 records |
+| Tests | `test/test_migration_sql.py` | Shape, idempotency, round-trip tests |
+
+## Enterprise Runner (Jenkins)
+
+```groovy
+pipeline {
+    agent { label 'docker' }
+    
+    environment {
+        DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/voicesurvey_test'
+    }
+    
+    stages {
+        stage('Start DB') {
+            steps {
+                sh 'docker run -d --name voicesurvey-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=voicesurvey_test -p 5432:5432 postgres:15-alpine'
+                sh 'sleep 10'
+            }
+        }
+        
+        stage('Install') {
+            steps {
+                sh 'pip install -r runs/kit/REQ-001/requirements.txt'
+            }
+        }
+        
+        stage('Migrate') {
+            steps {
+                sh 'chmod +x runs/kit/REQ-001/scripts/*.sh'
+                sh './runs/kit/REQ-001/scripts/db_upgrade.sh'
+                sh './runs/kit/REQ-001/scripts/db_seed.sh'
+            }
+        }
+        
+        stage('Test') {
+            steps {
+                sh 'pytest runs/kit/REQ-001/test/ -v --junitxml=reports/junit.xml'
+            }
+            post {
+                always {
+                    junit 'reports/junit.xml'
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            sh 'docker stop voicesurvey-postgres || true'
+            sh 'docker rm voicesurvey-postgres || true'
+        }
+    }
+}

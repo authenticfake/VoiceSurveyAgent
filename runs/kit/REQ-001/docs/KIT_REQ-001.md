@@ -2,25 +2,25 @@
 
 ## Overview
 
-This KIT implements the foundational database schema for the voicesurveyagent system. It creates all entities defined in the SPEC data model using raw SQL migrations that are idempotent and reversible.
+This KIT implements the foundational database schema for the voicesurveyagent system, including all entities defined in the SPEC data model.
 
 ## Acceptance Criteria Status
 
 | Criterion | Status | Evidence |
 |-----------|--------|----------|
-| All entities from SPEC data model have corresponding Alembic migrations | ✅ | V0001.up.sql creates all 11 tables |
-| Migrations are idempotent and can be run multiple times without error | ✅ | Uses IF NOT EXISTS, IF EXISTS clauses |
-| Foreign key columns have appropriate indexes for query performance | ✅ | 25+ indexes created on FK columns |
-| Enum types are created for all status and type fields | ✅ | 13 enum types created |
-| UUID primary keys use PostgreSQL native UUID type | ✅ | All PKs use UUID with uuid_generate_v4() |
+| All entities from SPEC data model have corresponding migrations | ✅ | V0001.up.sql contains all 11 tables |
+| Migrations are idempotent | ✅ | Uses IF NOT EXISTS, IF EXISTS clauses |
+| Foreign key columns have appropriate indexes | ✅ | All FK columns indexed |
+| Enum types created for all status/type fields | ✅ | 13 enum types created |
+| UUID primary keys use PostgreSQL native UUID type | ✅ | All PKs use uuid_generate_v4() |
 
 ## Schema Summary
 
-### Tables Created
+### Tables (11)
 1. `users` - System users with OIDC integration
 2. `email_templates` - Email templates for notifications
-3. `campaigns` - Survey campaign configurations
-4. `contacts` - Contact records per campaign
+3. `campaigns` - Survey campaigns with configuration
+4. `contacts` - Campaign contacts with state tracking
 5. `exclusion_list_entries` - Do-not-call list
 6. `call_attempts` - Individual call attempt records
 7. `survey_responses` - Captured survey answers
@@ -29,7 +29,7 @@ This KIT implements the foundational database schema for the voicesurveyagent sy
 10. `provider_configs` - Telephony/LLM provider settings
 11. `transcript_snippets` - Call transcript storage
 
-### Enum Types
+### Enum Types (13)
 - `user_role`: admin, campaign_manager, viewer
 - `campaign_status`: draft, scheduled, running, paused, completed, cancelled
 - `campaign_language`: en, it
@@ -44,25 +44,19 @@ This KIT implements the foundational database schema for the voicesurveyagent sy
 - `provider_type`: telephony_api, voice_ai_platform
 - `llm_provider`: openai, anthropic, azure-openai, google
 
-## Design Decisions
-
-1. **Raw SQL over Alembic**: Used raw SQL migrations for maximum control and portability. The structure follows Alembic conventions (V0001.up.sql, V0001.down.sql) for future integration.
-
-2. **UUID Primary Keys**: All tables use PostgreSQL native UUID type with uuid_generate_v4() for distributed-friendly IDs.
-
-3. **Timestamp Handling**: All timestamps use TIMESTAMP WITH TIME ZONE for proper timezone handling. Automatic updated_at triggers maintain consistency.
-
-4. **Cascade Deletes**: Appropriate CASCADE and SET NULL behaviors on foreign keys to maintain referential integrity.
-
-5. **Index Strategy**: Indexes on all foreign key columns plus additional indexes on frequently queried columns (status, state, phone_number).
-
 ## Dependencies
 
 - PostgreSQL 15+ with uuid-ossp extension
-- No application code dependencies (pure SQL)
+- psycopg2-binary for Python tests
 
-## Future Considerations
+## Files
 
-- Additional migrations (V0002, etc.) can be added following the same pattern
-- Alembic integration can wrap these SQL files if needed
-- Partitioning may be needed for call_attempts and events tables at scale
+| File | Purpose |
+|------|---------|
+| `src/storage/sql/V0001.up.sql` | Schema creation |
+| `src/storage/sql/V0001.down.sql` | Schema rollback |
+| `src/storage/seed/seed.sql` | Idempotent seed data |
+| `scripts/db_upgrade.sh` | Apply migrations |
+| `scripts/db_downgrade.sh` | Rollback migrations |
+| `scripts/db_seed.sh` | Apply seed data |
+| `test/test_migration_sql.py` | Schema validation tests |

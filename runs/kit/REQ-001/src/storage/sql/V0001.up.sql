@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS contacts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     campaign_id UUID NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
     external_contact_id VARCHAR(255),
-    phone_number VARCHAR(20) NOT NULL,
+    phone_number VARCHAR(50) NOT NULL,
     email VARCHAR(255),
     preferred_language contact_language NOT NULL DEFAULT 'auto',
     has_prior_consent BOOLEAN NOT NULL DEFAULT false,
@@ -104,12 +104,12 @@ CREATE INDEX IF NOT EXISTS idx_contacts_campaign_id ON contacts(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_contacts_phone_number ON contacts(phone_number);
 CREATE INDEX IF NOT EXISTS idx_contacts_state ON contacts(state);
 CREATE INDEX IF NOT EXISTS idx_contacts_do_not_call ON contacts(do_not_call);
-CREATE INDEX IF NOT EXISTS idx_contacts_attempts ON contacts(attempts_count);
+CREATE INDEX IF NOT EXISTS idx_contacts_attempts_count ON contacts(attempts_count);
 
 -- Exclusion list entries table
 CREATE TABLE IF NOT EXISTS exclusion_list_entries (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    phone_number VARCHAR(20) NOT NULL UNIQUE,
+    phone_number VARCHAR(50) NOT NULL UNIQUE,
     reason TEXT,
     source exclusion_source NOT NULL DEFAULT 'manual',
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
@@ -159,7 +159,6 @@ CREATE TABLE IF NOT EXISTS survey_responses (
 CREATE INDEX IF NOT EXISTS idx_survey_responses_contact_id ON survey_responses(contact_id);
 CREATE INDEX IF NOT EXISTS idx_survey_responses_campaign_id ON survey_responses(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_survey_responses_call_attempt_id ON survey_responses(call_attempt_id);
-CREATE INDEX IF NOT EXISTS idx_survey_responses_completed_at ON survey_responses(completed_at);
 
 -- Events table
 CREATE TABLE IF NOT EXISTS events (
@@ -196,7 +195,6 @@ CREATE TABLE IF NOT EXISTS email_notifications (
 CREATE INDEX IF NOT EXISTS idx_email_notifications_event_id ON email_notifications(event_id);
 CREATE INDEX IF NOT EXISTS idx_email_notifications_contact_id ON email_notifications(contact_id);
 CREATE INDEX IF NOT EXISTS idx_email_notifications_campaign_id ON email_notifications(campaign_id);
-CREATE INDEX IF NOT EXISTS idx_email_notifications_template_id ON email_notifications(template_id);
 CREATE INDEX IF NOT EXISTS idx_email_notifications_status ON email_notifications(status);
 
 -- Provider configs table (single row or per-env)
@@ -204,7 +202,7 @@ CREATE TABLE IF NOT EXISTS provider_configs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     provider_type provider_type NOT NULL DEFAULT 'telephony_api',
     provider_name VARCHAR(100) NOT NULL,
-    outbound_number VARCHAR(20) NOT NULL,
+    outbound_number VARCHAR(50) NOT NULL,
     max_concurrent_calls INTEGER NOT NULL DEFAULT 5,
     llm_provider llm_provider NOT NULL DEFAULT 'openai',
     llm_model VARCHAR(100) NOT NULL DEFAULT 'gpt-4.1-mini',
