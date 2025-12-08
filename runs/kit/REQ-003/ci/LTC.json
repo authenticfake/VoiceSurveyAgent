@@ -1,0 +1,67 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-003",
+  "lane": "python",
+  "env": {
+    "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/voicesurvey_test",
+    "OIDC_ISSUER_URL": "https://idp.example.com",
+    "OIDC_CLIENT_ID": "test-client-id",
+    "OIDC_CLIENT_SECRET": "test-secret",
+    "OIDC_ROLE_CLAIM": "role",
+    "JWT_SECRET_KEY": "test-secret-key-for-testing-only",
+    "PYTHONPATH": "runs/kit/REQ-003/src:runs/kit/REQ-004/src"
+  },
+  "cases": [
+    {
+      "name": "install_deps",
+      "run": "pip install pytest pytest-asyncio pytest-cov httpx pyjwt[crypto] structlog sqlalchemy[asyncio] asyncpg fastapi pydantic pydantic-settings",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "tests",
+      "run": "pytest runs/kit/REQ-003/test/ -v --tb=short",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 300
+    }
+  ],
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "reports/junit.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "reports/coverage.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "tools": {
+    "tests": "pytest",
+    "lint": "ruff",
+    "types": "mypy",
+    "security": "bandit",
+    "build": "docker"
+  },
+  "commands": {
+    "tests": "pytest runs/kit/REQ-003/test/ -v",
+    "lint": "ruff check runs/kit/REQ-003/src",
+    "types": "mypy runs/kit/REQ-003/src --ignore-missing-imports",
+    "security": "bandit -r runs/kit/REQ-003/src -ll"
+  },
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 80,
+    "security": {
+      "bandit_high": 0
+    }
+  },
+  "constraints_applied": {
+    "lane": "python",
+    "test_profile": "app-core",
+    "coverage_min": 80
+  }
+}
