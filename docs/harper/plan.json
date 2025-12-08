@@ -1,8 +1,8 @@
 {
   "snapshot": {
     "total": 11,
-    "open": 5,
-    "in_progress": 5,
+    "open": 4,
+    "in_progress": 6,
     "done": 1,
     "deferred": 0,
     "progressPct": 9
@@ -118,7 +118,7 @@
         "REQ-009"
       ],
       "track": "App",
-      "status": "open",
+      "status": "in_progress",
       "lane": "python",
       "test_profile": "backend-events-email",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"

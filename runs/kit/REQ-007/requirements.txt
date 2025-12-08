@@ -1,0 +1,14 @@
+fastapi>=0.111.0
+sqlalchemy>=2.0.29
+pydantic>=2.7.0
+httpx>=0.27.0
+pytest>=8.2.0
+
+KIT Iteration Log
+- Targeted REQ-IDs: REQ-007 (next open scope per PLAN; needed reporting endpoints built atop prior campaigns/contacts/calling data)
+- Scope: Added reporting service, FastAPI router, schemas, CSV streaming, and tests/doc/LTC/HOWTO; out-of-scope items include dashboard frontend or async export jobs.
+- Tests: `pytest -q runs/kit/REQ-007/test`
+- Prerequisites: Python 3.12, virtualenv, deps from `runs/kit/REQ-007/requirements.txt`
+- Dependencies & mocks: SQLite in-memory DB + FastAPI dependency overrides for auth/RBAC; external providers not invoked.
+- Product Owner Notes: CSV currently synchronous; extend to async jobs if contact volume grows.
+- RAG citations: PLAN.md (reporting scope), SPEC reporting requirements, plan.json lane info.

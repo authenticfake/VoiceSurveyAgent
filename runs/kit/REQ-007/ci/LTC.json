@@ -1,0 +1,51 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-007",
+  "lane": "python",
+  "tools": {
+    "tests": "pytest",
+    "lint": "ruff",
+    "types": "mypy",
+    "security": "bandit",
+    "build": "docker"
+  },
+  "commands": {
+    "tests": "pytest -q runs/kit/REQ-007/test"
+  },
+  "cases": [
+    {
+      "name": "tests",
+      "run": "pytest -q runs/kit/REQ-007/test",
+      "cwd": ".",
+      "pip-file": "runs/kit/REQ-007/requirements.txt",
+      "expect": 0,
+      "timeout": 600
+    }
+  ],
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "runs/kit/REQ-007/reports/junit.xml",
+      "format": "junit-xml"
+    }
+  ],
+  "env": {
+    "PYTHONPATH": "."
+  },
+  "normalize": {
+    "summary_file": "runs/kit/REQ-007/reports/eval.summary.json"
+  },
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 0.8,
+    "security": {
+      "bandit_high": 0
+    }
+  },
+  "external_runner": null,
+  "constraints_applied": [
+    "python lane guide",
+    "composition-first services",
+    "ASGITransport httpx testing directive"
+  ]
+}
