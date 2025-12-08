@@ -1,0 +1,78 @@
+{
+  "info": {
+    "name": "REQ-001 Auth API Tests",
+    "description": "Manual API tests for authentication endpoints"
+  },
+  "variables": {
+    "base_url": "http://localhost:8000",
+    "access_token": ""
+  },
+  "requests": [
+    {
+      "name": "Health Check",
+      "method": "GET",
+      "url": "{{base_url}}/health",
+      "expected_status": 200
+    },
+    {
+      "name": "Initiate Login",
+      "method": "GET",
+      "url": "{{base_url}}/api/auth/login",
+      "expected_status": 200,
+      "expected_fields": ["authorization_url", "state"]
+    },
+    {
+      "name": "Get Current User - Unauthenticated",
+      "method": "GET",
+      "url": "{{base_url}}/api/auth/me",
+      "expected_status": 401
+    },
+    {
+      "name": "Get Current User - Authenticated",
+      "method": "GET",
+      "url": "{{base_url}}/api/auth/me",
+      "headers": {
+        "Authorization": "Bearer {{access_token}}"
+      },
+      "expected_status": 200,
+      "expected_fields": ["id", "email", "name", "role"]
+    },
+    {
+      "name": "Viewer Resource - Authenticated",
+      "method": "GET",
+      "url": "{{base_url}}/api/protected/viewer-resource",
+      "headers": {
+        "Authorization": "Bearer {{access_token}}"
+      },
+      "expected_status": 200
+    },
+    {
+      "name": "Writer Resource - Requires Write Role",
+      "method": "GET",
+      "url": "{{base_url}}/api/protected/writer-resource",
+      "headers": {
+        "Authorization": "Bearer {{access_token}}"
+      },
+      "note": "Returns 200 for admin/campaign_manager, 403 for viewer"
+    },
+    {
+      "name": "Admin Resource - Requires Admin Role",
+      "method": "GET",
+      "url": "{{base_url}}/api/protected/admin-resource",
+      "headers": {
+        "Authorization": "Bearer {{access_token}}"
+      },
+      "note": "Returns 200 for admin only, 403 for others"
+    },
+    {
+      "name": "My Permissions",
+      "method": "GET",
+      "url": "{{base_url}}/api/protected/my-permissions",
+      "headers": {
+        "Authorization": "Bearer {{access_token}}"
+      },
+      "expected_status": 200,
+      "expected_fields": ["user", "permissions"]
+    }
+  ]
+}

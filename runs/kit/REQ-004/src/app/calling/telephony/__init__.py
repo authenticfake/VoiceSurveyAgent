@@ -1,1 +1,0 @@
-"""Telephony provider abstractions and adapters."""

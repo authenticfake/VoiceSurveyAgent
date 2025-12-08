@@ -1,3 +1,1 @@
-"""
-HTTP API surface for voicesurveyagent.
-"""
+"""API module."""

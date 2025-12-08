@@ -1,3 +1,1 @@
-"""
-FastAPI routers and shared HTTP helpers.
-"""
+"""HTTP API routers."""

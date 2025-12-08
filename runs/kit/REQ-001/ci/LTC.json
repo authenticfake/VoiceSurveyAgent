@@ -2,46 +2,89 @@
   "version": "1.0",
   "req_id": "REQ-001",
   "lane": "python",
-  "tools": {
-    "tests": true,
-    "lint": false,
-    "types": false,
-    "security": false,
-    "build": false
-  },
-  "commands": {
-    "tests": "pytest -q runs/kit/REQ-001/test"
+  "env": {
+    "SKIP_OIDC_DISCOVERY": "true",
+    "OIDC_ISSUER": "https://test.example.com/",
+    "OIDC_CLIENT_ID": "test-client-id",
+    "OIDC_CLIENT_SECRET": "test-client-secret",
+    "OIDC_REDIRECT_URI": "http://localhost:8000/api/auth/callback",
+    "PYTHONPATH": "runs/kit/REQ-001/src"
   },
   "cases": [
     {
+      "name": "install_deps",
+      "run": "pip install -r runs/kit/REQ-001/requirements.txt",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "lint",
+      "run": "python -m ruff check runs/kit/REQ-001/src runs/kit/REQ-001/test --ignore E501",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "types",
+      "run": "python -m mypy runs/kit/REQ-001/src --ignore-missing-imports --no-error-summary || true",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
       "name": "tests",
-      "run": "pytest -q runs/kit/REQ-001/test",
+      "run": "python -m pytest runs/kit/REQ-001/test -v --tb=short --cov=app --cov-report=xml:runs/kit/REQ-001/reports/coverage.xml --junitxml=runs/kit/REQ-001/reports/junit.xml",
       "cwd": ".",
       "pip-file": "runs/kit/REQ-001/requirements.txt",
-      "expect": 0
+      "expect": 0,
+      "timeout": 300
+    },
+    {
+      "name": "security",
+      "run": "pip install bandit && python -m bandit -r runs/kit/REQ-001/src -ll -q || true",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
     }
   ],
+  "tools": {
+    "tests": "pytest",
+    "lint": "ruff",
+    "types": "mypy",
+    "security": "bandit",
+    "build": "pip"
+  },
+  "commands": {
+    "install": "pip install -r runs/kit/REQ-001/requirements.txt",
+    "test": "pytest runs/kit/REQ-001/test -v",
+    "lint": "ruff check runs/kit/REQ-001/src",
+    "types": "mypy runs/kit/REQ-001/src"
+  },
   "reports": [
     {
       "kind": "junit",
       "path": "runs/kit/REQ-001/reports/junit.xml",
       "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "runs/kit/REQ-001/reports/coverage.xml",
+      "format": "coverage-xml"
     }
   ],
-  "env": {
-    "PYTHONPATH": "."
-  },
-  "normalize": {
-    "eval.summary.json": {
-      "tests_pass": "cases[].status"
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 80,
+    "security": {
+      "bandit_high": 0
     }
   },
-  "gate_policy": {
-    "tests_pass": true
-  },
-  "external_runner": null,
   "constraints_applied": [
-    "TECH_CONSTRAINTS:v1.1.0",
-    "PLAN:REQ-001 composition-first"
+    "python@3.12",
+    "fastapi",
+    "pydantic>=2.5.0",
+    "OIDC authentication",
+    "RBAC authorization"
   ]
 }

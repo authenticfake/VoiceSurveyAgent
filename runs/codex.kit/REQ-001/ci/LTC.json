@@ -1,0 +1,47 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-001",
+  "lane": "python",
+  "tools": {
+    "tests": true,
+    "lint": false,
+    "types": false,
+    "security": false,
+    "build": false
+  },
+  "commands": {
+    "tests": "pytest -q runs/kit/REQ-001/test"
+  },
+  "cases": [
+    {
+      "name": "tests",
+      "run": "pytest -q runs/kit/REQ-001/test",
+      "cwd": ".",
+      "pip-file": "runs/kit/REQ-001/requirements.txt",
+      "expect": 0
+    }
+  ],
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "runs/kit/REQ-001/reports/junit.xml",
+      "format": "junit-xml"
+    }
+  ],
+  "env": {
+    "PYTHONPATH": "."
+  },
+  "normalize": {
+    "eval.summary.json": {
+      "tests_pass": "cases[].status"
+    }
+  },
+  "gate_policy": {
+    "tests_pass": true
+  },
+  "external_runner": null,
+  "constraints_applied": [
+    "TECH_CONSTRAINTS:v1.1.0",
+    "PLAN:REQ-001 composition-first"
+  ]
+}

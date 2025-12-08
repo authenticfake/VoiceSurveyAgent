@@ -1,11 +1,11 @@
 {
   "snapshot": {
     "total": 11,
-    "open": 1,
-    "in_progress": 9,
-    "done": 1,
+    "open": 11,
+    "in_progress": 0,
+    "done": 0,
     "deferred": 0,
-    "progressPct": 9
+    "progressPct": 0
   },
   "reqs": [
     {
@@ -20,7 +20,7 @@
       ],
       "dependsOn": [],
       "track": "App",
-      "status": "in_progress",
+      "status": "open",
       "lane": "python",
       "test_profile": "backend-auth-core",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"
@@ -39,7 +39,7 @@
         "REQ-001"
       ],
       "track": "App",
-      "status": "in_progress",
+      "status": "open",
       "lane": "python",
       "test_profile": "backend-campaigns-core",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"
@@ -58,7 +58,7 @@
         "REQ-002"
       ],
       "track": "App",
-      "status": "in_progress",
+      "status": "open",
       "lane": "python",
       "test_profile": "backend-contacts-csv",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"
@@ -78,7 +78,7 @@
         "REQ-009"
       ],
       "track": "App",
-      "status": "done",
+      "status": "open",
       "lane": "python",
       "test_profile": "backend-calling-scheduler",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"
@@ -98,7 +98,7 @@
         "REQ-009"
       ],
       "track": "App",
-      "status": "in_progress",
+      "status": "open",
       "lane": "python",
       "test_profile": "backend-calling-outcomes",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"
@@ -118,7 +118,7 @@
         "REQ-009"
       ],
       "track": "App",
-      "status": "in_progress",
+      "status": "open",
       "lane": "python",
       "test_profile": "backend-events-email",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"
@@ -140,7 +140,7 @@
         "REQ-009"
       ],
       "track": "App",
-      "status": "in_progress",
+      "status": "open",
       "lane": "python",
       "test_profile": "backend-reporting-export",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"
@@ -160,7 +160,7 @@
         "REQ-009"
       ],
       "track": "App",
-      "status": "in_progress",
+      "status": "open",
       "lane": "python",
       "test_profile": "backend-admin-config",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"
@@ -177,7 +177,7 @@
       ],
       "dependsOn": [],
       "track": "Infra",
-      "status": "in_progress",
+      "status": "open",
       "lane": "sql",
       "test_profile": "infra-db-schema",
       "gate_policy_ref": "docs/harper/lane-guides/sql.md"
@@ -196,7 +196,7 @@
         "REQ-009"
       ],
       "track": "Infra",
-      "status": "in_progress",
+      "status": "open",
       "lane": "infra",
       "test_profile": "infra-messaging-workers",
       "gate_policy_ref": "docs/harper/lane-guides/infra.md"
