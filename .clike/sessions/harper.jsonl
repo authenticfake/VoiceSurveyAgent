@@ -34,3 +34,8 @@
 {"ts":1765193370715,"mode":"harper","role":"system","content":"✔ KIT REQ-011 done — [echo] manual::gpt-5.1-codex :: KIT generation • [files] 38 • [text] 31 chars","model":"gpt-5.1-codex","attachments":[]}
 {"ts":1765198376902,"mode":"harper","role":"user","content":"▶ KIT REQ-001 | mode=harper model=claude-opus-4-5 profile=— core=[\"SPEC.md\",\"PLAN.md\",\"TECH_CONSTRAINTS.yaml\"]","model":"claude-opus-4-5","attachments":[]}
 {"ts":1765198661815,"mode":"harper","role":"system","content":"✔ KIT REQ-001 done — [echo] manual::claude-opus-4-5 :: KIT generation • [files] 30 • [text] 27 chars","model":"claude-opus-4-5","attachments":[]}
+{"ts":1765198876350,"mode":"harper","role":"assistant","content":"Mode=harper | Model=claude-opus-4-5 | HistoryScope=allModels","model":"system"}
+{"ts":1765198903119,"mode":"harper","role":"assistant","content":"Workspace: /Users/a.franco/dev/authenticfake/VoiceSurveyAgent","model":"system"}
+{"ts":1765198918467,"mode":"harper","role":"assistant","content":"Mode=harper | Model=claude-opus-4-5 | HistoryScope=allModels","model":"system"}
+{"ts":1765200671549,"mode":"harper","role":"user","content":"▶ PLAN  | mode=harper model=claude-opus-4-5 profile=— core=[\"SPEC.md\",\"TECH_CONSTRAINTS.yaml\"]","model":"claude-opus-4-5","attachments":[]}
+{"ts":1765200867828,"mode":"harper","role":"system","content":"✔ PLAN  done — [echo] Plan phase: manual::claude-opus-4-5 :: PLAN generation • [files] 1 • [text] 32 chars","model":"claude-opus-4-5","attachments":[]}

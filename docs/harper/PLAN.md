@@ -1,413 +1,571 @@
-# PLAN — voicesurveyagent
-
-## Plan Snapshot
-
-- **Counts:** total=11 / open=11 / in_progress=0 / done=0 / deferred=0
-- **Progress:** 0% complete
-- **Checklist:**
-  - [x] SPEC aligned
-  - [x] Prior REQ reconciled
-  - [x] Dependencies mapped
-  - [x] KIT-readiness per REQ confirmed
-
-## Tracks & Scope Boundaries
-
-- **Tracks:**
-  - App: Auth, campaigns, contacts, telephony integration, dialogue outcomes, events, email worker, dashboards, admin config, web console.
-  - Infra: Database schema/migrations, messaging scaffolding, deployment primitives for workers and scheduler.
-- **Scope focus (slice‑1):**
-  - Single-tenant, single outbound campaign model, one telephony/voice AI provider, three fixed questions.
-  - Backend REST APIs, minimal but usable React/Next.js console for core flows.
-- **Out of scope / Deferred:**
-  - Multiple telephony providers, advanced branching or more than 3 questions.
-  - Advanced analytics/BI, complex CRM integrations, multi-tenant support.
-  - Full production‑grade CI/CD pipelines and EKS IaC (only minimal infra scaffolding in this plan).
-
-## Module/Package & Namespace Plan
-
-Canonical backend root: `app` (Python, FastAPI). Canonical frontend root: `web` (Next.js/React).
-
-Slices and layering (App track):
-
-- **auth**
-  - Domain: users, roles, OIDC session handling.
-  - Namespaces:
-    - `app.auth.domain` – user and role models, RBAC policies.
-    - `app.auth.oidc` – OIDC integration helpers.
-    - `app.api.http.auth` – auth-related FastAPI routers and dependencies.
-- **campaigns**
-  - Domain: campaigns, lifecycle, validation.
-  - Namespaces:
-    - `app.campaigns.domain`
-    - `app.campaigns.services`
-    - `app.api.http.campaigns`
-- **contacts**
-  - Domain: contacts, CSV ingestion, exclusion lists.
-  - Namespaces:
-    - `app.contacts.domain`
-    - `app.contacts.csv_import`
-    - `app.api.http.contacts`
-- **calling**
-  - Domain: call scheduling, attempts, telephony provider, dialogue outcome handling.
-  - Namespaces:
-    - `app.calling.scheduler`
-    - `app.calling.telephony`
-    - `app.calling.dialogue`
-    - `app.api.http.telephony_webhooks`
-- **events_notifications**
-  - Domain: internal survey events and email notifications.
-  - Namespaces:
-    - `app.events.bus`
-    - `app.notifications.email`
-- **reporting**
-  - Domain: dashboards, stats, CSV export.
-  - Namespaces:
-    - `app.reporting.stats`
-    - `app.reporting.export`
-    - `app.api.http.reporting`
-- **admin**
-  - Domain: provider and LLM config, retention settings, admin actions.
-  - Namespaces:
-    - `app.admin.domain`
-    - `app.api.http.admin`
-- **frontend**
-  - Domain: web console UX.
-  - Namespaces (frontend):
-    - `web/app` – Next.js app router.
-    - `web/components/*`
-    - `web/lib/api` – REST client wrappers.
-
-Infra track namespaces:
-
-- `app.infra.db` – SQLAlchemy models and Alembic migrations.
-- `app.infra.messaging` – SQS abstraction and event publishing utilities.
-- `app.infra.config` – config loading, secrets integration.
-- `app.infra.observability` – logging, metrics, tracing helpers.
-
-Each REQ below specifies:
-
-- Primary module/namespace it owns.
-- Shared modules it must reuse.
-- Whether it may create new modules (only within its slice) or must extend existing ones.
-
-## REQ-IDs Table
-
-| ID | Title | Acceptance | DependsOn | Track | Status |
-|---|---|---|---|---|---|
-| REQ-001 | OIDC auth and RBAC for backend APIs | OIDC login exchanges code for tokens and validates ID token<br/>RBAC middleware enforces role requirements for protected routes<br/>Unauthorized and unauthenticated requests return structured error responses<br/>Viewer campaign_manager admin roles behave per SPEC permissions<br/>Auth modules expose reusable dependencies for other routers |  | App | open |
-| REQ-002 | Campaign CRUD and activation rules | Campaigns can be created updated fetched with validation<br/>Lifecycle transitions enforce allowed status changes only<br/>Activation requires valid contacts scripts retry policy window<br/>Unauthorized roles cannot mutate campaign resources<br/>APIs expose filters and pagination for campaign listing | REQ-001 | App | open |
-| REQ-003 | Contact CSV import and exclusion handling | CSV upload parses validates rows and reports errors<br/>At least 95 percent of valid contacts are persisted<br/>DNC and exclusion entries mark contacts as excluded<br/>Contact states and attempts default values are correct<br/>Contact list endpoint exposes state and basic metadata | REQ-002 | App | open |
-| REQ-004 | Call scheduler and telephony provider adapter | Scheduler selects eligible contacts respecting time windows<br/>CallAttempt records created with unique call_id per attempt<br/>Telephony adapter starts outbound calls with metadata<br/>Contact state and attempts updated transactionally<br/>Concurrent calls limited by configurable max_concurrent_calls | REQ-003, REQ-009 | App | open |
-| REQ-005 | Dialogue outcome handling and survey responses | Webhook endpoint receives telephony events reliably<br/>Consent outcomes stored with timestamps and final status<br/>Completed surveys persist three answers linked to attempt<br/>Contact state transitions follow outcomes and retry rules<br/>Survey events published with required payload fields | REQ-004, REQ-009 | App | open |
-| REQ-006 | Event bus integration and email worker | Survey events are published to configured queue abstraction<br/>Email worker consumes events and sends templated emails<br/>EmailNotification records track send status and metadata<br/>Email sending is idempotent across retries and restarts<br/>Worker exposes metrics or logs for monitoring and debugging | REQ-005, REQ-009 | App | open |
-| REQ-007 | Dashboard stats and CSV export APIs | Stats endpoint returns counts and completion refusal rates<br/>Contacts endpoint lists paginated contacts with outcomes<br/>CSV export returns required columns and no duplicates<br/>Exports exclude transcripts and unnecessary PII fields<br/>Endpoints enforce RBAC and handle missing campaigns cleanly | REQ-002, REQ-003, REQ-005, REQ-009 | App | open |
-| REQ-008 | Admin configuration and retention settings APIs | Admin endpoints expose provider and retention configuration<br/>Only admin role can modify provider and retention settings<br/>Configuration changes are persisted and retrievable<br/>Invalid settings are rejected with clear validation errors<br/>Audit log entries created for configuration modifications | REQ-001, REQ-009 | App | open |
-| REQ-009 | Database schema models and migrations | ORM models defined for all specified entities<br/>Alembic migrations create tables constraints and indexes<br/>Enum and foreign key relationships align with data model<br/>Migrations apply cleanly on fresh and existing databases<br/>Connection management configured with pooling and settings |  | Infra | open |
-| REQ-010 | Messaging and worker infra scaffolding | Messaging abstraction wraps SQS configuration and publishing<br/>Worker entrypoints implemented for scheduler and email worker<br/>Config loader reads messaging and provider settings<br/>Observability helpers configure logging metrics tracing hooks<br/>Deployment notes describe running workers on EKS | REQ-009 | Infra | open |
-| REQ-011 | Web console for campaigns and monitoring | Frontend allows campaign creation editing and listing<br/>CSV upload and activation available via UI using backend APIs<br/>Dashboard pages display stats and contact lists<br/>Export controls trigger and download CSV exports<br/>RBAC enforced in UI based on user role information | REQ-001, REQ-002, REQ-003, REQ-007 | App | open |
-
-
-
-### Acceptance — REQ-001
-
-- Backend integrates with configured OIDC provider using authorization code flow, exchanging code for tokens and validating ID token signature.
-- On first successful login, user record is created or updated with OIDC subject, email, display name, and mapped role.
-- RBAC middleware or dependency enforces required roles per route group, rejecting unauthorized access with HTTP 403 and stable error schema.
-- All API endpoints in campaign, contacts, reporting, and admin routers require authenticated users, no anonymous access allowed.
-- Viewer role can read campaigns, contacts, stats, and exports metadata but cannot modify campaigns, upload CSVs, or change admin settings.
-- Campaign manager role can create and edit campaigns, upload contacts, activate/pause campaigns, view dashboards, and trigger exports.
-- Admin role can additionally manage provider configuration, retention settings, exclusion lists, and view audit logs.
-- Primary module: `app.auth.oidc` and `app.api.http.auth`; may create these modules and must reuse `app.infra.config` for settings.
-
-### Acceptance — REQ-002
-
-- FastAPI routes under `app.api.http.campaigns` allow authenticated users with `campaign_manager` or `admin` roles to create and update campaigns.
-- Campaign fields include language, intro script, three questions with types, retry policy, and call time window, validated against specified enums and ranges.
-- Campaign lifecycle transitions enforce allowed moves, for example draft to scheduled or running, running to paused or completed, and block invalid changes.
-- Activation endpoint verifies campaign has at least one non-excluded contact, valid scripts, retry settings, and time windows before setting status to running or scheduled.
-- Campaign queries are scoped to single tenant, list endpoint supports filtering by status and creation date, and returns pagination metadata.
-- Unauthorized roles, such as viewer, receive HTTP 403 when attempting to create, update, activate, pause, or delete campaigns.
-- Primary module: `app.campaigns.domain` and `app.api.http.campaigns`; must reuse `app.auth.domain` for user context and `app.infra.db` for persistence.
-
-### Acceptance — REQ-003
-
-- Endpoint accepts CSV upload for a specific campaign, parses rows streaming where possible, and validates required columns and data formats.
-- At least 95 percent of valid rows are inserted as Contact records; invalid rows are reported with row number and error reason in the response summary.
-- Contact entity persists external_contact_id, normalized E.164 phone, email, language override, has_prior_consent flag, and do_not_call flag per SPEC.
-- Contacts with do_not_call true or present in a global ExclusionListEntry table are stored with state excluded and are never marked eligible for dialing.
-- Upload summary response returns total rows, accepted count, rejected count, and sample errors, and is accessible only to campaign_manager and admin roles.
-- Contact listing endpoint for a campaign shows state, attempts_count, last_outcome, and timestamps, supporting pagination and role-based access.
-- Primary module: `app.contacts.csv_import` and `app.contacts.domain`; may create these modules and must reuse `app.infra.db` and `app.campaigns.domain`.
-
-### Acceptance — REQ-004
-
-- Scheduler component in `app.calling.scheduler` can be run on a schedule to select eligible contacts based on state, attempts_count, retry_interval, and time window.
-- Eligible contacts exclude those with do_not_call true, excluded state, or outside campaign allowed_call_start_local and allowed_call_end_local when local time applied.
-- For each scheduled attempt, a CallAttempt record is created with unique call_id, linked campaign and contact, attempt_number, and timestamps.
-- Telephony adapter module abstracts provider API, initiating outbound calls with to, from, callback URL, language, and metadata including campaign_id and contact_id.
-- On enqueue, contact state transitions from pending or not_reached to in_progress, and attempts_count and last_attempt_at are updated transactionally.
-- Scheduler respects a configurable maximum concurrent calls parameter, uses Redis or database for locking, and avoids overshooting provider rate limits.
-- Maximum attempts per contact are enforced; when limit reached without completion or refusal, contact is no longer selected for scheduling.
-- Primary module: `app.calling.scheduler` and `app.calling.telephony`; must reuse `app.contacts.domain`, `app.campaigns.domain`, `app.infra.db`, `app.infra.config`.
-
-### Acceptance — REQ-005
-
-- Telephony webhook endpoint receives provider events and maps them to call lifecycle states including initiated, ringing, answered, completed, failed, no_answer, and busy.
-- On answered events, dialogue handling or provider payload ensures intro script and consent request have been executed before any question answers are processed.
-- Explicit consent refusal results in CallAttempt outcome refused, contact state refused, and recording of consent timestamp and reason where available.
-- Explicit consent acceptance and successful completion of three questions create a SurveyResponse record linked to the CallAttempt, contact, and campaign.
-- For no_answer or busy outcomes, CallAttempt outcome is set accordingly, contact last_outcome updated, and state remains pending or not_reached as per retry rules.
-- When attempts_count reaches max_attempts without completion or refusal, contact state becomes not_reached and a survey.not_reached event is prepared.
-- Internal events survey.completed, survey.refused, and survey.not_reached are published via the event bus abstraction with required payload fields.
-- Primary module: `app.calling.dialogue` and `app.api.http.telephony_webhooks`; must reuse `app.calling.telephony`, `app.events.bus`, `app.infra.observability`.
-
-### Acceptance — REQ-006
-
-- Event bus abstraction in `app.events.bus` exposes functions to publish survey events to SQS or equivalent queue with idempotent message keys.
-- Email worker process subscribes to survey events queue, deserializes messages, and looks up associated campaign, contact, and email template records.
-- For survey.completed events with configured templates, worker sends thank-you email using integrated email provider client and records EmailNotification with status.
-- For survey.refused and survey.not_reached events, if templates exist, worker sends appropriate email; if templates are absent, worker logs and skips sending.
-- Email send function is idempotent, using provider_message_id or deduplication keys to avoid duplicate sends on retried events or process restarts.
-- Failed email attempts are retried with exponential backoff up to a configurable limit; terminal failures are logged and persist status failed in EmailNotification.
-- Email worker exposes health or metrics endpoint or logs to allow monitoring of queue lag, send success rate, and error rates.
-- Primary module: `app.events.bus` and `app.notifications.email`; must reuse `app.infra.messaging`, `app.infra.config`, `app.infra.observability`, `app.infra.db`.
-
-### Acceptance — REQ-007
-
-- Campaign stats endpoint returns counts of contacts by state, completion, refusal, and not_reached rates, and optionally basic time-series aggregates.
-- Endpoint returns data within performance constraints, using indexed queries and avoiding full table scans for campaigns with up to 1,000 contacts.
-- Contacts listing endpoint supports filtering by outcome, pagination, and sorting by last_attempt_at, and includes attempts_count and last_outcome.
-- CSV export endpoint for a campaign returns required columns campaign_id, contact_id, external_contact_id, phone_number, outcome, attempt_count, timestamps, and three answers when completed.
-- Export excludes any transcript text or free-form PII beyond required columns and ensures one row per contact in a terminal state without duplicates.
-- Export supports streaming or async generation but provides a stable download mechanism and is accessible only to campaign_manager and admin roles.
-- Dashboard-related endpoints are protected by RBAC and tested for viewer role read-only access and correct handling of non-existent campaigns.
-- Primary module: `app.reporting.stats` and `app.reporting.export`; must reuse `app.contacts.domain`, `app.campaigns.domain`, `app.infra.db`, `app.auth.domain`.
-
-### Acceptance — REQ-008
-
-- Admin configuration API endpoints allow admins to view and update ProviderConfig including provider_type, provider_name, outbound_number, max_concurrent_calls, llm_provider, and llm_model.
-- Retention settings for recordings and transcripts, including recording_retention_days and transcript_retention_days, are persisted and retrievable via admin APIs.
-- Only admin role can access admin configuration endpoints; other roles receive HTTP 403 with consistent error responses.
-- Changes to critical configuration fields, such as provider credentials or retention days, are recorded in an audit log entity with timestamp, user, field names, and previous values.
-- Validation prevents obviously invalid settings, for example negative retention days or unsupported combinations of provider_type and provider_name.
-- Administrative endpoints expose current email provider configuration and default email templates per event type and locale.
-- Primary module: `app.admin.domain` and `app.api.http.admin`; must reuse `app.auth.domain`, `app.infra.db`, `app.infra.config`, `app.infra.observability`.
-
-### Acceptance — REQ-009
-
-- SQLAlchemy ORM models are defined for all core entities described in the SPEC including User, Campaign, Contact, ExclusionListEntry, CallAttempt, SurveyResponse, Event, EmailNotification, EmailTemplate, ProviderConfig, and optional TranscriptSnippet.
-- Models include fields, types, enums, foreign keys, uniqueness constraints, and indexes aligned with the logical data model and performance requirements.
-- Alembic migration scripts create the necessary tables, constraints, and indexes for fresh environments, and support upgrade and downgrade operations.
-- Database connection management integrates with FastAPI lifecycle, uses connection pooling, and reads connection configuration from environment or config modules.
-- Enum fields are represented as database enums or constrained text values with validation, matching domain enums used in application code.
-- Basic seed or fixture utilities exist for local development to create an admin user and minimal ProviderConfig records.
-- Primary module: `app.infra.db`; may create this module and must be reused by all other REQs needing persistence.
-
-### Acceptance — REQ-010
-
-- Messaging abstraction in `app.infra.messaging` supports publishing survey events to SQS or equivalent, with configuration for queue names and credentials.
-- Worker processes for scheduler and email worker expose CLI entrypoints or main functions that can be run by process managers or Kubernetes deployments.
-- Configuration module `app.infra.config` loads messaging, email provider, telephony provider, and LLM gateway settings from environment variables or secrets.
-- Documentation or comments describe expected deployment patterns for running scheduler as a CronJob and workers as Deployments on EKS.
-- Observability helpers in `app.infra.observability` configure JSON logging, metrics emission, and optional tracing integration for workers and API processes.
-- Error handling strategies ensure unhandled exceptions cause safe process termination and visibility, not silent failures or orphaned messages.
-- Primary module: `app.infra.messaging` and `app.infra.config`; may extend `app.infra.observability` and must not duplicate messaging logic elsewhere.
-
-### Acceptance — REQ-011
-
-- Next.js or React frontend provides authenticated views for campaign listing, creation, editing, and status display using the backend REST APIs.
-- Campaign creation form captures required fields including language, intro script, three questions with types, retry policy, and allowed call times, with client-side validation.
-- CSV upload UI allows selection and upload of CSV file to the backend endpoint, then displays accepted and rejected row counts and sample errors from backend response.
-- Campaign dashboard page shows aggregate stats, completion and refusal rates, and a paginated table of contacts with latest outcome and attempt count.
-- Export control allows authorized users to trigger CSV export and download the resulting file, handling loading and error states appropriately.
-- Admin-only sections are visible only to admin role, and viewer role sees read-only dashboards and campaign details without editing capabilities.
-- Frontend API client layer centralizes HTTP calls, attaches auth tokens, and handles error responses consistent with backend schema.
-- Primary module: `web/app` and `web/lib/api`; may create pages and components but must conform to backend API contracts and RBAC expectations.
-
-## Dependency Graph
-
-- REQ-001 -> (none)
-- REQ-002 -> REQ-001
-- REQ-003 -> REQ-002
-- REQ-004 -> REQ-003, REQ-009
-- REQ-005 -> REQ-004, REQ-009
-- REQ-006 -> REQ-005, REQ-009
-- REQ-007 -> REQ-002, REQ-003, REQ-005, REQ-009
-- REQ-008 -> REQ-001, REQ-009
-- REQ-009 -> (none)
-- REQ-010 -> REQ-009
-- REQ-011 -> REQ-001, REQ-002, REQ-003, REQ-007
-
-## Iteration Strategy
-
-- **Batch 1 (Foundations, size M, confidence ±1 REQ):**
-  - REQ-009 (DB schema and migrations)
-  - REQ-001 (Auth and RBAC)
-  - REQ-010 (Messaging and worker scaffolding)
-- **Batch 2 (Core campaign and contacts, size M, confidence ±1 REQ):**
-  - REQ-002 (Campaign CRUD and activation)
-  - REQ-003 (Contact CSV import and exclusion)
-  - Hook RBAC from REQ-001 into these APIs.
-- **Batch 3 (Calling and dialogue, size L, confidence ±1 REQ):**
-  - REQ-004 (Scheduler and telephony adapter)
-  - REQ-005 (Dialogue outcomes and survey responses)
-- **Batch 4 (Events, emails, reporting, size M, confidence ±1 REQ):**
-  - REQ-006 (Event bus and email worker)
-  - REQ-007 (Dashboard stats and CSV export)
-- **Batch 5 (Admin and frontend, size M, confidence ±1 REQ):**
-  - REQ-008 (Admin configuration and retention)
-  - REQ-011 (Web console)
-
-Infra work in REQ-010 can be pulled earlier if needed to unblock workers for REQ-004 and REQ-006.
-
-## Test Strategy
-
-- **Per REQ:**
-  - REQ-001: Unit tests for OIDC handlers, RBAC decorators, and role mapping; integration tests for protected routes.
-  - REQ-002: Unit tests for campaign validation and lifecycle; API tests for create, update, activate, pause scenarios.
-  - REQ-003: Unit tests for CSV parsing and validation; integration tests verifying accepted and rejected counts and exclusion handling.
-  - REQ-004: Unit tests for scheduler selection logic and concurrency limits; integration tests with mocked telephony adapter and database state changes.
-  - REQ-005: Unit tests for mapping telephony events to outcomes; integration tests for webhook idempotency and SurveyResponse creation.
-  - REQ-006: Unit tests for event bus publishing; worker tests with in-memory or test queue verifying email sends and idempotency.
-  - REQ-007: Integration tests for stats endpoint accuracy, pagination, and CSV export contents, including edge cases.
-  - REQ-008: Unit and API tests for admin config CRUD, validation, and RBAC; audit logging assertions.
-  - REQ-009: Model tests ensuring relationships, constraints, and migrations apply correctly on a test database.
-  - REQ-010: Tests for config loading, messaging wrappers against a stubbed SQS client, and worker entrypoint behavior on errors.
-  - REQ-011: Frontend component and page tests for forms, API integration, routing, and RBAC-driven visibility; e2e happy path for campaign creation and launch.
-
-- **Per batch:**
-  - Batch-level integration tests simulating end-to-end workflows:
-    - Create campaign, upload CSV, activate.
-    - Run scheduler and simulate telephony events to produce completed, refused, not_reached contacts.
-    - Trigger email sending and verify dashboards and exports reflect final outcomes.
-
-- **E2E / System tests:**
-  - Limited E2E flows using mocked external providers for telephony, LLM, and email in non-production.
-  - Performance checks for scheduler and key APIs under approximate 1,000 contacts.
-
-## KIT Readiness
-
-Common expectations:
-
-- Backend source root per REQ under `/runs/kit/<REQ-ID>/src/app/...`.
-- Backend tests per REQ under `/runs/kit/<REQ-ID>/test/...`.
-- Frontend source for REQ-011 under `/runs/kit/REQ-011/src/web/...` with tests under `/runs/kit/REQ-011/test/...`.
-- No conflicting new top-level namespaces beyond those listed.
-
-Per REQ:
-
-- **REQ-001**
-  - Root package: `app.auth`
-  - Paths:
-    - `/runs/kit/REQ-001/src/app/auth`
-    - `/runs/kit/REQ-001/src/app/api/http/auth`
-    - `/runs/kit/REQ-001/test/auth`
-  - KIT-functional: yes
-  - API testing: OIDC callback and protected resource tests under `/runs/kit/REQ-001/test/api`.
-
-- **REQ-002**
-  - Root package: `app.campaigns`
-  - Paths:
-    - `/runs/kit/REQ-002/src/app/campaigns`
-    - `/runs/kit/REQ-002/src/app/api/http/campaigns`
-    - `/runs/kit/REQ-002/test/campaigns`
-  - KIT-functional: yes
-  - API testing for create, update, activate endpoints under `/runs/kit/REQ-002/test/api`.
-
-- **REQ-003**
-  - Root package: `app.contacts`
-  - Paths:
-    - `/runs/kit/REQ-003/src/app/contacts`
-    - `/runs/kit/REQ-003/src/app/api/http/contacts`
-    - `/runs/kit/REQ-003/test/contacts`
-  - KIT-functional: yes
-  - CSV upload tests and data validation under `/runs/kit/REQ-003/test/api`.
-
-- **REQ-004**
-  - Root package: `app.calling.scheduler`
-  - Paths:
-    - `/runs/kit/REQ-004/src/app/calling`
-    - `/runs/kit/REQ-004/test/calling`
-  - KIT-functional: yes
-  - Tests include scheduler run functions and telephony adapter mocks.
-
-- **REQ-005**
-  - Root package: `app.calling.dialogue`
-  - Paths:
-    - `/runs/kit/REQ-005/src/app/calling`
-    - `/runs/kit/REQ-005/src/app/api/http/telephony_webhooks`
-    - `/runs/kit/REQ-005/test/calling`
-  - KIT-functional: yes
-  - Webhook API tests verifying outcome handling under `/runs/kit/REQ-005/test/api`.
-
-- **REQ-006**
-  - Root package: `app.notifications`
-  - Paths:
-    - `/runs/kit/REQ-006/src/app/events`
-    - `/runs/kit/REQ-006/src/app/notifications`
-    - `/runs/kit/REQ-006/test/notifications`
-  - KIT-functional: yes
-  - Worker behavior and event publishing tests in `/runs/kit/REQ-006/test`.
-
-- **REQ-007**
-  - Root package: `app.reporting`
-  - Paths:
-    - `/runs/kit/REQ-007/src/app/reporting`
-    - `/runs/kit/REQ-007/src/app/api/http/reporting`
-    - `/runs/kit/REQ-007/test/reporting`
-  - KIT-functional: yes
-  - Stats and export API tests, including CSV content checks.
-
-- **REQ-008**
-  - Root package: `app.admin`
-  - Paths:
-    - `/runs/kit/REQ-008/src/app/admin`
-    - `/runs/kit/REQ-008/src/app/api/http/admin`
-    - `/runs/kit/REQ-008/test/admin`
-  - KIT-functional: yes
-  - Admin API tests covering RBAC and audit logging.
-
-- **REQ-009**
-  - Root package: `app.infra.db`
-  - Paths:
-    - `/runs/kit/REQ-009/src/app/infra/db`
-    - `/runs/kit/REQ-009/test/infra/db`
-  - KIT-functional: yes
-  - Migration tests using a temporary database.
-
-- **REQ-010**
-  - Root package: `app.infra.messaging`
-  - Paths:
-    - `/runs/kit/REQ-010/src/app/infra`
-    - `/runs/kit/REQ-010/test/infra`
-  - KIT-functional: yes
-  - Tests cover messaging wrapper functions and worker entrypoints.
-
-- **REQ-011**
-  - Root package: `web`
-  - Paths:
-    - `/runs/kit/REQ-011/src/web`
-    - `/runs/kit/REQ-011/test/web`
-  - KIT-functional: yes
-  - UI and integration tests for pages and components.
-
-Where external APIs are involved, test doubles will live under each REQ’s `test` subtree. If needed, API documentation or Postman-style collections will be stored at `/runs/kit/<REQ-ID>/test/api`.
-
-## Notes
-
-- **Assumptions:**
-  - Telephony provider offers webhook events and either a built-in LLM agent or structured payloads suitable for dialogue outcome processing.
-  - LLM gateway is reachable within allowed endpoints and supports required models defined in TECH_CONSTRAINTS.
-  - Email service credentials and SMTP or HTTP APIs are available and testable in non-production.
-- **Risks:**
-  - Mapping of telephony events and consent semantics may differ by provider; adapter must isolate provider-specific details.
-  - Latency and throughput targets depend heavily on external providers; internal design will minimize added delays.
-  - Frontend scope is intentionally minimal, focused on core flows; advanced UX and visualizations are deferred.
-- **Lane detection:**
-  - Lanes inferred from TECH_CONSTRAINTS: python (backend), node (frontend), sql (Postgres), ci (GitHub Actions), infra (EKS, Redis, SQS, Secrets Manager), aws (cloud provider).
-  - Only canonical lanes python, node, sql, ci, infra are used in plan.json; aws lane is documented via a lane guide but not referenced by REQs.
-- **Out-of-band constraints:**
-  - Internet egress is restricted to whitelisted providers; all external client modules must be configurable and respect proxy or network policies.
-  - No triple-backtick code fences will be used in KIT source planning to avoid conflicts with surrounding tooling.
-
-PLAN_END
+# SPEC — voicesurveyagent
+
+## Summary
+AI-driven outbound phone survey system that runs a single configurable 3-question survey campaign using one telephony/voice AI provider. It automates call attempts, consent handling, short natural-language conversations, structured answer capture, retries, and basic follow-up emails. A web console allows campaign setup from CSV and monitoring results with dashboards and CSV exports. Slice‑1 targets up to ~1,000 calls/day on AWS (EKS, Postgres, Redis, SQS), with GDPR-aligned consent, logging, and retention controls.
+
+## Goals
+- Allow a non-technical campaign manager to configure and launch a 3-question outbound survey campaign from a CSV contact list.
+- Automate outbound calling, consent, survey questioning, retries (up to 5 attempts/contact), and basic follow-up emails.
+- Provide standardized, compliant call flows with explicit identity, purpose, duration, and opt-out handling.
+- Capture structured outcomes and survey answers for 100% of completed/attempted calls and expose them via dashboard and CSV export.
+- Achieve <1.5s P95 conversational round-trip latency for speech–LLM–speech during calls (provider + app combined).
+- Provide strong observability (logs, metrics, traces) and auditability (consent, outcomes, retention) suitable for GDPR-oriented deployments.
+
+## Non-Goals
+- Handling inbound calls, call transfers, or full contact-center workflows.
+- Supporting more than 3 survey questions or complex branching/skip logic.
+- Multi-tenant campaign management (slice‑1 is single-tenant).
+- Deep CRM/ERP integrations or advanced BI analytics beyond basic metrics and CSV export.
+- Running multi-channel surveys beyond simple transactional emails.
+- Implementing multiple concurrent telephony providers (only one fully wired provider in slice‑1).
+
+## Users & Context
+- **Primary user:** Survey/campaign manager
+  - Uses web console to define survey script and questions, upload contact CSV, configure retries/time windows, start/stop campaign, monitor outcomes, and export results.
+- **Secondary stakeholders:**
+  - Legal/compliance: require auditable consent, opt-out and exclusion lists, configurable retention, and topic restrictions.
+  - IT/engineering: deploy and operate the platform on AWS; integrate with corporate IdP (OIDC), telephony/voice AI provider, LLM gateway, and email service.
+  - Finance/ops: monitor call volumes, completion rates, and costs.
+- **Context:**
+  - Single-tenant deployment in AWS cloud (EKS), EU region (e.g., eu-central-1) with GDPR alignment.
+  - One outbound telephony/voice AI provider (Twilio-like or voice AI platform) plus one LLM gateway.
+  - Web-based back-office; voice-only interaction for respondents.
+  - Languages: English and Italian for both campaign scripts and calls (slice‑1).
+
+## Functional Requirements
+- **Authentication & Authorization**
+  - Integrate with OIDC IdP for user login (authorization code flow).
+  - Implement RBAC with at least roles: `admin`, `campaign_manager`, `viewer`.
+  - Restrict access to campaigns, contacts, transcripts, and exports based on roles.
+
+- **Campaign Management**
+  - Create, read, update, (soft-)delete a campaign with fields:
+    - Name, description, status (draft, scheduled, running, paused, completed, cancelled).
+    - Target language (EN/IT).
+    - Intro script text (identity, purpose, duration, consent wording).
+    - Up to 3 question prompts (text) and simple answer type (`free_text`, `numeric`, `scale`).
+    - Retry policy: max attempts per contact (1–5), minimum interval, allowed call time windows (local time).
+    - Email templates and toggles for `completed`, `refused`, `not_reached`.
+  - Validate campaign configuration before activation (must have CSV contacts, 3 questions, valid retry/time window config).
+  - Allow pausing/resuming a running campaign; pausing prevents new call attempts but does not terminate in-progress calls.
+
+- **Contact & List Management**
+  - Upload contact list as CSV with at minimum: `external_contact_id` (optional), `phone_number`, `email` (optional), `language` (optional override), `has_prior_consent` (bool), `do_not_call` (bool).
+  - Validate CSV:
+    - Schema, phone format (E.164 or configurable), email format, language support, boolean flags.
+    - Accept ≥95% of valid rows; report invalid rows with line number and error.
+  - Store contacts per campaign; each contact has state: `pending`, `in_progress`, `completed`, `refused`, `not_reached`, `excluded`.
+  - Enforce global or campaign-level exclusion lists:
+    - Import and manage `do_not_call` entries; mark related contacts as `excluded` and never dial.
+
+- **Outbound Call Orchestration**
+  - Scheduler service that:
+    - Periodically scans for eligible `pending` or `not_reached` contacts with attempts < max_attempts and within allowed time windows.
+    - Respects telephony provider concurrency/rate limits (configurable).
+    - Enqueues call jobs to the telephony provider via its API.
+  - For each call:
+    - Generate a unique `call_id` and correlation ID.
+    - Track call attempts per contact, with timestamps and provider metadata.
+  - Implement maximum retry logic per contact; once exceeded, mark as `not_reached` and stop scheduling further calls.
+
+- **Telephony & Voice AI Integration**
+  - Implement a single provider adapter (slice‑1) behind an internal telephony interface to support future pluggability.
+  - Support:
+    - Outbound call initiation via REST API.
+    - Webhook endpoint(s) to receive call events (ringing, answered, completed, failed, no_answer, busy).
+    - Bi-directional audio over provider's mechanism (e.g., WebSocket, streaming API, or provider-managed LLM voice agent).
+  - Ensure call start audio:
+    - Announces organization identity, purpose of call, estimated duration, and consent/opt-out instructions before asking first question.
+  - Capture explicit consent:
+    - Detect "yes/no" intent (via provider's NLU or LLM).
+    - If refusal: terminate survey, mark contact as `refused` and optionally trigger refusal email.
+  - Run 3-question dialogue:
+    - Ask questions sequentially after consent, allowing natural-language answers.
+    - Confirm answer capture minimally (e.g., brief acknowledgements).
+    - Handle simple repetitions upon user request (e.g., "Can you repeat?").
+  - End-of-call:
+    - Confirm survey completion and say goodbye.
+    - Provider or app-side logic must signal completion with final answer payloads and call outcome.
+
+- **LLM & Dialogue Orchestration**
+  - Use allowed LLM providers/models via LLM gateway.
+  - System prompt and call-specific context:
+    - Enforce structure: intro, consent request, up to 3 questions, closing.
+    - Respect language settings (EN/IT).
+    - Avoid prohibited content (e.g., political topics) – at least via runtime instructions and campaign metadata.
+  - Limit conversational complexity to fixed flow; no dynamic branching beyond basic re-asking a question once.
+
+- **Outcome & Event Logging**
+  - For each call attempt, log:
+    - Contact, campaign, attempt number, telephony provider call ID, start/end timestamps, outcome (completed/refused/no_answer/busy/failure), and error codes if any.
+  - For each completed survey:
+    - Store structured answers per question and end status `completed`.
+  - Publish events to internal event bus (SQS/Kafka-like abstraction):
+    - `survey.completed`
+    - `survey.refused`
+    - `survey.not_reached`
+  - Events include: `campaign_id`, `contact_id`, `call_id`, timestamp, outcome, attempts_count, and answers (where applicable).
+
+- **Email Notifications**
+  - Email worker consuming events to:
+    - Send configurable "thank you" email on `survey.completed`.
+    - Optional refusal email on `survey.refused` (if configured).
+    - Optional "sorry we couldn't reach you" email on `survey.not_reached`.
+  - Integrate with an SMTP or cloud email provider via configuration.
+  - Log email delivery attempts and status per contact.
+
+- **Dashboard & Reporting**
+  - Web console features:
+    - Campaign list view with key stats (total contacts, attempted, completed, refused, not_reached).
+    - Campaign detail dashboard:
+      - Time-series of call attempts and completions.
+      - Summary completion/refusal/not_reached rates.
+      - Average call duration, P95 conversational latency (if observable).
+      - Table of contacts with outcome, attempts, last call timestamp.
+    - Call detail view:
+      - Outcome, attempt count, timestamps, basic transcript snippet or summary (if stored), and call recording link (if available).
+  - CSV export per campaign:
+    - Includes: `campaign_id`, `contact_id`, `external_contact_id`, `phone_number`, `outcome`, `attempt_count`, timestamps, and 3 answers (for completed).
+    - Exclude transcripts and free-form PII beyond what is required.
+
+- **Admin & Configuration**
+  - Admin UI to:
+    - Configure telephony provider credentials and basic parameters (concurrency limits, caller ID/number).
+    - Configure LLM provider/model, base prompts, and safety/guardrails.
+    - Configure storage retention for call recordings and transcripts (e.g., 180 days default).
+    - Set email provider settings (SMTP/API keys) and default templates.
+  - Environment mode:
+    - Logical switch between "custom telephony API" vs "voice AI platform" (only one fully implemented in slice‑1; others stubbed).
+
+## Non-Functional Requirements
+- **Performance**
+  - Conversational speech–LLM–speech round-trip latency P95 ≤1.5s during active calls (combined external + internal).
+  - Scheduler and workers must handle up to ~1,000 call attempts/day with headroom (e.g., 5–10 concurrent calls) without degradation.
+- **Availability**
+  - Console and core APIs available ≥99% during business hours in pilot region.
+  - Degraded mode: metrics and dashboard available even if telephony/LLM provider is temporarily degraded (no new calls).
+- **Reliability**
+  - At-least-once event delivery from call orchestration to email worker; idempotent email sending.
+  - No more than 2% of calls per campaign with missing or inconsistent outcome/survey data.
+- **Security**
+  - OIDC-based SSO; all endpoints behind TLS (HTTPS).
+  - Role-based access control with least privilege.
+  - Secrets stored in AWS Secrets Manager; never hard-coded.
+- **Data Protection**
+  - Encryption at rest (Postgres, backups, object storage) and in transit.
+  - Configurable retention policies for call recordings and transcripts; structured survey answers retained longer per business needs.
+  - Mechanism to delete individual contact records (and associated PII) upon request.
+- **Observability**
+  - Centralized JSON logging with correlation IDs across HTTP, telephony, LLM, and email calls.
+  - Prometheus-compatible metrics (answer rate, completion rate, refusal rate, provider error rates, latency histograms).
+  - Distributed tracing via OpenTelemetry integrated into FastAPI and background workers.
+- **Scalability**
+  - Horizontally scalable app and worker pods on EKS.
+  - Message-based decoupling between call scheduling, telephony events, and email sending.
+- **Compliance**
+  - GDPR-oriented: explicit consent logging, data subject deletion, purpose limitation.
+  - Support for local telemarketing rules (opt-in/out flags, allowed time windows, topic restrictions) configurable per deployment.
+
+## High-Level Architecture
+mermaid
+flowchart LR
+  subgraph UI["Web Console (React/Next.js)"]
+    CM[Campaign Manager UI]
+    AD[Admin UI]
+  end
+
+  subgraph BE["Backend API (FastAPI on EKS)"]
+    API[REST API & Auth]
+    CAM[Campaign Service]
+    CSVU[CSV Import Service]
+    SCHED[Call Scheduler]
+    TELHW[Telephony Webhook Handler]
+    DLG[Dialogue/LLM Orchestrator]
+    EVT[Event Publisher]
+    EMAILW[Email Worker]
+  end
+
+  UI -->|HTTPS/OIDC| API
+
+  API --> CAM
+  API --> CSVU
+  CAM --> DB[(PostgreSQL)]
+  CSVU --> DB
+  SCHED --> CAM
+  SCHED -->|enqueue calls| TP[(Telephony Provider API)]
+  TP -->|webhooks| TELHW
+  TELHW --> DLG
+  DLG -->|store answers/outcomes| DB
+  DLG --> EVT
+  EVT --> MQ[(SQS/Kafka)]
+  MQ --> EMAILW
+  EMAILW -->|send emails| ES[(Email Service)]
+  SCHED --> REDIS[(Redis)]:::cache
+  BE --> METRICS[(Prometheus/CloudWatch)]:::obs
+  classDef cache fill:#fdf5e6,stroke:#999;
+  classDef obs fill:#e8f5ff,stroke:#999;
+
+## Interfaces
+- **Frontend ↔ Backend (REST APIs)**
+  - `POST /api/auth/login` (if needed for session bootstrap with OIDC).
+  - `GET /api/campaigns` – list campaigns (filters: status, date).
+  - `POST /api/campaigns` – create campaign.
+  - `GET /api/campaigns/{id}` – get campaign details.
+  - `PUT /api/campaigns/{id}` – update campaign (only allowed fields by status).
+  - `POST /api/campaigns/{id}/contacts/upload` – upload CSV (multipart).
+  - `POST /api/campaigns/{id}/activate` – activate campaign.
+  - `POST /api/campaigns/{id}/pause` – pause campaign.
+  - `GET /api/campaigns/{id}/stats` – campaign metrics (completion/refusal/not_reached).
+  - `GET /api/campaigns/{id}/contacts` – paginated contacts + outcomes.
+  - `GET /api/campaigns/{id}/export` – start CSV export (async) or download.
+  - `GET /api/calls/{call_id}` – call details (outcome, attempts, timestamps; optionally transcript snippet).
+  - `GET /api/admin/config` – fetch current provider/LLM/email/retention settings (admin only).
+  - `PUT /api/admin/config` – update configuration (admin only).
+
+- **Backend ↔ Telephony Provider**
+  - **Outgoing API calls (from SCHED)**
+    - `POST /provider/calls` – create outbound call with:
+      - `to`, `from`, `callback_url`, `language`, `metadata` (campaign_id, contact_id, call_id).
+  - **Incoming webhooks (TELHW)**
+    - `POST /webhooks/telephony/events`
+      - Events: `call.initiated`, `call.ringing`, `call.answered`, `call.completed`, `call.failed`, `call.no_answer`, `call.busy`.
+      - Payload: provider_call_id, status, timestamps, metadata, error codes.
+    - Optional streaming endpoint or provider-managed LLM agent integration; in slice‑1, assume provider handles low-level audio and passes final transcript/answers via a `call.completed` payload with structured fields, or the app uses a streaming endpoint integrated in DLG (clarified in Assumptions).
+
+- **Backend ↔ LLM Gateway**
+  - `POST /llm/chat` – with system and user messages plus conversation context (transcript so far, script, questions).
+  - Response: next agent utterance and any control signals (e.g., consent accepted/refused, move_to_next_question).
+
+- **Backend ↔ Event Bus**
+  - `Publish` to topic/queue: `survey.events`.
+  - Message schema: `event_type`, `campaign_id`, `contact_id`, `call_id`, `timestamp`, `outcome`, `answers`, `attempts`.
+
+- **Backend ↔ Email Service**
+  - `POST /email/send` (or SMTP equivalent) – send templated transactional emails with variables (name, campaign title, answers if needed, etc.).
+
+- **Backend ↔ Database & Cache**
+  - ORM-based (SQLAlchemy) interactions with Postgres.
+  - Redis for locks/rate limiting/scheduling state (e.g., distributed locks for scheduler, call concurrency counters).
+
+## Data Model (logical)
+### Entity: User
+- id: UUID — PK
+- oidc_sub: string — unique OIDC subject identifier
+- email: string — unique, indexed
+- name: string — display name
+- role: enum(`admin`,`campaign_manager`,`viewer`) — RBAC role
+- created_at: timestamp — default now
+- updated_at: timestamp — updated on change
+
+### Entity: Campaign
+- id: UUID — PK
+- name: string — required, indexed
+- description: string — optional
+- status: enum(`draft`,`scheduled`,`running`,`paused`,`completed`,`cancelled`) — lifecycle state
+- language: enum(`en`,`it`) — default `en`
+- intro_script: text — includes identity, purpose, consent
+- question_1_text: text — required
+- question_1_type: enum(`free_text`,`numeric`,`scale`) — required
+- question_2_text: text — required
+- question_2_type: enum(`free_text`,`numeric`,`scale`) — required
+- question_3_text: text — required
+- question_3_type: enum(`free_text`,`numeric`,`scale`) — required
+- max_attempts: integer — 1–5
+- retry_interval_minutes: integer — minimum minutes between attempts
+- allowed_call_start_local: time — e.g., 09:00
+- allowed_call_end_local: time — e.g., 20:00
+- email_completed_template_id: UUID — FK to EmailTemplate, nullable
+- email_refused_template_id: UUID — FK, nullable
+- email_not_reached_template_id: UUID — FK, nullable
+- created_by_user_id: UUID — FK to User
+- created_at: timestamp
+- updated_at: timestamp
+
+### Entity: Contact
+- id: UUID — PK
+- campaign_id: UUID — FK to Campaign, indexed
+- external_contact_id: string — optional, for customer reference
+- phone_number: string — normalized E.164, indexed
+- email: string — optional
+- preferred_language: enum(`en`,`it`,`auto`) — default `auto` (fall back to campaign language)
+- has_prior_consent: boolean — from CSV
+- do_not_call: boolean — effective DNC flag
+- state: enum(`pending`,`in_progress`,`completed`,`refused`,`not_reached`,`excluded`) — lifecycle
+- attempts_count: integer — default 0
+- last_attempt_at: timestamp — nullable
+- last_outcome: enum(`completed`,`refused`,`no_answer`,`busy`,`failed`, `null`) — latest call outcome
+- created_at: timestamp
+- updated_at: timestamp
+
+### Entity: ExclusionListEntry
+- id: UUID — PK
+- phone_number: string — unique, normalized
+- reason: string — optional (e.g., DNC request)
+- source: enum(`import`,`api`,`manual`) — origin
+- created_at: timestamp
+
+### Entity: CallAttempt
+- id: UUID — PK
+- contact_id: UUID — FK to Contact, indexed
+- campaign_id: UUID — FK to Campaign, indexed
+- attempt_number: integer — >=1
+- call_id: string — internal call identifier, unique
+- provider_call_id: string — provider identifier
+- started_at: timestamp
+- answered_at: timestamp — nullable
+- ended_at: timestamp — nullable
+- outcome: enum(`completed`,`refused`,`no_answer`,`busy`,`failed`) — attempt outcome
+- provider_raw_status: string — raw status code/message
+- error_code: string — optional error code
+- metadata: jsonb — provider/additional metadata
+
+### Entity: SurveyResponse
+- id: UUID — PK
+- contact_id: UUID — FK to Contact, unique (per campaign/contact)
+- campaign_id: UUID — FK to Campaign, indexed
+- call_attempt_id: UUID — FK to CallAttempt (the successful attempt)
+- q1_answer: text — captured answer
+- q2_answer: text — captured answer
+- q3_answer: text — captured answer
+- q1_confidence: numeric — optional (0–1)
+- q2_confidence: numeric — optional (0–1)
+- q3_confidence: numeric — optional (0–1)
+- completed_at: timestamp — when survey completed
+
+### Entity: Event
+- id: UUID — PK
+- event_type: enum(`survey.completed`,`survey.refused`,`survey.not_reached`) — event kind
+- campaign_id: UUID — FK to Campaign
+- contact_id: UUID — FK to Contact
+- call_attempt_id: UUID — FK to CallAttempt, nullable (for not_reached)
+- payload: jsonb — event-specific data (answers, attempts)
+- created_at: timestamp
+
+### Entity: EmailNotification
+- id: UUID — PK
+- event_id: UUID — FK to Event
+- contact_id: UUID — FK to Contact
+- campaign_id: UUID — FK to Campaign
+- template_id: UUID — FK to EmailTemplate
+- to_email: string
+- status: enum(`pending`,`sent`,`failed`) — email status
+- provider_message_id: string — optional
+- error_message: string — optional
+- created_at: timestamp
+- updated_at: timestamp
+
+### Entity: EmailTemplate
+- id: UUID — PK
+- name: string — human-readable
+- type: enum(`completed`,`refused`,`not_reached`) — use case
+- subject: string
+- body_html: text — HTML template with variables
+- body_text: text — optional plain-text template
+- locale: enum(`en`,`it`) — language
+- created_at: timestamp
+- updated_at: timestamp
+
+### Entity: ProviderConfig
+- id: UUID — PK (single-row or per-env)
+- provider_type: enum(`telephony_api`,`voice_ai_platform`) — mode
+- provider_name: string — e.g., `twilio`, `retell` (string, not logic-critical)
+- outbound_number: string — caller ID
+- max_concurrent_calls: integer — concurrency limit
+- llm_provider: enum(`openai`,`anthropic`,`azure-openai`,`google`) — selects model routing
+- llm_model: string — e.g., `gpt-4.1-mini`
+- recording_retention_days: integer — default retention
+- transcript_retention_days: integer — default retention
+- created_at: timestamp
+- updated_at: timestamp
+
+### Entity: TranscriptSnippet (optional slice‑1, but modeled)
+- id: UUID — PK
+- call_attempt_id: UUID — FK to CallAttempt
+- transcript_text: text — redacted/summary transcript
+- language: enum(`en`,`it`)
+- created_at: timestamp
+
+## Key Workflows
+### Workflow 1: Campaign Creation & Configuration
+1. User authenticates via OIDC and is granted role.
+2. User opens "Create Campaign" page and fills name, language, intro script, 3 questions, retry policy, and time window.
+3. Frontend validates client-side; backend validates on `POST /api/campaigns` and persists campaign as `draft`.
+4. User uploads CSV to `POST /api/campaigns/{id}/contacts/upload`.
+5. Backend:
+   - Parses file, validates each row, creates `Contact` records.
+   - Returns summary: number of accepted rows, rejected rows with reasons.
+6. User reviews summary; if acceptable, user activates campaign via `POST /api/campaigns/{id}/activate`.
+7. Backend verifies:
+   - Campaign has at least one contact, valid scripts/questions, retry policy, and time window.
+   - Status transitions to `running` or `scheduled`.
+
+### Workflow 2: Outbound Call Scheduling & Execution
+1. Scheduler runs periodically (e.g., every minute):
+   - Selects contacts with `state in (pending, not_reached)`, attempts_count < max_attempts, within allowed time window, not `do_not_call`.
+   - Limits batch size per run based on `max_concurrent_calls` and provider limits.
+2. For each selected contact:
+   - Increments `attempts_count`, sets `state = in_progress`, creates `CallAttempt` with unique `call_id`.
+   - Calls telephony provider API to start outbound call, passing callback URL and metadata (campaign_id, contact_id, call_id, language).
+3. Telephony provider dials the respondent and posts webhook events:
+   - `call.answered` → triggers dialogue start/consent script via DLG.
+   - `call.no_answer` or `call.busy` → update `CallAttempt.outcome` and contact's `state` appropriately; scheduler may retry later.
+4. After each attempt:
+   - If `completed` or `refused`, set contact state accordingly.
+   - If attempts_count == max_attempts and no successful completion/refusal, mark contact as `not_reached`.
+
+### Workflow 3: Consent & Survey Dialogue
+1. Upon `call.answered`, DLG ensures intro script is played and consent is requested.
+2. User response (via provider + LLM integration) is interpreted:
+   - If consent refused:
+     - DLG instructs call termination.
+     - `CallAttempt.outcome = refused`, contact `state = refused`.
+     - Publish `survey.refused` event.
+   - If consent granted:
+     - DLG proceeds to ask question 1, then 2, then 3.
+3. For each question:
+   - LLM generates utterance text; provider converts to speech.
+   - Respondent answers; provider/LLM extracts answer; DLG stores draft answer.
+   - If "repeat" or confusion, DLG re-asks once.
+4. After Q3 answer is recorded:
+   - DLG confirms completion, triggers call end.
+   - Persist `SurveyResponse` with all 3 answers and link to `CallAttempt`.
+   - Set `CallAttempt.outcome = completed`, contact `state = completed`.
+   - Publish `survey.completed` event.
+
+### Workflow 4: Retry & Not-Reached Handling
+1. For `no_answer` or `busy` outcomes:
+   - Update `CallAttempt` and contact's `last_outcome`, bump attempts_count.
+   - If attempts_count < max_attempts:
+     - Scheduler will pick up contact in a future run, honoring `retry_interval_minutes` and allowed time window.
+   - If attempts_count >= max_attempts:
+     - Set contact `state = not_reached`.
+     - Publish `survey.not_reached` event (if enabled).
+2. Contacts in `do_not_call` or `excluded` state are never queued for calls.
+
+### Workflow 5: Email Notifications
+1. Email worker subscribes to `survey.events` queue.
+2. Upon `survey.completed`:
+   - Look up campaign's `email_completed_template_id`.
+   - Render template using contact and campaign info (and optionally answers if allowed).
+   - Send via configured email service; update `EmailNotification` status.
+3. Similarly handle `survey.refused` and `survey.not_reached` if templates are configured.
+4. Failures are retried with backoff up to N times; failures logged and surfaced in admin UI.
+
+### Workflow 6: Dashboard & Export
+1. Campaign manager opens dashboard:
+   - Frontend calls `GET /api/campaigns/{id}/stats` and `GET /api/campaigns/{id}/contacts?…`.
+   - Backend aggregates from Postgres (with indexed queries) to compute counts, percentages, and basic charts.
+2. Metrics show near-real-time state (≤1-minute staleness).
+3. For CSV export:
+   - User triggers `GET /api/campaigns/{id}/export`.
+   - Backend either:
+     - Streams generated CSV directly, or
+     - Starts async job, stores in object storage, returns download URL.
+   - CSV includes required fields and is scoped to the requested campaign.
+
+## Security & Compliance
+- **Authentication & Authorization**
+  - OIDC (corporate IdP) for user login.
+  - JWT/session validation on all API calls.
+  - RBAC enforced at route and domain layer; `viewer` cannot change campaigns or export PII-heavy data beyond allowed fields.
+- **Data Protection**
+  - Encrypt all data at rest in Postgres and backup stores.
+  - TLS for all traffic; restricted outbound internet egress to LLM and telephony endpoints.
+  - PII (phone numbers, emails, transcripts) only stored where necessary, with column-level classification.
+  - Redaction pipeline for logs and transcripts (no phone numbers or full names in logs; prompt logging disabled).
+- **Consent & Legal**
+  - Intro script must:
+    - Identify caller and organization.
+    - State purpose and approximate duration.
+    - Ask for explicit consent; call proceeds only on positive response.
+  - Calls on sensitive/political topics must be disabled or require explicit config/whitelisting outside core slice‑1.
+  - Respect `do_not_call` flags and exclusion lists; log opt-out events.
+- **GDPR Support**
+  - Record consent status and timestamp for each contact call.
+  - Provide delete-by-contact function that removes or anonymizes:
+    - Contact record, survey responses, transcripts, and recordings.
+  - Configurable retention for recordings/transcripts; deletion jobs enforced automatically.
+- **Audit & Logging**
+  - Audit log of key admin and campaign actions (create/update/delete campaign, change of provider config, exports, mass deletions).
+  - Security logs integrated with central SIEM (via CloudWatch exports or similar).
+
+## Deployment & Operations
+- **Platform**
+  - AWS EKS for:
+    - Backend API service (FastAPI).
+    - Scheduler and workers (as CronJobs/Deployments).
+  - Postgres as managed service (e.g., RDS) in eu-central-1.
+  - Redis for caching/locks.
+  - SQS (preferred) for event bus (survey events).
+- **CI/CD**
+  - GitHub Actions workflows for CI (tests, lint, type-checks, security scan) and CD (build container images, deploy to EKS).
+  - Eval gates: coverage ≥80% for backend, ≥75% for frontend; no critical security vulnerabilities.
+- **Configuration & Secrets**
+  - Application configuration via environment variables and config maps (non-secret).
+  - Telephony, LLM, email, and database credentials via AWS Secrets Manager.
+- **Monitoring & Alerting**
+  - Metrics exported to Prometheus-compatible endpoint (or CloudWatch).
+  - Alerts for:
+    - Telephony provider failures (error rate thresholds).
+    - LLM errors/timeouts.
+    - Excessive missing outcomes or event processing lags.
+- **Operational Runbooks**
+  - Playbooks for:
+    - Telephony provider key rotation and number provisioning changes.
+    - Scaling worker replicas to support higher call volumes.
+    - Responding to data subject access and deletion requests.
+
+## Risks & Mitigations
+- **Risk: Telephony provider latency or quality degrades user experience.**
+  - Mitigation: Monitor call-level latency; implement provider timeout handling and configurable retries; allow switching provider adapter in later slices.
+- **Risk: Conversational latency >1.5s reduces completion rates.**
+  - Mitigation: Use low-latency LLM models; keep prompts compact; pre-warm connections; parallelize audio streaming and LLM calls where possible.
+- **Risk: Regulatory non-compliance due to incorrect consent or call timing.**
+  - Mitigation: Centralized configurable consent scripts and time windows; legal-reviewed templates; strong exclusion list enforcement.
+- **Risk: Data inconsistencies between telephony events and stored outcomes.**
+  - Mitigation: Idempotent webhook handlers; transactionally update call attempts and contacts; reconciliation jobs to detect "open" calls without final status.
+- **Risk: Misuse of system for prohibited topics or jurisdictions.**
+  - Mitigation: Restrict campaign creation to vetted users; admin controls to set allowed topics and geographies; logs and periodic audits.
+
+## Assumptions
+- Deployment is on AWS in a single region (eu-central-1) with EKS, RDS Postgres, Redis, and SQS available.
+- One primary telephony or voice AI provider is selected (e.g., Twilio, Telnyx, or a voice AI platform) and supports:
+  - Outbound calls, event webhooks, and either:
+    - A built-in LLM-based agent with structured response payloads, or
+    - A streaming audio API that can be integrated with the LLM gateway.
+- LLM gateway and keys are available with sufficient rate limits for targeted call volumes.
+- Email service (e.g., SES, SendGrid, or corporate SMTP) is available and allowed within network policies.
+- Pilot call volumes remain within ~1,000 calls/day; scaling beyond that is a later concern.
+- Only English and Italian are required for slice‑1; translations are provided by business stakeholders.
+- Legal/compliance provide approved consent wording and exclusion-list policies; the system does not generate legal content.
+
+## Success Metrics
+- ≤15 minutes from first login to launching a simple 3-question campaign with a small test list (TTFA).
+- ≥85% of campaign managers can upload contacts, configure a survey, and start a campaign without assistance.
+- ≤2% of calls per campaign have missing or inconsistent outcome/survey data.
+- ≥40% survey completion rate among answered calls in pilot campaigns.
+- Conversational round-trip latency <1.5s in ≥95% of turns during calls (as measured at app boundary where possible).
+
+## Acceptance Criteria
+- Given a valid campaign configuration and a CSV with at least 10 valid contacts, when the user uploads the file and activates the campaign, then at least 95% of valid rows are stored as `Contact` records and the campaign status transitions from `draft` to `running` with accurate contact counts.
+- Given an active campaign and one reachable contact, when the system initiates a call and the callee answers, then the callee hears a message that includes caller identity, purpose, approximate duration, and an explicit consent question before any survey question is asked, and the call is logged with a `CallAttempt` record.
+- Given the callee clearly refuses consent during an answered call, then the system ends the call within 10 seconds of the refusal, sets the contact state to `refused`, stores the refusal outcome in `CallAttempt`, and emits a `survey.refused` event on the internal event bus.
+- Given the callee accepts consent and answers all 3 questions, then the system stores a `SurveyResponse` record with all 3 answers linked to the latest `CallAttempt`, sets the contact state to `completed`, emits a `survey.completed` event, and (if a completed-email template is configured) sends a thank-you email to the contact's email address.
+- Given a contact has not answered or was busy for successive attempts, when the max_attempts configured for the campaign are reached without completion or refusal, then the system sets the contact state to `not_reached`, stops scheduling further calls for that contact, emits a `survey.not_reached` event (if enabled), and (if configured) sends a not-reached email.
+- Given at least 50 call attempts have occurred in a campaign, when a campaign manager opens the campaign dashboard, then within 60 seconds the dashboard displays total contacts, counts and percentages for `completed`, `refused`, and `not_reached`, and a paginated list of contacts with their latest outcome and attempt count.
+- Given a campaign with completed and refused calls, when a user with `campaign_manager` role requests CSV export, then the system returns a CSV file containing at least `campaign_id`, `contact_id`, `external_contact_id`, `phone_number`, `outcome`, `attempt_count`, and the 3 answers for each completed contact, with no duplicate rows and no missing rows for contacts that reached a terminal state.
+
+## Out Of Scope
+- Inbound call flows, IVR menus, or call transfers to human agents.
+- More than a single campaign type or multi-campaign orchestration on the same contact set simultaneously.
+- Intelligent call time optimization (only basic time windows and retries).
+- Sentiment analysis, topic modeling, or advanced QA on call content.
+- Multi-tenant isolation across many customer organizations (slice‑1 assumes single-tenant).
+
+## Note from Harper Orchestrator (Super User) to be applied
+- Keep the implementation narrowly focused on one outbound campaign, one provider, and 3 fixed questions while ensuring the architecture (telephony adapter, event bus, data model) is cleanly extensible.
+- Prioritize observability, outcome correctness, and compliance hooks over advanced conversational features.
+- Maintain strict separation between domain logic (campaigns, contacts, outcomes) and provider-specific integrations to allow future swapping of telephony/LLM providers with minimal impact.
+
+SPEC_END
+Human: /plan
