@@ -1,0 +1,45 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-005",
+  "lane": "python",
+  "tools": {
+    "tests": true,
+    "lint": false,
+    "types": false,
+    "security": false,
+    "build": false
+  },
+  "commands": {
+    "tests": "pytest -q runs/kit/REQ-005/test"
+  },
+  "cases": [
+    {
+      "name": "tests",
+      "run": "pytest -q runs/kit/REQ-005/test",
+      "cwd": ".",
+      "pip-file": "runs/kit/REQ-005/requirements.txt",
+      "expect": 0,
+      "timeout": 600
+    }
+  ],
+  "reports": [],
+  "env": {
+    "DATABASE_URL": "sqlite+pysqlite:///./tmp_req005.db"
+  },
+  "normalize": {
+    "junit": "",
+    "coverage": "",
+    "summary": "tests"
+  },
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 0.0,
+    "security": null
+  },
+  "external_runner": null,
+  "constraints_applied": [
+    "SPEC.md",
+    "PLAN.md",
+    "TECH_CONSTRAINTS.yaml"
+  ]
+}

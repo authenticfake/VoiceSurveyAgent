@@ -1,0 +1,1 @@
+"""Event bus abstractions for survey outcome notifications."""

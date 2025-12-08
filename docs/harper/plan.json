@@ -1,11 +1,11 @@
 {
   "snapshot": {
     "total": 11,
-    "open": 7,
+    "open": 6,
     "in_progress": 4,
-    "done": 0,
+    "done": 1,
     "deferred": 0,
-    "progressPct": 0
+    "progressPct": 9
   },
   "reqs": [
     {
@@ -78,7 +78,7 @@
         "REQ-009"
       ],
       "track": "App",
-      "status": "open",
+      "status": "done",
       "lane": "python",
       "test_profile": "backend-calling-scheduler",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"

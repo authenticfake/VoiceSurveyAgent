@@ -1,0 +1,80 @@
+{
+  "req_id": "REQ-004",
+  "strategy": "suffix",
+  "timestamp": "2025-12-08T08-00-03-966Z",
+  "src_root": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004",
+  "dest_root": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent",
+  "total_actions": 14,
+  "actions": [
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/ci/HOWTO.md",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/ci/HOWTO.md"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/ci/LTC.json",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/ci/LTC.json"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/docs/KIT_REQ-004.md",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/docs/KIT_REQ-004.md"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/docs/README_REQ-004.md",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/docs/README_REQ-004.md"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/requirements.txt",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/requirements.txt"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/__init__.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/__init__.py"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/calling/__init__.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/calling/__init__.py"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/calling/scheduler/__init__.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/calling/scheduler/__init__.py"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/calling/scheduler/models.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/calling/scheduler/models.py"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/calling/scheduler/service.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/calling/scheduler/service.py"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/calling/telephony/__init__.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/calling/telephony/__init__.py"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/calling/telephony/models.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/calling/telephony/models.py"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/calling/telephony/provider.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/calling/telephony/provider.py"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/test/calling/test_scheduler_service.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/test/calling/test_scheduler_service.py"
+    }
+  ]
+}
