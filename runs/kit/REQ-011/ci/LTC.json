@@ -1,0 +1,70 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-011",
+  "lane": "node",
+  "tools": {
+    "tests": true,
+    "lint": true,
+    "types": true,
+    "security": false,
+    "build": true
+  },
+  "commands": {
+    "install": "npm install",
+    "tests": "npm run test",
+    "lint": "npm run lint",
+    "types": "npm run lint",
+    "build": "npm run build"
+  },
+  "cases": [
+    {
+      "name": "install_dependencies",
+      "run": "npm install",
+      "cwd": "runs/kit/REQ-011/src/web"
+    },
+    {
+      "name": "lint",
+      "run": "npm run lint",
+      "cwd": "runs/kit/REQ-011/src/web"
+    },
+    {
+      "name": "types",
+      "run": "npm run lint",
+      "cwd": "runs/kit/REQ-011/src/web"
+    },
+    {
+      "name": "build",
+      "run": "npm run build",
+      "cwd": "runs/kit/REQ-011/src/web"
+    },
+    {
+      "name": "tests",
+      "run": "npm run test",
+      "cwd": "runs/kit/REQ-011/src/web"
+    }
+  ],
+  "reports": [
+    {
+      "kind": "coverage",
+      "path": "runs/kit/REQ-011/test/web/coverage/lcov.info",
+      "format": "lcov"
+    }
+  ],
+  "env": {
+    "NEXT_PUBLIC_API_BASE_URL": "http://localhost:8000"
+  },
+  "normalize": {
+    "eval.summary.json": "runs/kit/REQ-011/test/web/coverage/coverage-summary.json"
+  },
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 0.75,
+    "lint_clean": true
+  },
+  "constraints_applied": [
+    "lane: node",
+    "framework: Next.js",
+    "tests: Vitest",
+    "lint: next/core-web-vitals"
+  ]
+}

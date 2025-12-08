@@ -1,8 +1,8 @@
 {
   "snapshot": {
     "total": 11,
-    "open": 2,
-    "in_progress": 8,
+    "open": 1,
+    "in_progress": 9,
     "done": 1,
     "deferred": 0,
     "progressPct": 9
@@ -196,7 +196,7 @@
         "REQ-009"
       ],
       "track": "Infra",
-      "status": "open",
+      "status": "in_progress",
       "lane": "infra",
       "test_profile": "infra-messaging-workers",
       "gate_policy_ref": "docs/harper/lane-guides/infra.md"
