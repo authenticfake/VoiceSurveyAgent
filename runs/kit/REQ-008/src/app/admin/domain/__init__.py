@@ -1,0 +1,1 @@
+"""Domain layer primitives shared across admin services."""

@@ -1,0 +1,1 @@
+"""Admin-focused domain packages (provider config, retention, templates)."""

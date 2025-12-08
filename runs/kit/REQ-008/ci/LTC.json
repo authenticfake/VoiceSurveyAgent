@@ -1,0 +1,55 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-008",
+  "lane": "python",
+  "tools": {
+    "tests": "pytest",
+    "lint": "ruff",
+    "types": "mypy",
+    "security": "bandit",
+    "build": "uv"
+  },
+  "commands": {
+    "tests": "pytest -q runs/kit/REQ-008/test"
+  },
+  "cases": [
+    {
+      "name": "tests",
+      "run": "pytest -q runs/kit/REQ-008/test",
+      "cwd": ".",
+      "pip-file": "runs/kit/REQ-008/requirements.txt",
+      "expect": 0
+    }
+  ],
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "runs/kit/REQ-008/reports/junit.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "runs/kit/REQ-008/reports/coverage.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "env": {
+    "PYTHONPATH": ".",
+    "EMAIL_PROVIDER": "ses"
+  },
+  "normalize": {
+    "summary": "runs/kit/REQ-008/reports/eval.summary.json"
+  },
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 0.8,
+    "security": {
+      "bandit_high": 0
+    }
+  },
+  "external_runner": null,
+  "constraints_applied": [
+    "SPEC voicesurveyagent 2024 slice-1",
+    "Lane guide python v1.0"
+  ]
+}
