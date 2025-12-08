@@ -10,7 +10,7 @@ SEED_FILE="${SCRIPT_DIR}/../src/storage/seed/seed.sql"
 # Check for DATABASE_URL
 if [ -z "$DATABASE_URL" ]; then
     echo "Error: DATABASE_URL environment variable is not set"
-    echo "Example: export DATABASE_URL='postgresql://user:password@localhost:5432/voicesurvey'"
+    echo "Example: export DATABASE_URL='postgresql://afranco:Andrea.1@localhost:5432/voicesurvey'"
     exit 1
 fi
 

@@ -2,130 +2,150 @@
 
 ## Overview
 
-This KIT implements Role-Based Access Control (RBAC) for the VoiceSurveyAgent application. It provides:
+This KIT implements Role-Based Access Control (RBAC) for the Voice Survey Agent application. It provides:
 
-- Role definitions with hierarchical privilege levels
-- Permission-based access control
-- FastAPI dependency decorators for route protection
-- Structured logging for access denial events
-- Configurable RBAC rules via environment variables
+1. **Role-Permission Mapping**: Defines what each role (admin, campaign_manager, viewer) can do
+2. **Permission Checking**: Functions to verify if a role has specific permissions
+3. **FastAPI Dependencies**: Reusable dependencies for protecting routes
+4. **Decorator Support**: For protecting service methods outside of FastAPI context
+5. **Access Logging**: Denied access attempts are logged with user ID, endpoint, and timestamp
 
 ## Architecture
-
-### Module Structure
-
-```
-app/auth/rbac/
-├── __init__.py          # Public API exports
-├── roles.py             # Role enum and hierarchy
-├── permissions.py       # FastAPI dependencies for access control
-├── logging.py           # Access denial logging
-└── config.py            # Configuration management
-```
 
 ### Role Hierarchy
 
 ```
-admin (100)
-  └── campaign_manager (50)
-        └── viewer (10)
+admin (level 3)
+  └── campaign_manager (level 2)
+        └── viewer (level 1)
 ```
 
-Higher privilege roles inherit access to lower privilege endpoints.
+Higher-level roles inherit access to lower-level role requirements.
 
-### Permissions
+### Permission Categories
 
-Each role has a defined set of permissions:
+| Category | Permissions |
+|----------|-------------|
+| Campaign | create, read, update, delete, activate |
+| Contact | read, upload, export |
+| Exclusion | read, manage |
+| Admin | config:read, config:write |
+| Stats | read, export |
 
-| Permission | Viewer | Campaign Manager | Admin |
-|------------|--------|------------------|-------|
-| campaigns:read | ✓ | ✓ | ✓ |
-| campaigns:create | | ✓ | ✓ |
-| campaigns:update | | ✓ | ✓ |
-| campaigns:delete | | | ✓ |
-| config:read | | | ✓ |
-| config:update | | | ✓ |
-| exclusions:delete | | | ✓ |
+### Role Permissions
+
+| Permission | Admin | Campaign Manager | Viewer |
+|------------|-------|------------------|--------|
+| campaign:create | ✓ | ✓ | ✗ |
+| campaign:read | ✓ | ✓ | ✓ |
+| campaign:update | ✓ | ✓ | ✗ |
+| campaign:delete | ✓ | ✓ | ✗ |
+| campaign:activate | ✓ | ✓ | ✗ |
+| contact:read | ✓ | ✓ | ✓ |
+| contact:upload | ✓ | ✓ | ✗ |
+| contact:export | ✓ | ✓ | ✗ |
+| exclusion:read | ✓ | ✓ | ✗ |
+| exclusion:manage | ✓ | ✗ | ✗ |
+| admin:config:read | ✓ | ✗ | ✗ |
+| admin:config:write | ✓ | ✗ | ✗ |
+| stats:read | ✓ | ✓ | ✓ |
+| stats:export | ✓ | ✓ | ✗ |
 
 ## Usage
 
-### Protecting Routes
+### Protecting Routes with Dependencies
 
 ```python
-from fastapi import Depends
-from app.auth.rbac import require_role, require_permission, Role
+from fastapi import APIRouter, Depends
+from app.auth.dependencies import (
+    require_admin,
+    require_campaign_manager,
+    require_viewer,
+    require_permission,
+    Permission,
+)
 
-# Require minimum role
-@router.get("/admin/config")
-async def get_config(
-    _: Role = Depends(require_role(Role.ADMIN))
-):
+router = APIRouter()
+
+# Require admin role
+@router.get("/admin/config", dependencies=[Depends(require_admin())])
+async def get_admin_config():
+    ...
+
+# Require campaign_manager or higher
+@router.post("/campaigns", dependencies=[Depends(require_campaign_manager())])
+async def create_campaign():
     ...
 
 # Require specific permission
+@router.post(
+    "/campaigns/{id}/contacts/upload",
+    dependencies=[Depends(require_permission(Permission.CONTACT_UPLOAD))]
+)
+async def upload_contacts():
+    ...
+
+# Require any of multiple permissions
+@router.get(
+    "/reports",
+    dependencies=[Depends(require_any_permission(
+        Permission.STATS_READ,
+        Permission.STATS_EXPORT
+    ))]
+)
+async def get_reports():
+    ...
+```
+
+### Using Type Aliases
+
+```python
+from app.auth.dependencies import AdminRequired, CampaignManagerRequired
+
+@router.put("/admin/config")
+async def update_config(_: AdminRequired):
+    ...
+
 @router.post("/campaigns")
-async def create_campaign(
-    _: Role = Depends(require_permission("campaigns:create"))
-):
-    ...
-
-# Allow multiple roles
-@router.put("/campaigns/{id}")
-async def update_campaign(
-    _: Role = Depends(require_any_role([Role.ADMIN, Role.CAMPAIGN_MANAGER]))
-):
+async def create_campaign(_: CampaignManagerRequired):
     ...
 ```
 
-### Configuration
+### Protecting Service Methods
 
-Environment variables:
+```python
+from app.auth.rbac import rbac_required, Permission
+from app.auth.schemas import UserRole
 
-- `RBAC_ADMIN_PATHS`: Comma-separated admin path prefixes (default: `/api/admin`)
-- `RBAC_MANAGER_PATHS`: Comma-separated manager path prefixes (default: `/api/campaigns`)
-- `RBAC_LOG_DENIALS`: Whether to log denials (default: `true`)
-- `RBAC_LOG_REQUEST_DETAILS`: Whether to log request details (default: `true`)
+class CampaignService:
+    @rbac_required(minimum_role=UserRole.CAMPAIGN_MANAGER)
+    async def create_campaign(self, user, data):
+        ...
 
-## Access Denial Logging
-
-All access denials are logged in structured JSON format:
-
-```json
-{
-  "event": "access_denied",
-  "timestamp": "2024-01-15T10:30:00Z",
-  "user_id": "user-123",
-  "endpoint": "GET /api/admin/config",
-  "required_role": "admin",
-  "user_role": "viewer",
-  "request_context": {
-    "method": "GET",
-    "path": "/api/admin/config",
-    "client_ip": "192.168.1.1",
-    "user_agent": "Mozilla/5.0...",
-    "correlation_id": "corr-abc123"
-  }
-}
+    @rbac_required(permission=Permission.CAMPAIGN_DELETE)
+    async def delete_campaign(self, user, campaign_id):
+        ...
 ```
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `src/app/auth/rbac.py` | Core RBAC implementation |
+| `src/app/auth/dependencies.py` | FastAPI dependency exports |
+| `test/test_rbac.py` | Comprehensive test suite |
 
 ## Dependencies
 
-- Requires REQ-001 (Database schema) for User model
-- Requires REQ-002 (OIDC authentication) for JWT validation and user context
+- REQ-001: Database schema (User model with role field)
+- REQ-002: OIDC authentication (provides user context in request.state)
 
-## Testing
+## Acceptance Criteria Verification
 
-Run tests:
-
-```bash
-cd runs/kit/REQ-003
-pytest test/ -v
-```
-
-Coverage includes:
-- Role hierarchy validation
-- Permission checking
-- Route protection decorators
-- Access denial logging
-- Configuration loading
-- FastAPI integration
+| Criterion | Implementation |
+|-----------|----------------|
+| Role extracted from JWT claims or user database record | `RBACChecker` reads `request.state.user.role` set by auth middleware |
+| Route decorators enforce minimum required role | `require_admin()`, `require_campaign_manager()`, `require_viewer()` |
+| Admin endpoints restricted to admin role only | `require_admin()` dependency |
+| Campaign modification restricted to campaign_manager and admin | `require_campaign_manager()` or `require_permission(Permission.CAMPAIGN_*)` |
+| Denied access attempts logged with user ID, endpoint, and timestamp | `_log_denied()` method logs with structured JSON |
