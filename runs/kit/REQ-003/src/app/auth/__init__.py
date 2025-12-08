@@ -1,47 +1,57 @@
 """
 Authentication and authorization module.
 
-Exports RBAC components for use throughout the application.
+Exports OIDC authentication, JWT validation, and RBAC components.
 """
 
+from app.auth.middleware import (
+    AuthMiddleware,
+    CurrentUser,
+    get_current_user,
+    get_optional_user,
+)
 from app.auth.rbac import (
     AdminUser,
     CampaignManagerUser,
-    RBACError,
-    RoleChecker,
-    RoleLevel,
+    Permission,
+    RBACMiddleware,
     ViewerUser,
-    can_modify_campaigns,
+    get_role_permissions,
     has_minimum_role,
-    is_admin,
-    rbac_decorator,
-    require_admin,
-    require_campaign_manager,
+    has_permission,
+    require_permission,
     require_role,
-    require_viewer,
 )
-from app.auth.schemas import UserRole
+from app.auth.schemas import (
+    OIDCConfig,
+    TokenPayload,
+    UserContext,
+    UserRole,
+)
+from app.auth.service import AuthService
 
 __all__ = [
-    # Role types
-    "UserRole",
-    "RoleLevel",
-    # Permission checks
-    "has_minimum_role",
-    "can_modify_campaigns",
-    "is_admin",
-    # Dependencies
-    "require_role",
-    "require_viewer",
-    "require_campaign_manager",
-    "require_admin",
-    "RoleChecker",
-    # Type aliases
-    "ViewerUser",
-    "CampaignManagerUser",
+    # Middleware
+    "AuthMiddleware",
+    "CurrentUser",
+    "get_current_user",
+    "get_optional_user",
+    # RBAC
     "AdminUser",
-    # Decorator
-    "rbac_decorator",
-    # Exceptions
-    "RBACError",
+    "CampaignManagerUser",
+    "Permission",
+    "RBACMiddleware",
+    "ViewerUser",
+    "get_role_permissions",
+    "has_minimum_role",
+    "has_permission",
+    "require_permission",
+    "require_role",
+    # Schemas
+    "OIDCConfig",
+    "TokenPayload",
+    "UserContext",
+    "UserRole",
+    # Service
+    "AuthService",
 ]

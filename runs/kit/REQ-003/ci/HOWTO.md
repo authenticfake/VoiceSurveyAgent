@@ -1,208 +1,190 @@
-# REQ-003: RBAC Authorization Middleware - Execution Guide
+# REQ-003: RBAC Authorization Middleware — Execution Guide
 
 ## Overview
 
-This KIT implements Role-Based Access Control (RBAC) middleware for the Voice Survey Agent application. It provides role extraction, permission checking, and route decorators for enforcing minimum required roles on API endpoints.
+This KIT implements Role-Based Access Control (RBAC) authorization middleware for the Voice Survey Agent application. It provides:
+
+- Role extraction from JWT claims or database records
+- Route decorators for enforcing minimum required roles
+- Permission-based access control
+- Access denied logging with user ID, endpoint, and timestamp
 
 ## Prerequisites
 
 ### System Requirements
 - Python 3.12+
-- pip or poetry for dependency management
+- PostgreSQL 15+ (for integration tests)
+- pip or Poetry for dependency management
 
 ### Dependencies
-The implementation depends on:
-- REQ-001: Database schema (User model with role field)
-- REQ-002: OIDC authentication (CurrentUser context)
+The following packages are required (see `requirements.txt`):
+- fastapi>=0.111.0
+- pydantic>=2.7.0
+- pytest>=8.0.0
+- pytest-asyncio>=0.23.0
+- httpx>=0.27.0
+- ruff>=0.4.0
+- mypy>=1.10.0
+- bandit>=1.7.0
 
 ## Environment Setup
 
-### 1. Set PYTHONPATH
+### 1. Set Environment Variables
 
 ```bash
-export PYTHONPATH="runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src:$PYTHONPATH"
+export DATABASE_URL="postgresql://user:password@localhost:5432/voicesurvey_test"
+export OIDC_ISSUER="https://test-idp.example.com"
+export OIDC_CLIENT_ID="test-client-id"
+export OIDC_CLIENT_SECRET="test-client-secret"
+export JWT_SECRET_KEY="test-secret-key-for-jwt-signing"
+export PYTHONPATH="runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src"
 ```
 
-### 2. Environment Variables
+### 2. Install Dependencies
 
 ```bash
-export DATABASE_URL="postgresql://user:password@localhost:5432/voicesurvey"
-export OIDC_ISSUER="https://your-idp.example.com"
-export OIDC_CLIENT_ID="your-client-id"
-export OIDC_CLIENT_SECRET="your-client-secret"
-export JWT_SECRET_KEY="your-jwt-secret-key"
-export LOG_LEVEL="INFO"
-```
-
-### 3. Install Dependencies
-
-```bash
-pip install -r runs/kit/REQ-003/requirements.txt
+cd runs/kit/REQ-003
+pip install -r requirements.txt
 ```
 
 ## Running Tests
 
 ### All Tests
 ```bash
-pytest runs/kit/REQ-003/test -v
+cd runs/kit/REQ-003
+pytest test/ -v --tb=short
+```
+
+### Specific Test Files
+```bash
+# RBAC unit tests
+pytest test/test_rbac.py -v
+
+# Integration tests
+pytest test/test_rbac_integration.py -v
 ```
 
 ### With Coverage
 ```bash
-pytest runs/kit/REQ-003/test -v --cov=runs/kit/REQ-003/src --cov-report=term-missing
+pytest test/ -v --cov=src --cov-report=term-missing --cov-report=xml:reports/coverage.xml
 ```
 
-### Specific Test Classes
-```bash
-# Test role hierarchy
-pytest runs/kit/REQ-003/test/test_rbac.py::TestRoleLevel -v
-
-# Test permission checks
-pytest runs/kit/REQ-003/test/test_rbac.py::TestHasMinimumRole -v
-
-# Test integration
-pytest runs/kit/REQ-003/test/test_rbac.py::TestRBACIntegration -v
-```
-
-## Code Quality Checks
+## Quality Checks
 
 ### Linting
 ```bash
-ruff check runs/kit/REQ-003/src runs/kit/REQ-003/test
+cd runs/kit/REQ-003
+ruff check src test
 ```
 
 ### Type Checking
 ```bash
-mypy runs/kit/REQ-003/src --ignore-missing-imports
+cd runs/kit/REQ-003
+mypy src --ignore-missing-imports
 ```
 
 ### Security Scan
 ```bash
-bandit -r runs/kit/REQ-003/src -ll
+cd runs/kit/REQ-003
+bandit -r src -ll
 ```
 
 ## Usage Examples
 
-### Using Role Dependencies
+### Using Role Decorators
 
 ```python
 from fastapi import APIRouter, Depends
-from app.auth.rbac import require_admin, require_campaign_manager, AdminUser, CampaignManagerUser
+from app.auth.rbac import require_role, AdminUser, CampaignManagerUser
+from app.auth.schemas import UserRole
 
 router = APIRouter()
 
-# Admin-only endpoint
-@router.get("/admin/config")
+# Require admin role
+@router.get("/api/admin/config")
 async def get_config(user: AdminUser):
-    return {"config": "..."}
+    return {"config": "admin_data"}
 
-# Campaign manager endpoint
-@router.put("/campaigns/{id}")
-async def update_campaign(id: str, user: CampaignManagerUser):
+# Require campaign_manager role (or higher)
+@router.post("/api/campaigns")
+async def create_campaign(user: CampaignManagerUser):
+    return {"id": "new-campaign"}
+
+# Using require_role directly
+@router.put("/api/campaigns/{id}")
+async def update_campaign(
+    id: str,
+    user = Depends(require_role(UserRole.CAMPAIGN_MANAGER))
+):
     return {"updated": id}
 ```
 
-### Using Role Decorator
+### Using Permission Decorators
 
 ```python
-from app.auth.rbac import rbac_decorator
-from app.auth.schemas import UserRole
+from app.auth.rbac import require_permission, Permission
 
-@router.delete("/campaigns/{id}")
-@rbac_decorator(UserRole.ADMIN)
-async def delete_campaign(id: str, current_user: CurrentUser):
+@router.delete("/api/exclusions/{id}")
+async def delete_exclusion(
+    id: str,
+    user = Depends(require_permission(Permission.ADMIN_EXCLUSION_MANAGE))
+):
     return {"deleted": id}
 ```
 
-### Checking Permissions Programmatically
+## Role Hierarchy
 
-```python
-from app.auth.rbac import has_minimum_role, can_modify_campaigns, is_admin
-from app.auth.schemas import UserRole
-
-# Check if user has minimum role
-if has_minimum_role(user.role, UserRole.CAMPAIGN_MANAGER):
-    # Allow action
-
-# Check campaign modification permission
-if can_modify_campaigns(user.role):
-    # Allow campaign modification
-
-# Check admin status
-if is_admin(user.role):
-    # Allow admin action
-```
+| Role | Level | Permissions |
+|------|-------|-------------|
+| admin | 3 | All permissions |
+| campaign_manager | 2 | Campaign CRUD, Contact management, Stats |
+| viewer | 1 | Read-only access |
 
 ## Troubleshooting
 
 ### Import Errors
-
-If you encounter import errors, ensure PYTHONPATH includes all required KIT paths:
-
+Ensure PYTHONPATH includes all required KIT source directories:
 ```bash
 export PYTHONPATH="runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src"
 ```
 
-### Test Failures
+### Test Database Connection
+For integration tests requiring database:
+```bash
+export DATABASE_URL="postgresql://user:password@localhost:5432/voicesurvey_test"
+```
 
-1. **Missing dependencies**: Run `pip install -r runs/kit/REQ-003/requirements.txt`
-2. **Database connection**: Ensure DATABASE_URL is set correctly
-3. **OIDC configuration**: Verify OIDC environment variables
-
-### Access Denied Logging
-
-Access denied events are logged with the following structure:
-```json
-{
-  "event": "access_denied",
-  "user_id": "uuid",
-  "endpoint": "/api/path",
-  "user_role": "viewer",
-  "required_role": "admin",
-  "timestamp": "2024-01-15T10:30:00"
-}
+### Missing Dependencies
+If tests fail due to missing packages:
+```bash
+pip install -r runs/kit/REQ-003/requirements.txt
 ```
 
 ## CI/CD Integration
 
 ### GitHub Actions
+The LTC.json file defines the test contract for CI:
+- Install dependencies
+- Run linting
+- Run type checking
+- Run tests
+- Run security scan
 
-```yaml
-- name: Run RBAC Tests
-  env:
-    PYTHONPATH: runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src
-  run: |
-    pip install -r runs/kit/REQ-003/requirements.txt
-    pytest runs/kit/REQ-003/test -v --junitxml=reports/junit.xml
-```
-
-### Jenkins
-
+### Jenkins Pipeline
 ```groovy
 stage('RBAC Tests') {
-    environment {
-        PYTHONPATH = "runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src"
-    }
     steps {
-        sh 'pip install -r runs/kit/REQ-003/requirements.txt'
-        sh 'pytest runs/kit/REQ-003/test -v --junitxml=reports/junit.xml'
+        sh 'cd runs/kit/REQ-003 && pip install -r requirements.txt'
+        sh 'cd runs/kit/REQ-003 && pytest test/ -v --junitxml=reports/junit.xml'
     }
 }
 ```
 
-## Architecture Notes
+## Artifacts
 
-### Role Hierarchy
-
-```
-ADMIN (30) > CAMPAIGN_MANAGER (20) > VIEWER (10)
-```
-
-### Permission Matrix
-
-| Endpoint Type | VIEWER | CAMPAIGN_MANAGER | ADMIN |
-|--------------|--------|------------------|-------|
-| Read campaigns | ✓ | ✓ | ✓ |
-| Modify campaigns | ✗ | ✓ | ✓ |
-| Admin config | ✗ | ✗ | ✓ |
-| Export data | ✗ | ✓ | ✓ |
+| Artifact | Path | Description |
+|----------|------|-------------|
+| Source | `runs/kit/REQ-003/src/app/auth/rbac.py` | RBAC implementation |
+| Tests | `runs/kit/REQ-003/test/` | Test files |
+| JUnit Report | `runs/kit/REQ-003/reports/junit.xml` | Test results |
+| Coverage | `runs/kit/REQ-003/reports/coverage.xml` | Coverage report |
