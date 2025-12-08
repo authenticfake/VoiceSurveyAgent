@@ -31,18 +31,13 @@ VALUES
      '<html><body><h1>Thank you</h1><p>Dear {{contact_name}},</p><p>We respect your decision not to participate in our survey.</p></body></html>',
      'We respect your decision not to participate in our survey.',
      'en'),
-    ('00000000-0000-0000-0001-000000000004', 'Survey Refused - IT', 'refused', 
-     'Rispettiamo la tua decisione', 
-     '<html><body><h1>Grazie</h1><p>Gentile {{contact_name}},</p><p>Rispettiamo la tua decisione di non partecipare al nostro sondaggio.</p></body></html>',
-     'Rispettiamo la tua decisione di non partecipare al nostro sondaggio.',
-     'it'),
-    ('00000000-0000-0000-0001-000000000005', 'Not Reached - EN', 'not_reached', 
+    ('00000000-0000-0000-0001-000000000004', 'Not Reached - EN', 'not_reached', 
      'We tried to reach you', 
      '<html><body><h1>We tried to reach you</h1><p>Dear {{contact_name}},</p><p>We attempted to contact you for our survey but were unable to reach you.</p></body></html>',
      'We attempted to contact you for our survey but were unable to reach you.',
      'en'),
-    ('00000000-0000-0000-0001-000000000006', 'Not Reached - IT', 'not_reached', 
-     'Abbiamo provato a raggiungerti', 
+    ('00000000-0000-0000-0001-000000000005', 'Not Reached - IT', 'not_reached', 
+     'Abbiamo provato a contattarti', 
      '<html><body><h1>Abbiamo provato a raggiungerti</h1><p>Gentile {{contact_name}},</p><p>Abbiamo provato a contattarti per il nostro sondaggio ma non siamo riusciti a raggiungerti.</p></body></html>',
      'Abbiamo provato a contattarti per il nostro sondaggio ma non siamo riusciti a raggiungerti.',
      'it')
@@ -71,19 +66,20 @@ ON CONFLICT (id) DO UPDATE SET
     updated_at = NOW();
 
 -- Seed a sample campaign (idempotent via ON CONFLICT on id)
-INSERT INTO campaigns (id, name, description, status, language, intro_script, question_1_text, question_1_type, question_2_text, question_2_type, question_3_text, question_3_type, max_attempts, retry_interval_minutes, allowed_call_start_local, allowed_call_end_local, email_completed_template_id, email_refused_template_id, email_not_reached_template_id, created_by_user_id)
+INSERT INTO campaigns (id, name, description, status, language, intro_script, 
+    question_1_text, question_1_type, question_2_text, question_2_type, question_3_text, question_3_type,
+    max_attempts, retry_interval_minutes, allowed_call_start_local, allowed_call_end_local,
+    email_completed_template_id, email_refused_template_id, email_not_reached_template_id, created_by_user_id)
 VALUES 
     ('00000000-0000-0000-0003-000000000001', 'Customer Satisfaction Survey Q1', 
-     'Quarterly customer satisfaction survey for Q1 2025',
+     'Quarterly customer satisfaction survey for Q1 2024',
      'draft', 'en',
-     'Hello, this is a call from VoiceSurvey on behalf of Acme Corp. We are conducting a brief 3-question survey about your recent experience. This call will take approximately 2 minutes. Do you consent to participate?',
+     'Hello, this is VoiceSurvey calling on behalf of Acme Corp. We are conducting a brief 3-question survey about your recent experience. This will take approximately 2 minutes. Do you consent to participate?',
      'On a scale of 1 to 10, how satisfied are you with our service?', 'scale',
-     'What is the main reason for your rating?', 'free_text',
+     'What aspect of our service do you value most?', 'free_text',
      'How likely are you to recommend us to a friend or colleague, on a scale of 1 to 10?', 'scale',
      3, 60, '09:00:00', '20:00:00',
-     '00000000-0000-0000-0001-000000000001',
-     '00000000-0000-0000-0001-000000000003',
-     '00000000-0000-0000-0001-000000000005',
+     '00000000-0000-0000-0001-000000000001', '00000000-0000-0000-0001-000000000003', '00000000-0000-0000-0001-000000000004',
      '00000000-0000-0000-0000-000000000002')
 ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
@@ -107,7 +103,8 @@ ON CONFLICT (id) DO UPDATE SET
 INSERT INTO exclusion_list_entries (id, phone_number, reason, source)
 VALUES 
     ('00000000-0000-0000-0005-000000000001', '+14155550199', 'Customer requested removal', 'api'),
-    ('00000000-0000-0000-0005-000000000002', '+14155550198', 'Legal hold', 'manual')
+    ('00000000-0000-0000-0005-000000000002', '+14155550198', 'Legal hold', 'manual'),
+    ('00000000-0000-0000-0005-000000000003', '+14155550197', 'Imported from DNC list', 'import')
 ON CONFLICT (phone_number) DO UPDATE SET
     reason = EXCLUDED.reason,
     source = EXCLUDED.source;

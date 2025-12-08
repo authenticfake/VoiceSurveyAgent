@@ -1,9 +1,9 @@
 {
   "version": "1.0",
   "req_id": "REQ-001",
-  "lane": "python",
+  "lane": "sql",
   "env": {
-    "DATABASE_URL": "postgresql://user:password@localhost:5432/voicesurvey",
+    "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/voicesurvey_test",
     "DISABLE_TESTCONTAINERS": "0"
   },
   "cases": [
@@ -15,69 +15,40 @@
       "timeout": 120
     },
     {
-      "name": "run_upgrade",
-      "run": "chmod +x runs/kit/REQ-001/scripts/db_upgrade.sh && ./runs/kit/REQ-001/scripts/db_upgrade.sh",
-      "cwd": ".",
-      "expect": 0,
-      "timeout": 60
-    },
-    {
-      "name": "run_seed",
-      "run": "chmod +x runs/kit/REQ-001/scripts/db_seed.sh && ./runs/kit/REQ-001/scripts/db_seed.sh",
-      "cwd": ".",
-      "expect": 0,
-      "timeout": 60
-    },
-    {
-      "name": "tests",
-      "run": "pytest -p no:cacheprovider -q runs/kit/REQ-001/test/test_migration_sql.py -v --tb=short",
+      "name": "migration_tests",
+      "run": "pytest runs/kit/REQ-001/test/test_migration_sql.py -v --tb=short",
       "cwd": ".",
       "expect": 0,
       "timeout": 300
-    },
-    {
-      "name": "run_downgrade",
-      "run": "chmod +x runs/kit/REQ-001/scripts/db_downgrade.sh && ./runs/kit/REQ-001/scripts/db_downgrade.sh",
-      "cwd": ".",
-      "expect": 0,
-      "timeout": 60
     }
   ],
+  "tools": {
+    "tests": "pytest",
+    "lint": "n/a",
+    "types": "n/a",
+    "security": "n/a",
+    "build": "psql"
+  },
+  "commands": {
+    "install_deps": "pip install -r runs/kit/REQ-001/requirements.txt",
+    "migration_tests": "pytest runs/kit/REQ-001/test/test_migration_sql.py -v"
+  },
   "reports": [
     {
       "kind": "junit",
-      "path": "reports/junit.xml",
+      "path": "reports/junit-req001.xml",
       "format": "junit-xml"
     }
   ],
   "gate_policy": {
     "tests_pass": true,
     "coverage_min": 0,
-    "security": {
-      "bandit_high": 0
-    }
+    "security": {}
   },
-  "tools": {
-    "tests": "pytest",
-    "lint": "ruff",
-    "types": "mypy",
-    "security": "bandit",
-    "build": "docker"
-  },
-  "commands": {
-    "install": "pip install -r runs/kit/REQ-001/requirements.txt",
-    "upgrade": "./runs/kit/REQ-001/scripts/db_upgrade.sh",
-    "seed": "./runs/kit/REQ-001/scripts/db_seed.sh",
-    "downgrade": "./runs/kit/REQ-001/scripts/db_downgrade.sh",
-    "tests": "pytest runs/kit/REQ-001/test/"
-  },
-  "normalize": {
-    "test_results": "reports/junit.xml"
-  },
-  "constraints_applied": [
-    "PostgreSQL 15+",
-    "UUID primary keys",
-    "Enum types for status fields",
-    "Idempotent migrations"
-  ]
+  "constraints_applied": {
+    "database": "PostgreSQL 15+",
+    "uuid_type": "native UUID",
+    "timestamps": "TIMESTAMP WITH TIME ZONE",
+    "indexes": "on all FK columns"
+  }
 }

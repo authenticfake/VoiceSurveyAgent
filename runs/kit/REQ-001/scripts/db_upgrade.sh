@@ -16,10 +16,10 @@ fi
 
 echo "Running database migrations (upgrade)..."
 
-# Find and run all .up.sql files in order
+# Find and sort all .up.sql files
 for migration in $(ls -1 "${SQL_DIR}"/*.up.sql 2>/dev/null | sort); do
     echo "Applying: $(basename "$migration")"
     psql "$DATABASE_URL" -f "$migration"
 done
 
-echo "Migrations completed successfully."
+echo "All migrations applied successfully."

@@ -16,10 +16,10 @@ fi
 
 echo "Running database migrations (downgrade)..."
 
-# Find and run all .down.sql files in reverse order
-for migration in $(ls -1r "${SQL_DIR}"/*.down.sql 2>/dev/null | sort -r); do
+# Find and sort all .down.sql files in reverse order
+for migration in $(ls -1 "${SQL_DIR}"/*.down.sql 2>/dev/null | sort -r); do
     echo "Reverting: $(basename "$migration")"
     psql "$DATABASE_URL" -f "$migration"
 done
 
-echo "Downgrade completed successfully."
+echo "All migrations reverted successfully."

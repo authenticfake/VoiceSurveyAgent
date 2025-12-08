@@ -1,134 +1,192 @@
-# HOWTO — REQ-001: Database Schema and Migrations
+# REQ-001: Database Schema and Migrations - Execution Guide
 
 ## Prerequisites
 
-- PostgreSQL 15+ installed and running
-- Python 3.12+ with pip
-- `psql` CLI available in PATH
-- Docker (optional, for testcontainers)
+### Required Tools
+- PostgreSQL 15+ client (`psql`)
+- Python 3.12+
+- pip or poetry for dependency management
+
+### Optional Tools
+- Docker (for testcontainers)
+- pgAdmin or DBeaver for visual inspection
 
 ## Environment Setup
 
 ### Option 1: Local PostgreSQL
 
-bash
-# Set database URL
-export DATABASE_URL='postgresql://user:password@localhost:5432/voicesurvey'
+```bash
+# Create test database
+createdb voicesurvey_test
 
-# Create database if needed
-createdb voicesurvey
+# Set environment variable
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/voicesurvey_test"
+export DISABLE_TESTCONTAINERS=1
+```
 
 ### Option 2: Docker PostgreSQL
 
-bash
+```bash
 # Start PostgreSQL container
 docker run -d \
-  --name voicesurvey-db \
-  -e POSTGRES_USER=user \
-  -e POSTGRES_PASSWORD=password \
-  -e POSTGRES_DB=voicesurvey \
+  --name voicesurvey-postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=voicesurvey_test \
   -p 5432:5432 \
-  postgres:15
+  postgres:15-alpine
 
-export DATABASE_URL='postgresql://user:password@localhost:5432/voicesurvey'
+# Set environment variable
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/voicesurvey_test"
+export DISABLE_TESTCONTAINERS=1
+```
 
-## Install Dependencies
+### Option 3: Testcontainers (automatic)
 
-bash
-pip install -r runs/kit/REQ-001/requirements.txt
+```bash
+# Just ensure Docker is running
+# Tests will automatically create/destroy containers
+unset DISABLE_TESTCONTAINERS
+```
 
 ## Running Migrations
 
-### Apply Migrations (Upgrade)
+### Upgrade (apply schema)
 
-bash
-chmod +x runs/kit/REQ-001/scripts/db_upgrade.sh
+```bash
+# Make scripts executable
+chmod +x runs/kit/REQ-001/scripts/*.sh
+
+# Run upgrade
 ./runs/kit/REQ-001/scripts/db_upgrade.sh
+```
+
+### Downgrade (revert schema)
+
+```bash
+./runs/kit/REQ-001/scripts/db_downgrade.sh
+```
 
 ### Apply Seed Data
 
-bash
-chmod +x runs/kit/REQ-001/scripts/db_seed.sh
+```bash
 ./runs/kit/REQ-001/scripts/db_seed.sh
-
-### Rollback Migrations (Downgrade)
-
-bash
-chmod +x runs/kit/REQ-001/scripts/db_downgrade.sh
-./runs/kit/REQ-001/scripts/db_downgrade.sh
+```
 
 ## Running Tests
 
-### With Testcontainers (Recommended)
+### Install Dependencies
 
-bash
-# Testcontainers will automatically start a PostgreSQL container
-unset DATABASE_URL
-pytest runs/kit/REQ-001/test/ -v
+```bash
+pip install -r runs/kit/REQ-001/requirements.txt
+```
 
-### With Local Database
+### Run All Tests
 
-bash
-export DATABASE_URL='postgresql://user:password@localhost:5432/voicesurvey_test'
-pytest runs/kit/REQ-001/test/ -v
+```bash
+# With testcontainers (Docker required)
+pytest runs/kit/REQ-001/test/test_migration_sql.py -v
 
-## Troubleshooting
-
-### psql: command not found
-
-Install PostgreSQL client tools:
-- macOS: `brew install postgresql`
-- Ubuntu: `apt-get install postgresql-client`
-- Windows: Install PostgreSQL and add to PATH
-
-### Connection refused
-
-Ensure PostgreSQL is running:
-bash
-pg_isready -h localhost -p 5432
-
-### Permission denied on scripts
-
-bash
-chmod +x runs/kit/REQ-001/scripts/*.sh
-
-### Testcontainers not working
-
-Ensure Docker is running:
-bash
-docker info
-
-Or use a local database instead:
-bash
-export DATABASE_URL='postgresql://user:password@localhost:5432/voicesurvey_test'
+# With local PostgreSQL
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/voicesurvey_test"
 export DISABLE_TESTCONTAINERS=1
+pytest runs/kit/REQ-001/test/test_migration_sql.py -v
+```
+
+### Run Specific Test Classes
+
+```bash
+# Schema shape tests only
+pytest runs/kit/REQ-001/test/test_migration_sql.py::TestSchemaShape -v
+
+# Idempotency tests only
+pytest runs/kit/REQ-001/test/test_migration_sql.py::TestIdempotency -v
+
+# Round-trip tests only
+pytest runs/kit/REQ-001/test/test_migration_sql.py::TestRoundTrip -v
+
+# Seed data tests only
+pytest runs/kit/REQ-001/test/test_migration_sql.py::TestSeedData -v
+```
 
 ## CI/CD Integration
 
 ### GitHub Actions
 
-yaml
-- name: Run migrations
+```yaml
+- name: Run REQ-001 Tests
   env:
-    DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    DATABASE_URL: postgresql://postgres:postgres@localhost:5432/voicesurvey_test
+    DISABLE_TESTCONTAINERS: "1"
   run: |
     pip install -r runs/kit/REQ-001/requirements.txt
-    ./runs/kit/REQ-001/scripts/db_upgrade.sh
-    pytest runs/kit/REQ-001/test/ -v
+    pytest runs/kit/REQ-001/test/test_migration_sql.py -v --junitxml=reports/junit-req001.xml
+```
 
 ### Jenkins
 
-groovy
-stage('Database') {
+```groovy
+stage('REQ-001 Migration Tests') {
+    environment {
+        DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/voicesurvey_test'
+        DISABLE_TESTCONTAINERS = '1'
+    }
     steps {
         sh 'pip install -r runs/kit/REQ-001/requirements.txt'
-        sh './runs/kit/REQ-001/scripts/db_upgrade.sh'
-        sh 'pytest runs/kit/REQ-001/test/ -v'
+        sh 'pytest runs/kit/REQ-001/test/test_migration_sql.py -v --junitxml=reports/junit-req001.xml'
     }
 }
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **psql: command not found**
+   - Install PostgreSQL client: `brew install postgresql` (macOS) or `apt install postgresql-client` (Ubuntu)
+
+2. **Connection refused**
+   - Ensure PostgreSQL is running
+   - Check DATABASE_URL format and credentials
+   - Verify port 5432 is accessible
+
+3. **Permission denied on scripts**
+   - Run: `chmod +x runs/kit/REQ-001/scripts/*.sh`
+
+4. **Testcontainers not starting**
+   - Ensure Docker daemon is running
+   - Check Docker permissions: `docker ps`
+
+5. **Tests skipped**
+   - If using local PostgreSQL, set `DISABLE_TESTCONTAINERS=1`
+   - Ensure `DATABASE_URL` is set correctly
+
+### Verifying Schema
+
+```bash
+# Connect to database
+psql $DATABASE_URL
+
+# List tables
+\dt
+
+# Describe a table
+\d users
+
+# List enum types
+\dT+
+
+# Exit
+\q
+```
 
 ## Artifacts
 
-- **SQL Migrations**: `runs/kit/REQ-001/src/storage/sql/`
-- **Seed Data**: `runs/kit/REQ-001/src/storage/seed/`
-- **Test Results**: `reports/junit.xml`
+| Path | Description |
+|------|-------------|
+| `src/storage/sql/V0001.up.sql` | Schema creation DDL |
+| `src/storage/sql/V0001.down.sql` | Schema rollback DDL |
+| `src/storage/seed/seed.sql` | Idempotent seed data |
+| `scripts/db_upgrade.sh` | Migration runner |
+| `scripts/db_downgrade.sh` | Rollback runner |
+| `scripts/db_seed.sh` | Seed data runner |
+| `test/test_migration_sql.py` | Schema validation tests |

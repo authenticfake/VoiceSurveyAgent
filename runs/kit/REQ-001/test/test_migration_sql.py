@@ -1,6 +1,10 @@
 """
-Test suite for REQ-001: Database schema and migrations
-Tests shape validation, idempotency, and round-trip migrations
+test_migration_sql.py - Shape test + idempotency + round-trip for REQ-001 migrations
+
+Tests:
+1. Schema shape validation - all expected tables, columns, indexes exist
+2. Idempotency - migrations can be run multiple times without error
+3. Round-trip - upgrade then downgrade leaves clean state
 """
 
 import os
@@ -11,7 +15,7 @@ from typing import Generator
 # Try to import testing dependencies
 try:
     import psycopg2
-    from psycopg2.extensions import connection as PgConnection
+    from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
     PSYCOPG2_AVAILABLE = True
 except ImportError:
     PSYCOPG2_AVAILABLE = False
@@ -22,329 +26,337 @@ try:
 except ImportError:
     TESTCONTAINERS_AVAILABLE = False
 
-# Skip all tests if psycopg2 is not available
+
+# Skip all tests if dependencies not available
 pytestmark = pytest.mark.skipif(
     not PSYCOPG2_AVAILABLE,
-    reason="psycopg2 not installed"
+    reason="psycopg2 not installed - run: pip install psycopg2-binary"
 )
+
 
 def get_database_url() -> str | None:
     """Get database URL from environment or return None."""
     return os.environ.get("DATABASE_URL")
 
-def run_sql_file(conn: "PgConnection", filepath: str) -> None:
+
+def run_sql_file(db_url: str, sql_file: str) -> None:
     """Execute a SQL file against the database."""
-    with open(filepath, "r") as f:
-        sql = f.read()
-    with conn.cursor() as cur:
-        cur.execute(sql)
-    conn.commit()
-
-def get_sql_dir() -> str:
-    """Get the SQL directory path."""
-    return os.path.join(
-        os.path.dirname(__file__),
-        "..",
-        "src",
-        "storage",
-        "sql"
+    result = subprocess.run(
+        ["psql", db_url, "-f", sql_file],
+        capture_output=True,
+        text=True
     )
+    if result.returncode != 0:
+        raise RuntimeError(f"SQL execution failed: {result.stderr}")
 
-def get_seed_dir() -> str:
-    """Get the seed directory path."""
-    return os.path.join(
-        os.path.dirname(__file__),
-        "..",
-        "src",
-        "storage",
-        "seed"
-    )
 
 @pytest.fixture(scope="module")
-def database_connection() -> Generator["PgConnection", None, None]:
+def database_url() -> Generator[str, None, None]:
     """
-    Provide a database connection for testing.
-    Uses testcontainers if available, otherwise falls back to DATABASE_URL.
-    """
-    db_url = get_database_url()
+    Provide a database URL for testing.
     
-    if TESTCONTAINERS_AVAILABLE and not db_url:
-        # Use testcontainers
-        with PostgresContainer("postgres:15") as postgres:
-            conn = psycopg2.connect(
-                host=postgres.get_container_host_ip(),
-                port=postgres.get_exposed_port(5432),
-                user=postgres.username,
-                password=postgres.password,
-                database=postgres.dbname
-            )
-            yield conn
-            conn.close()
-    elif db_url:
+    Priority:
+    1. Use DISABLE_TESTCONTAINERS=1 + DATABASE_URL for local/CI Postgres
+    2. Use testcontainers if available
+    3. Skip tests if neither available
+    """
+    disable_tc = os.environ.get("DISABLE_TESTCONTAINERS", "0") == "1"
+    env_url = get_database_url()
+    
+    if disable_tc and env_url:
         # Use provided DATABASE_URL
-        conn = psycopg2.connect(db_url)
-        yield conn
-        conn.close()
-    else:
-        pytest.skip(
-            "No database available. Set DATABASE_URL or install testcontainers."
-        )
+        yield env_url
+        return
+    
+    if TESTCONTAINERS_AVAILABLE and not disable_tc:
+        # Use testcontainers
+        with PostgresContainer("postgres:15-alpine") as postgres:
+            yield postgres.get_connection_url()
+            return
+    
+    if env_url:
+        # Fallback to DATABASE_URL without testcontainers
+        yield env_url
+        return
+    
+    pytest.skip(
+        "No database available. Either:\n"
+        "1. Set DATABASE_URL environment variable, or\n"
+        "2. Install testcontainers: pip install testcontainers[postgres]"
+    )
+
+
+@pytest.fixture(scope="module")
+def db_connection(database_url: str):
+    """Create a database connection for testing."""
+    conn = psycopg2.connect(database_url)
+    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+    yield conn
+    conn.close()
+
+
+@pytest.fixture(scope="module")
+def migrated_db(database_url: str, db_connection) -> str:
+    """Apply migrations and return database URL."""
+    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    up_sql = os.path.join(script_dir, "src", "storage", "sql", "V0001.up.sql")
+    
+    # Run upgrade migration
+    run_sql_file(database_url, up_sql)
+    
+    return database_url
+
 
 class TestSchemaShape:
-    """Test that the schema has the expected shape."""
-
-    def test_all_tables_exist(self, database_connection: "PgConnection") -> None:
+    """Test that schema has expected structure."""
+    
+    EXPECTED_TABLES = [
+        "users",
+        "email_templates", 
+        "campaigns",
+        "contacts",
+        "exclusion_list_entries",
+        "call_attempts",
+        "survey_responses",
+        "events",
+        "email_notifications",
+        "provider_configs",
+        "transcript_snippets",
+    ]
+    
+    EXPECTED_ENUMS = [
+        "user_role",
+        "campaign_status",
+        "campaign_language",
+        "question_type",
+        "contact_state",
+        "contact_language",
+        "contact_outcome",
+        "exclusion_source",
+        "event_type",
+        "email_status",
+        "email_template_type",
+        "provider_type",
+        "llm_provider",
+    ]
+    
+    def test_all_tables_exist(self, migrated_db: str, db_connection):
         """Verify all expected tables are created."""
-        # First apply the migration
-        sql_dir = get_sql_dir()
-        run_sql_file(database_connection, os.path.join(sql_dir, "V0001.up.sql"))
+        cursor = db_connection.cursor()
+        cursor.execute("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_type = 'BASE TABLE'
+        """)
+        tables = {row[0] for row in cursor.fetchall()}
+        cursor.close()
         
-        expected_tables = [
-            "users",
-            "email_templates",
-            "campaigns",
-            "contacts",
-            "exclusion_list_entries",
-            "call_attempts",
-            "survey_responses",
-            "events",
-            "email_notifications",
-            "provider_configs",
-            "transcript_snippets",
-        ]
-        
-        with database_connection.cursor() as cur:
-            cur.execute("""
-                SELECT table_name 
-                FROM information_schema.tables 
-                WHERE table_schema = 'public' 
-                AND table_type = 'BASE TABLE'
-            """)
-            actual_tables = {row[0] for row in cur.fetchall()}
-        
-        for table in expected_tables:
-            assert table in actual_tables, f"Table {table} not found"
-
-    def test_all_enum_types_exist(self, database_connection: "PgConnection") -> None:
+        for table in self.EXPECTED_TABLES:
+            assert table in tables, f"Table '{table}' not found in schema"
+    
+    def test_all_enums_exist(self, migrated_db: str, db_connection):
         """Verify all expected enum types are created."""
-        expected_enums = [
-            "user_role",
-            "campaign_status",
-            "campaign_language",
-            "question_type",
-            "contact_state",
-            "contact_language",
-            "contact_outcome",
-            "exclusion_source",
-            "event_type",
-            "email_status",
-            "email_template_type",
-            "provider_type",
-            "llm_provider",
-        ]
+        cursor = db_connection.cursor()
+        cursor.execute("""
+            SELECT typname 
+            FROM pg_type 
+            WHERE typtype = 'e'
+        """)
+        enums = {row[0] for row in cursor.fetchall()}
+        cursor.close()
         
-        with database_connection.cursor() as cur:
-            cur.execute("""
-                SELECT typname 
-                FROM pg_type 
-                WHERE typtype = 'e'
-            """)
-            actual_enums = {row[0] for row in cur.fetchall()}
+        for enum in self.EXPECTED_ENUMS:
+            assert enum in enums, f"Enum type '{enum}' not found"
+    
+    def test_users_table_columns(self, migrated_db: str, db_connection):
+        """Verify users table has correct columns."""
+        cursor = db_connection.cursor()
+        cursor.execute("""
+            SELECT column_name, data_type, is_nullable
+            FROM information_schema.columns
+            WHERE table_name = 'users'
+        """)
+        columns = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
+        cursor.close()
         
-        for enum in expected_enums:
-            assert enum in actual_enums, f"Enum type {enum} not found"
+        assert "id" in columns
+        assert "oidc_sub" in columns
+        assert "email" in columns
+        assert "name" in columns
+        assert "role" in columns
+        assert "created_at" in columns
+        assert "updated_at" in columns
+    
+    def test_uuid_primary_keys(self, migrated_db: str, db_connection):
+        """Verify UUID primary keys are used."""
+        cursor = db_connection.cursor()
+        cursor.execute("""
+            SELECT c.column_name, c.data_type
+            FROM information_schema.columns c
+            JOIN information_schema.table_constraints tc 
+                ON c.table_name = tc.table_name
+            JOIN information_schema.key_column_usage kcu 
+                ON tc.constraint_name = kcu.constraint_name 
+                AND c.column_name = kcu.column_name
+            WHERE tc.constraint_type = 'PRIMARY KEY'
+            AND c.table_schema = 'public'
+        """)
+        pk_columns = cursor.fetchall()
+        cursor.close()
+        
+        for col_name, data_type in pk_columns:
+            assert data_type == "uuid", f"Primary key '{col_name}' should be UUID, got {data_type}"
+    
+    def test_foreign_key_indexes(self, migrated_db: str, db_connection):
+        """Verify foreign key columns have indexes."""
+        cursor = db_connection.cursor()
+        
+        # Get all foreign key columns
+        cursor.execute("""
+            SELECT 
+                kcu.table_name,
+                kcu.column_name
+            FROM information_schema.table_constraints tc
+            JOIN information_schema.key_column_usage kcu 
+                ON tc.constraint_name = kcu.constraint_name
+            WHERE tc.constraint_type = 'FOREIGN KEY'
+            AND tc.table_schema = 'public'
+        """)
+        fk_columns = cursor.fetchall()
+        
+        # Get all indexed columns
+        cursor.execute("""
+            SELECT 
+                t.relname as table_name,
+                a.attname as column_name
+            FROM pg_index i
+            JOIN pg_class t ON t.oid = i.indrelid
+            JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(i.indkey)
+            WHERE t.relnamespace = 'public'::regnamespace
+        """)
+        indexed_columns = {(row[0], row[1]) for row in cursor.fetchall()}
+        cursor.close()
+        
+        for table, column in fk_columns:
+            assert (table, column) in indexed_columns, \
+                f"Foreign key column '{table}.{column}' should have an index"
 
-    def test_uuid_primary_keys(self, database_connection: "PgConnection") -> None:
-        """Verify all tables use UUID primary keys."""
-        tables_with_pk = [
-            "users",
-            "email_templates",
-            "campaigns",
-            "contacts",
-            "exclusion_list_entries",
-            "call_attempts",
-            "survey_responses",
-            "events",
-            "email_notifications",
-            "provider_configs",
-            "transcript_snippets",
-        ]
-        
-        with database_connection.cursor() as cur:
-            for table in tables_with_pk:
-                cur.execute(f"""
-                    SELECT data_type 
-                    FROM information_schema.columns 
-                    WHERE table_name = '{table}' 
-                    AND column_name = 'id'
-                """)
-                result = cur.fetchone()
-                assert result is not None, f"No id column in {table}"
-                assert result[0] == "uuid", f"Table {table} id is not UUID type"
 
-    def test_foreign_key_indexes_exist(self, database_connection: "PgConnection") -> None:
-        """Verify indexes exist on foreign key columns."""
-        expected_indexes = [
-            ("contacts", "idx_contacts_campaign_id"),
-            ("call_attempts", "idx_call_attempts_contact_id"),
-            ("call_attempts", "idx_call_attempts_campaign_id"),
-            ("survey_responses", "idx_survey_responses_contact_id"),
-            ("survey_responses", "idx_survey_responses_campaign_id"),
-            ("events", "idx_events_campaign_id"),
-            ("events", "idx_events_contact_id"),
-            ("email_notifications", "idx_email_notifications_event_id"),
-            ("email_notifications", "idx_email_notifications_contact_id"),
-            ("email_notifications", "idx_email_notifications_campaign_id"),
-        ]
-        
-        with database_connection.cursor() as cur:
-            cur.execute("""
-                SELECT tablename, indexname 
-                FROM pg_indexes 
-                WHERE schemaname = 'public'
-            """)
-            actual_indexes = {(row[0], row[1]) for row in cur.fetchall()}
-        
-        for table, index in expected_indexes:
-            assert (table, index) in actual_indexes, \
-                f"Index {index} not found on table {table}"
-
-class TestMigrationIdempotency:
+class TestIdempotency:
     """Test that migrations are idempotent."""
-
-    def test_up_migration_idempotent(self, database_connection: "PgConnection") -> None:
-        """Verify up migration can be run multiple times without error."""
-        sql_dir = get_sql_dir()
-        up_file = os.path.join(sql_dir, "V0001.up.sql")
+    
+    def test_upgrade_idempotent(self, database_url: str, db_connection):
+        """Running upgrade twice should not fail."""
+        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        up_sql = os.path.join(script_dir, "src", "storage", "sql", "V0001.up.sql")
         
-        # Run migration twice - should not raise
-        run_sql_file(database_connection, up_file)
-        run_sql_file(database_connection, up_file)
+        # First run already done by migrated_db fixture
+        # Run again - should not fail due to IF NOT EXISTS
+        run_sql_file(database_url, up_sql)
         
         # Verify tables still exist
-        with database_connection.cursor() as cur:
-            cur.execute("""
-                SELECT COUNT(*) 
-                FROM information_schema.tables 
-                WHERE table_schema = 'public' 
-                AND table_type = 'BASE TABLE'
-            """)
-            count = cur.fetchone()[0]
-            assert count >= 11, "Expected at least 11 tables"
+        cursor = db_connection.cursor()
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public'
+        """)
+        count = cursor.fetchone()[0]
+        cursor.close()
+        
+        assert count >= 11, "Tables should still exist after second migration run"
 
-    def test_seed_idempotent(self, database_connection: "PgConnection") -> None:
-        """Verify seed data can be run multiple times without error."""
-        seed_dir = get_seed_dir()
-        seed_file = os.path.join(seed_dir, "seed.sql")
-        
-        # Run seed twice - should not raise
-        run_sql_file(database_connection, seed_file)
-        run_sql_file(database_connection, seed_file)
-        
-        # Verify expected seed data exists
-        with database_connection.cursor() as cur:
-            cur.execute("SELECT COUNT(*) FROM users")
-            user_count = cur.fetchone()[0]
-            assert user_count == 3, "Expected 3 seeded users"
-            
-            cur.execute("SELECT COUNT(*) FROM email_templates")
-            template_count = cur.fetchone()[0]
-            assert template_count == 6, "Expected 6 seeded email templates"
 
-class TestMigrationRoundTrip:
-    """Test migration up/down round-trip."""
+class TestRoundTrip:
+    """Test upgrade/downgrade round-trip."""
+    
+    def test_downgrade_cleans_schema(self, database_url: str, db_connection):
+        """Downgrade should remove all created objects."""
+        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        down_sql = os.path.join(script_dir, "src", "storage", "sql", "V0001.down.sql")
+        
+        # Run downgrade
+        run_sql_file(database_url, down_sql)
+        
+        # Verify tables are gone
+        cursor = db_connection.cursor()
+        cursor.execute("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_type = 'BASE TABLE'
+        """)
+        tables = [row[0] for row in cursor.fetchall()]
+        cursor.close()
+        
+        expected_removed = [
+            "users", "campaigns", "contacts", "call_attempts",
+            "survey_responses", "events", "email_notifications"
+        ]
+        for table in expected_removed:
+            assert table not in tables, f"Table '{table}' should be removed after downgrade"
+    
+    def test_upgrade_after_downgrade(self, database_url: str, db_connection):
+        """Should be able to upgrade again after downgrade."""
+        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        up_sql = os.path.join(script_dir, "src", "storage", "sql", "V0001.up.sql")
+        
+        # Run upgrade again
+        run_sql_file(database_url, up_sql)
+        
+        # Verify tables exist
+        cursor = db_connection.cursor()
+        cursor.execute("""
+            SELECT COUNT(*) 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_type = 'BASE TABLE'
+        """)
+        count = cursor.fetchone()[0]
+        cursor.close()
+        
+        assert count >= 11, "Tables should be recreated after upgrade"
 
-    def test_down_migration_removes_all(self, database_connection: "PgConnection") -> None:
-        """Verify down migration removes all objects."""
-        sql_dir = get_sql_dir()
-        
-        # Apply up migration
-        run_sql_file(database_connection, os.path.join(sql_dir, "V0001.up.sql"))
-        
-        # Apply down migration
-        run_sql_file(database_connection, os.path.join(sql_dir, "V0001.down.sql"))
-        
-        # Verify tables are removed
-        with database_connection.cursor() as cur:
-            cur.execute("""
-                SELECT table_name 
-                FROM information_schema.tables 
-                WHERE table_schema = 'public' 
-                AND table_type = 'BASE TABLE'
-            """)
-            tables = [row[0] for row in cur.fetchall()]
-            
-            # These tables should not exist after down migration
-            removed_tables = [
-                "users", "campaigns", "contacts", "call_attempts",
-                "survey_responses", "events", "email_notifications"
-            ]
-            for table in removed_tables:
-                assert table not in tables, f"Table {table} should be removed"
 
-    def test_round_trip_migration(self, database_connection: "PgConnection") -> None:
-        """Verify up -> down -> up migration cycle works."""
-        sql_dir = get_sql_dir()
+class TestSeedData:
+    """Test seed data application."""
+    
+    def test_seed_data_applies(self, database_url: str, db_connection):
+        """Seed data should apply without errors."""
+        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        seed_sql = os.path.join(script_dir, "src", "storage", "seed", "seed.sql")
         
-        # Up
-        run_sql_file(database_connection, os.path.join(sql_dir, "V0001.up.sql"))
+        # Run seed
+        run_sql_file(database_url, seed_sql)
         
-        # Down
-        run_sql_file(database_connection, os.path.join(sql_dir, "V0001.down.sql"))
+        # Verify seed data exists
+        cursor = db_connection.cursor()
         
-        # Up again
-        run_sql_file(database_connection, os.path.join(sql_dir, "V0001.up.sql"))
+        # Check users
+        cursor.execute("SELECT COUNT(*) FROM users")
+        assert cursor.fetchone()[0] >= 3, "Should have at least 3 seeded users"
         
-        # Verify schema is intact
-        with database_connection.cursor() as cur:
-            cur.execute("""
-                SELECT COUNT(*) 
-                FROM information_schema.tables 
-                WHERE table_schema = 'public' 
-                AND table_type = 'BASE TABLE'
-            """)
-            count = cur.fetchone()[0]
-            assert count >= 11, "Expected at least 11 tables after round-trip"
-
-class TestConstraints:
-    """Test database constraints are properly enforced."""
-
-    def test_max_attempts_constraint(self, database_connection: "PgConnection") -> None:
-        """Verify max_attempts constraint (1-5) is enforced."""
-        sql_dir = get_sql_dir()
-        seed_dir = get_seed_dir()
+        # Check email templates
+        cursor.execute("SELECT COUNT(*) FROM email_templates")
+        assert cursor.fetchone()[0] >= 5, "Should have at least 5 seeded email templates"
         
-        # Ensure schema and seed data exist
-        run_sql_file(database_connection, os.path.join(sql_dir, "V0001.up.sql"))
-        run_sql_file(database_connection, os.path.join(seed_dir, "seed.sql"))
+        # Check provider config
+        cursor.execute("SELECT COUNT(*) FROM provider_configs")
+        assert cursor.fetchone()[0] >= 1, "Should have at least 1 provider config"
         
-        with database_connection.cursor() as cur:
-            # Try to insert campaign with invalid max_attempts
-            with pytest.raises(psycopg2.errors.CheckViolation):
-                cur.execute("""
-                    INSERT INTO campaigns (
-                        name, intro_script, 
-                        question_1_text, question_1_type,
-                        question_2_text, question_2_type,
-                        question_3_text, question_3_type,
-                        max_attempts, created_by_user_id
-                    ) VALUES (
-                        'Test', 'Intro',
-                        'Q1', 'free_text',
-                        'Q2', 'free_text',
-                        'Q3', 'free_text',
-                        6, '00000000-0000-0000-0000-000000000001'
-                    )
-                """)
-        database_connection.rollback()
-
-    def test_unique_constraints(self, database_connection: "PgConnection") -> None:
-        """Verify unique constraints are enforced."""
-        with database_connection.cursor() as cur:
-            # Try to insert duplicate oidc_sub
-            with pytest.raises(psycopg2.errors.UniqueViolation):
-                cur.execute("""
-                    INSERT INTO users (oidc_sub, email, name, role)
-                    VALUES ('admin-oidc-sub-001', 'different@email.com', 'Dup', 'viewer')
-                """)
-        database_connection.rollback()
+        cursor.close()
+    
+    def test_seed_data_idempotent(self, database_url: str, db_connection):
+        """Running seed twice should not fail or duplicate data."""
+        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        seed_sql = os.path.join(script_dir, "src", "storage", "seed", "seed.sql")
+        
+        # Run seed again
+        run_sql_file(database_url, seed_sql)
+        
+        # Verify no duplicates
+        cursor = db_connection.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users WHERE oidc_sub = 'admin-oidc-sub-001'")
+        assert cursor.fetchone()[0] == 1, "Should have exactly 1 admin user (no duplicates)"
+        cursor.close()

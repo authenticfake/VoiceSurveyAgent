@@ -34,7 +34,7 @@ CREATE INDEX IF NOT EXISTS idx_users_oidc_sub ON users(oidc_sub);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 
--- Email templates table (must be created before campaigns due to FK)
+-- Email templates table (referenced by campaigns)
 CREATE TABLE IF NOT EXISTS email_templates (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) NOT NULL,
@@ -105,7 +105,8 @@ CREATE INDEX IF NOT EXISTS idx_contacts_campaign_id ON contacts(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_contacts_phone_number ON contacts(phone_number);
 CREATE INDEX IF NOT EXISTS idx_contacts_state ON contacts(state);
 CREATE INDEX IF NOT EXISTS idx_contacts_do_not_call ON contacts(do_not_call);
-CREATE INDEX IF NOT EXISTS idx_contacts_attempts ON contacts(attempts_count);
+CREATE INDEX IF NOT EXISTS idx_contacts_attempts_count ON contacts(attempts_count);
+CREATE INDEX IF NOT EXISTS idx_contacts_last_attempt_at ON contacts(last_attempt_at);
 
 -- Exclusion list entries table
 CREATE TABLE IF NOT EXISTS exclusion_list_entries (
@@ -144,16 +145,17 @@ CREATE INDEX IF NOT EXISTS idx_call_attempts_started_at ON call_attempts(started
 -- Survey responses table
 CREATE TABLE IF NOT EXISTS survey_responses (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    contact_id UUID NOT NULL UNIQUE REFERENCES contacts(id) ON DELETE CASCADE,
+    contact_id UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
     campaign_id UUID NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
     call_attempt_id UUID NOT NULL REFERENCES call_attempts(id) ON DELETE CASCADE,
-    q1_answer TEXT NOT NULL,
-    q2_answer TEXT NOT NULL,
-    q3_answer TEXT NOT NULL,
+    q1_answer TEXT,
+    q2_answer TEXT,
+    q3_answer TEXT,
     q1_confidence NUMERIC(3,2) CHECK (q1_confidence >= 0 AND q1_confidence <= 1),
     q2_confidence NUMERIC(3,2) CHECK (q2_confidence >= 0 AND q2_confidence <= 1),
     q3_confidence NUMERIC(3,2) CHECK (q3_confidence >= 0 AND q3_confidence <= 1),
-    completed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    completed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+    UNIQUE(contact_id, campaign_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_survey_responses_contact_id ON survey_responses(contact_id);
@@ -196,7 +198,6 @@ CREATE TABLE IF NOT EXISTS email_notifications (
 CREATE INDEX IF NOT EXISTS idx_email_notifications_event_id ON email_notifications(event_id);
 CREATE INDEX IF NOT EXISTS idx_email_notifications_contact_id ON email_notifications(contact_id);
 CREATE INDEX IF NOT EXISTS idx_email_notifications_campaign_id ON email_notifications(campaign_id);
-CREATE INDEX IF NOT EXISTS idx_email_notifications_template_id ON email_notifications(template_id);
 CREATE INDEX IF NOT EXISTS idx_email_notifications_status ON email_notifications(status);
 
 -- Provider configs table (single row or per-env)
