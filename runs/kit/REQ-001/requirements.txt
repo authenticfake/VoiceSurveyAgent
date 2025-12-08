@@ -1,5 +1,16 @@
-# REQ-001 test dependencies
+# Database
+sqlalchemy>=2.0.30
+asyncpg>=0.29.0
+alembic>=1.13.1
 psycopg2-binary>=2.9.9
+
+# Testing
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
-testcontainers[postgres]>=4.0.0
+pytest-cov>=4.1.0
+
+# Type checking
+mypy>=1.10.0
+
+# Linting
+ruff>=0.4.0

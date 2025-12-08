@@ -1,10 +1,13 @@
 {
   "version": "1.0",
   "req_id": "REQ-001",
-  "lane": "sql",
+  "lane": "python",
   "env": {
-    "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/voicesurvey_test",
-    "DISABLE_TESTCONTAINERS": "0"
+    "DB_USER": "postgres",
+    "DB_PASSWORD": "postgres",
+    "DB_HOST": "localhost",
+    "DB_PORT": "5432",
+    "DB_NAME": "voicesurveyagent_test"
   },
   "cases": [
     {
@@ -15,40 +18,58 @@
       "timeout": 120
     },
     {
-      "name": "migration_tests",
-      "run": "pytest runs/kit/REQ-001/test/test_migration_sql.py -v --tb=short",
+      "name": "lint",
+      "run": "ruff check runs/kit/REQ-001/src runs/kit/REQ-001/test",
       "cwd": ".",
       "expect": 0,
-      "timeout": 300
+      "timeout": 60
+    },
+    {
+      "name": "types",
+      "run": "mypy runs/kit/REQ-001/src --ignore-missing-imports",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "unit_tests",
+      "run": "pytest runs/kit/REQ-001/test/test_models.py -v --tb=short",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "migration_tests",
+      "run": "pytest runs/kit/REQ-001/test/test_migrations.py -v --tb=short",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 180
     }
   ],
   "tools": {
     "tests": "pytest",
-    "lint": "n/a",
-    "types": "n/a",
-    "security": "n/a",
-    "build": "psql"
-  },
-  "commands": {
-    "install_deps": "pip install -r runs/kit/REQ-001/requirements.txt",
-    "migration_tests": "pytest runs/kit/REQ-001/test/test_migration_sql.py -v"
+    "lint": "ruff",
+    "types": "mypy",
+    "security": "bandit",
+    "build": "docker"
   },
   "reports": [
     {
       "kind": "junit",
-      "path": "reports/junit-req001.xml",
+      "path": "reports/junit.xml",
       "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "reports/coverage.xml",
+      "format": "coverage-xml"
     }
   ],
   "gate_policy": {
     "tests_pass": true,
-    "coverage_min": 0,
-    "security": {}
-  },
-  "constraints_applied": {
-    "database": "PostgreSQL 15+",
-    "uuid_type": "native UUID",
-    "timestamps": "TIMESTAMP WITH TIME ZONE",
-    "indexes": "on all FK columns"
+    "coverage_min": 80,
+    "security": {
+      "bandit_high": 0
+    }
   }
 }

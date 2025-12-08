@@ -36,7 +36,7 @@
         "Invalid or expired tokens return 401 with appropriate error message"
       ],
       "dependsOn": [
-        "REQ-001"
+        ""
       ],
       "track": "App",
       "status": "in_progress",

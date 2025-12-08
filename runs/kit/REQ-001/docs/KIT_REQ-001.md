@@ -1,42 +1,42 @@
-# KIT Documentation: REQ-001 - Database Schema and Migrations
+# KIT Documentation — REQ-001: Database Schema and Migrations
 
 ## Overview
 
-This KIT implements the foundational database schema for the voicesurveyagent system, including all entities defined in the SPEC data model.
+This KIT implements the foundational database schema for the Voice Survey Agent system. It includes all entity models defined in the SPEC, Alembic migrations for PostgreSQL, and comprehensive tests.
 
 ## Acceptance Criteria Status
 
-| Criterion | Status | Evidence |
-|-----------|--------|----------|
-| All entities from SPEC data model have corresponding migrations | ✅ | V0001.up.sql contains all 11 tables |
-| Migrations are idempotent | ✅ | Uses IF NOT EXISTS, tested in TestIdempotency |
-| Foreign key columns have indexes | ✅ | Verified in test_foreign_key_indexes |
-| Enum types created for all status/type fields | ✅ | 13 enum types created |
-| UUID primary keys use PostgreSQL native type | ✅ | Verified in test_uuid_primary_keys |
+| Criterion | Status |
+|-----------|--------|
+| All entities from SPEC data model have corresponding Alembic migrations | ✅ |
+| Migrations are idempotent and can be run multiple times without error | ✅ |
+| Foreign key columns have appropriate indexes for query performance | ✅ |
+| Enum types are created for all status and type fields | ✅ |
+| UUID primary keys use PostgreSQL native UUID type | ✅ |
 
-## Schema Summary
+## Entities Implemented
 
-### Tables (11)
-1. `users` - System users with OIDC integration
-2. `email_templates` - Email templates for notifications
-3. `campaigns` - Survey campaign configurations
-4. `contacts` - Campaign contact lists
-5. `exclusion_list_entries` - Do-not-call list
-6. `call_attempts` - Individual call attempt records
-7. `survey_responses` - Completed survey answers
-8. `events` - Domain events for async processing
-9. `email_notifications` - Email delivery tracking
-10. `provider_configs` - Telephony/LLM provider settings
-11. `transcript_snippets` - Call transcript storage
+1. **User** - Authenticated users with OIDC integration
+2. **Campaign** - Survey campaign configuration
+3. **Contact** - Survey target contacts
+4. **ExclusionListEntry** - Do-not-call list entries
+5. **CallAttempt** - Individual call attempt records
+6. **SurveyResponse** - Completed survey answers
+7. **Event** - Survey lifecycle events
+8. **EmailNotification** - Email delivery tracking
+9. **EmailTemplate** - Email templates for notifications
+10. **ProviderConfig** - Telephony and LLM provider settings
+11. **TranscriptSnippet** - Call transcript storage
 
-### Enum Types (13)
+## Enum Types
+
 - `user_role`: admin, campaign_manager, viewer
 - `campaign_status`: draft, scheduled, running, paused, completed, cancelled
-- `campaign_language`: en, it
+- `language_code`: en, it
 - `question_type`: free_text, numeric, scale
 - `contact_state`: pending, in_progress, completed, refused, not_reached, excluded
 - `contact_language`: en, it, auto
-- `contact_outcome`: completed, refused, no_answer, busy, failed
+- `call_outcome`: completed, refused, no_answer, busy, failed
 - `exclusion_source`: import, api, manual
 - `event_type`: survey.completed, survey.refused, survey.not_reached
 - `email_status`: pending, sent, failed
@@ -44,25 +44,18 @@ This KIT implements the foundational database schema for the voicesurveyagent sy
 - `provider_type`: telephony_api, voice_ai_platform
 - `llm_provider`: openai, anthropic, azure-openai, google
 
-## Design Decisions
+## Key Design Decisions
 
-1. **UUID Primary Keys**: All tables use PostgreSQL native UUID type with uuid-ossp extension for generation.
-
-2. **Timestamp Handling**: All timestamps use `TIMESTAMP WITH TIME ZONE` for proper timezone support.
-
-3. **Automatic updated_at**: Trigger function `update_updated_at_column()` automatically updates `updated_at` on row changes.
-
-4. **Cascade Deletes**: Child records cascade delete with parent (e.g., contacts deleted when campaign deleted).
-
-5. **Index Strategy**: Indexes on all foreign keys plus commonly queried columns (status, state, phone_number).
+1. **UUID Primary Keys**: All entities use PostgreSQL native UUID type for distributed-friendly identifiers
+2. **Timezone-aware Timestamps**: All datetime columns use `timezone=True` for UTC storage
+3. **Composite Indexes**: Scheduler-optimized index on contacts table for efficient query patterns
+4. **Cascade Deletes**: Appropriate ON DELETE actions for referential integrity
+5. **Idempotent Migrations**: All migrations use `DO $$ BEGIN ... EXCEPTION ... END $$` pattern for enum creation
 
 ## Dependencies
 
-- PostgreSQL 15+ with uuid-ossp extension
-- No application code dependencies (pure SQL)
-
-## Future Considerations
-
-- Add partitioning for `call_attempts` and `events` tables if volume grows
-- Consider adding `deleted_at` for soft deletes on campaigns
-- May need composite indexes for scheduler queries
+This REQ has no dependencies and serves as the foundation for:
+- REQ-002: OIDC authentication integration
+- REQ-009: Telephony provider adapter interface
+- REQ-011: LLM gateway integration
+- REQ-021: Observability instrumentation
