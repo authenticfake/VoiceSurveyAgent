@@ -1,75 +1,81 @@
-"""FastAPI application entry point."""
+"""
+FastAPI application entry point.
+
+Configures and creates the main application instance.
+"""
 
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.auth.router import router as auth_router
 from app.config import get_settings
-from app.shared.database import close_db
-from app.shared.exceptions import AppException
-from app.shared.logging import setup_logging, get_logger
+from app.shared.exceptions import AppError
+from app.shared.logging import configure_logging, get_logger
 
+settings = get_settings()
 logger = get_logger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Application lifespan handler."""
-    # Startup
-    setup_logging()
-    logger.info("Application starting up")
+    """Application lifespan manager."""
+    configure_logging()
+    logger.info(
+        "Application starting",
+        app_name=settings.app_name,
+        environment=settings.environment,
+    )
     yield
-    # Shutdown
     logger.info("Application shutting down")
-    await close_db()
 
-def create_app() -> FastAPI:
-    """Create and configure FastAPI application."""
-    settings = get_settings()
 
-    app = FastAPI(
-        title="VoiceSurveyAgent API",
-        description="AI-driven outbound phone survey system",
-        version="0.1.0",
-        lifespan=lifespan,
-        debug=settings.debug,
+app = FastAPI(
+    title=settings.app_name,
+    version=settings.app_version,
+    debug=settings.debug,
+    lifespan=lifespan,
+)
+
+# CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.exception_handler(AppError)
+async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+    """Handle application errors."""
+    logger.warning(
+        "Application error",
+        error_code=exc.code,
+        error_message=exc.message,
+        path=str(request.url.path),
     )
-
-    # CORS middleware
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"] if settings.debug else [],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    # Exception handlers
-    @app.exception_handler(AppException)
-    async def app_exception_handler(
-        request: Request,
-        exc: AppException,
-    ) -> JSONResponse:
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={
-                "error": exc.code,
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": {
+                "code": exc.code,
                 "message": exc.message,
                 "details": exc.details,
-            },
-        )
+            }
+        },
+    )
 
-    # Include routers
-    app.include_router(auth_router)
 
-    # Health check
-    @app.get("/health")
-    async def health_check() -> dict[str, str]:
-        return {"status": "healthy"}
+# Include routers
+app.include_router(auth_router, prefix="/api")
 
-    return app
 
-app = create_app()
+@app.get("/health")
+async def health_check() -> dict[str, str]:
+    """Health check endpoint."""
+    return {"status": "healthy"}

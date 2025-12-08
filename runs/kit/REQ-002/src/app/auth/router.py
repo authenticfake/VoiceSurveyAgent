@@ -1,125 +1,166 @@
-"""Authentication API routes."""
+"""
+Authentication API router.
+
+Defines REST endpoints for OIDC authentication flow.
+"""
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends, Query, status
+from pydantic import HttpUrl
 
 from app.auth.middleware import CurrentUser
 from app.auth.schemas import (
-    AuthCallbackResponse,
-    AuthLoginResponse,
-    RefreshTokenRequest,
-    TokenResponse,
-    UserProfile,
+    AuthenticatedResponse,
+    LoginResponse,
+    RefreshRequest,
+    UserContext,
+    UserProfileResponse,
 )
 from app.auth.service import AuthService
 from app.config import get_settings
-from app.shared.database import get_db_session
-from app.shared.exceptions import AuthenticationError, OIDCError
+from app.shared.database import DbSession
 from app.shared.logging import get_logger
 
 logger = get_logger(__name__)
-router = APIRouter(prefix="/api/auth", tags=["auth"])
+settings = get_settings()
 
-# In-memory state storage (should use Redis in production)
-_pending_states: dict[str, bool] = {}
+router = APIRouter(prefix="/auth", tags=["authentication"])
 
-def get_auth_service(
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-) -> AuthService:
-    """Dependency for auth service."""
-    return AuthService(session)
 
-@router.get("/login", response_model=AuthLoginResponse)
+async def get_auth_service(db: DbSession) -> AuthService:
+    """Dependency to get auth service instance."""
+    service = AuthService(settings=settings, db_session=db)
+    await service.initialize()
+    return service
+
+
+AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
+
+
+@router.get(
+    "/login",
+    response_model=LoginResponse,
+    summary="Initiate OIDC login",
+    description="Generate authorization URL for OIDC login flow",
+)
 async def login(
-    service: Annotated[AuthService, Depends(get_auth_service)],
-) -> AuthLoginResponse:
-    """Initiate OIDC login flow.
+    auth_service: AuthServiceDep,
+    redirect_url: HttpUrl | None = Query(
+        None,
+        description="URL to redirect after successful login",
+    ),
+) -> LoginResponse:
+    """Initiate OIDC authorization code flow."""
+    auth_url, state = auth_service.generate_authorization_url(
+        redirect_url=str(redirect_url) if redirect_url else None
+    )
 
-    Returns the authorization URL to redirect the user to.
-    """
-    response = await service.initiate_login()
-    # Store state for validation
-    _pending_states[response.state] = True
+    logger.info("Login initiated", state=state[:8] + "...")
+
+    return LoginResponse(
+        authorization_url=auth_url,
+        state=state,
+    )
+
+
+@router.get(
+    "/callback",
+    response_model=AuthenticatedResponse,
+    summary="OIDC callback",
+    description="Handle OIDC callback and exchange code for tokens",
+)
+async def callback(
+    auth_service: AuthServiceDep,
+    code: str = Query(..., description="Authorization code"),
+    state: str = Query(..., description="State parameter"),
+) -> AuthenticatedResponse:
+    """Handle OIDC callback and complete authentication."""
+    logger.info("Processing OIDC callback", state=state[:8] + "...")
+
+    response = await auth_service.exchange_code_for_tokens(code=code, state=state)
+
+    logger.info(
+        "Authentication successful",
+        user_id=str(response.user.id),
+        email=response.user.email,
+    )
+
     return response
 
-@router.get("/callback", response_model=AuthCallbackResponse)
-async def callback(
-    code: Annotated[str, Query(description="Authorization code from IdP")],
-    state: Annotated[str, Query(description="State parameter for CSRF protection")],
-    service: Annotated[AuthService, Depends(get_auth_service)],
-) -> AuthCallbackResponse:
-    """Handle OIDC callback.
 
-    Exchanges the authorization code for tokens and creates a user session.
-    """
-    # Validate state
-    if state not in _pending_states:
-        logger.warning("Invalid or expired state in callback")
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired state",
-        )
-
-    # Remove used state
-    del _pending_states[state]
-
-    try:
-        return await service.handle_callback(code, state, state)
-    except AuthenticationError as e:
-        logger.error(f"Authentication failed: {e.message}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=e.message,
-        )
-    except OIDCError as e:
-        logger.error(f"OIDC error: {e.message}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Authentication provider error",
-        )
-
-@router.post("/refresh", response_model=TokenResponse)
+@router.post(
+    "/refresh",
+    response_model=AuthenticatedResponse,
+    summary="Refresh tokens",
+    description="Refresh access token using refresh token",
+)
 async def refresh(
-    request: RefreshTokenRequest,
-    service: Annotated[AuthService, Depends(get_auth_service)],
-) -> TokenResponse:
+    auth_service: AuthServiceDep,
+    request: RefreshRequest,
+) -> AuthenticatedResponse:
     """Refresh access token using refresh token."""
-    try:
-        return await service.refresh_session(request.refresh_token)
-    except Exception as e:
-        logger.error(f"Token refresh failed: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token",
+    logger.info("Token refresh requested")
+
+    response = await auth_service.refresh_tokens(request.refresh_token)
+
+    logger.info(
+        "Token refresh successful",
+        user_id=str(response.user.id),
+    )
+
+    return response
+
+
+@router.get(
+    "/me",
+    response_model=UserProfileResponse,
+    summary="Get current user profile",
+    description="Get profile information for the authenticated user",
+)
+async def get_profile(
+    current_user: CurrentUser,
+    auth_service: AuthServiceDep,
+) -> UserProfileResponse:
+    """Get current user profile."""
+    user = await auth_service.get_user_by_id(current_user.id)
+
+    if not user:
+        from app.shared.exceptions import NotFoundError
+
+        raise NotFoundError(
+            message="User not found",
+            resource_type="User",
+            resource_id=str(current_user.id),
         )
 
-@router.get("/me", response_model=UserProfile)
-async def get_current_user_profile(
-    current_user: CurrentUser,
-) -> UserProfile:
-    """Get current user profile.
+    return UserProfileResponse(
+        id=user.id,
+        oidc_sub=user.oidc_sub,
+        email=user.email,
+        name=user.name,
+        role=current_user.role,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+    )
 
-    Requires authentication.
-    """
-    return UserProfile.model_validate(current_user)
 
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@router.post(
+    "/logout",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Logout",
+    description="Logout current user (client should discard tokens)",
+)
 async def logout(
     current_user: CurrentUser,
-    response: Response,
 ) -> None:
     """Logout current user.
 
-    Clears the session cookie. Note: This doesn't invalidate the JWT token
-    on the server side. For full logout, implement token blacklisting.
+    Note: This endpoint is primarily for audit logging.
+    The client is responsible for discarding tokens.
     """
-    settings = get_settings()
-    response.delete_cookie(
-        key=settings.session_cookie_name,
-        httponly=settings.session_cookie_httponly,
-        secure=settings.session_cookie_secure,
-        samesite=settings.session_cookie_samesite,
+    logger.info(
+        "User logged out",
+        user_id=str(current_user.id),
+        email=current_user.email,
     )
-    logger.info(f"User logged out: {current_user.id}")

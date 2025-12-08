@@ -2,99 +2,120 @@
 
 ## Overview
 
-This KIT implements OIDC authentication integration for the VoiceSurveyAgent application, providing secure user authentication via corporate Identity Providers.
+This KIT implements OIDC (OpenID Connect) authentication integration for the voicesurveyagent application. It provides:
 
-## Components
-
-### Core Modules
-
-1. **app/config.py** - Application configuration with OIDC settings
-2. **app/auth/oidc.py** - OIDC client for IdP communication
-3. **app/auth/jwt.py** - JWT token creation and validation
-4. **app/auth/models.py** - User SQLAlchemy model
-5. **app/auth/schemas.py** - Pydantic schemas for API
-6. **app/auth/repository.py** - User data access layer
-7. **app/auth/service.py** - Authentication business logic
-8. **app/auth/middleware.py** - FastAPI authentication middleware
-9. **app/auth/router.py** - Authentication API endpoints
-
-### Shared Modules
-
-1. **app/shared/database.py** - Async database session management
-2. **app/shared/exceptions.py** - Custom exception classes
-3. **app/shared/logging.py** - Structured JSON logging
+- OIDC authorization code flow with configurable IdP endpoints
+- JWT token validation on every API request via middleware
+- User record creation/update on first login with OIDC subject mapping
+- Session tokens with configurable expiration and refresh capability
+- Proper error handling with 401 responses for invalid/expired tokens
 
 ## Architecture
 
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   Frontend      │────▶│   Auth Router   │────▶│   Auth Service  │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-                                                        │
-                        ┌───────────────────────────────┼───────────────────────────────┐
-                        │                               │                               │
-                        ▼                               ▼                               ▼
-                ┌───────────────┐              ┌───────────────┐              ┌───────────────┐
-                │  OIDC Client  │              │  JWT Handler  │              │ User Repository│
-                └───────────────┘              └───────────────┘              └───────────────┘
-                        │                                                             │
-                        ▼                                                             ▼
-                ┌───────────────┐                                             ┌───────────────┐
-                │   IdP (OIDC)  │                                             │   PostgreSQL  │
-                └───────────────┘                                             └───────────────┘
+### Components
 
-## Authentication Flow
+```
+app/auth/
+├── __init__.py      # Module exports
+├── schemas.py       # Pydantic models for auth data
+├── service.py       # OIDC and JWT business logic
+├── middleware.py    # FastAPI middleware for token validation
+└── router.py        # API endpoints for auth flow
+```
 
-1. **Login Initiation**
-   - Client calls `GET /api/auth/login`
-   - Server generates state parameter and authorization URL
-   - Client redirects user to IdP
+### Flow Diagram
 
-2. **OIDC Callback**
-   - IdP redirects to `GET /api/auth/callback` with code and state
-   - Server validates state and exchanges code for tokens
-   - Server fetches user info from IdP
-   - Server creates/updates user record
-   - Server issues session tokens (access + refresh)
+```
+┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐
+│ Client  │────▶│ /login  │────▶│  IdP    │────▶│/callback│
+└─────────┘     └─────────┘     └─────────┘     └─────────┘
+                                                     │
+                                                     ▼
+                                              ┌─────────────┐
+                                              │ JWT Token   │
+                                              │ + User Ctx  │
+                                              └─────────────┘
+```
 
-3. **Token Validation**
-   - Every protected request includes Bearer token
-   - Middleware validates token signature and expiry
-   - Middleware loads user from database
-   - Request proceeds with authenticated user context
+## API Endpoints
 
-4. **Token Refresh**
-   - Client calls `POST /api/auth/refresh` with refresh token
-   - Server validates refresh token
-   - Server issues new access and refresh tokens
+### GET /api/auth/login
+Initiates OIDC authorization code flow.
 
-## Security Considerations
+**Response:**
+```json
+{
+  "authorization_url": "https://idp.example.com/authorize?...",
+  "state": "random-state-string"
+}
+```
 
-- State parameter prevents CSRF attacks
-- JWT tokens signed with HS256 algorithm
-- Refresh tokens enable session extension without re-authentication
-- Token expiry configurable via environment variables
-- Secrets stored in environment, not code
+### GET /api/auth/callback
+Handles OIDC callback and exchanges code for tokens.
+
+**Query Parameters:**
+- `code`: Authorization code from IdP
+- `state`: State parameter for validation
+
+**Response:**
+```json
+{
+  "access_token": "jwt-token",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "refresh_token": "refresh-token",
+  "user": {
+    "id": "uuid",
+    "email": "user@example.com",
+    "name": "User Name",
+    "role": "viewer"
+  }
+}
+```
+
+### POST /api/auth/refresh
+Refreshes access token using refresh token.
+
+### GET /api/auth/me
+Returns current user profile (requires authentication).
+
+### POST /api/auth/logout
+Logs out current user (client should discard tokens).
 
 ## Configuration
 
+### Environment Variables
+
 | Variable | Description | Default |
 |----------|-------------|---------|
-| OIDC_ISSUER_URL | IdP issuer URL | - |
-| OIDC_CLIENT_ID | OAuth2 client ID | - |
-| OIDC_CLIENT_SECRET | OAuth2 client secret | - |
+| OIDC_ISSUER | OIDC provider URL | Required |
+| OIDC_CLIENT_ID | OAuth client ID | voicesurveyagent |
+| OIDC_CLIENT_SECRET | OAuth client secret | Required |
 | OIDC_REDIRECT_URI | Callback URL | http://localhost:8000/api/auth/callback |
-| JWT_SECRET_KEY | Token signing key | - |
-| JWT_ACCESS_TOKEN_EXPIRE_MINUTES | Access token TTL | 60 |
-| JWT_REFRESH_TOKEN_EXPIRE_DAYS | Refresh token TTL | 7 |
+| JWT_SECRET_KEY | JWT signing key | Required |
+| JWT_ALGORITHM | JWT algorithm | HS256 |
+| JWT_EXPIRATION_MINUTES | Token expiration | 60 |
+
+## Security Considerations
+
+1. **State Parameter**: Random state is generated for each login to prevent CSRF
+2. **Token Validation**: All tokens are validated for signature, expiration, and audience
+3. **User Creation**: New users are created with minimal permissions (viewer role)
+4. **Secrets**: All secrets should be stored in AWS Secrets Manager in production
 
 ## Dependencies
 
-- **REQ-001**: Database schema (User table)
+- `PyJWT`: JWT encoding/decoding
+- `httpx`: Async HTTP client for OIDC discovery
+- `cryptography`: Cryptographic operations for JWT
+- `pydantic`: Data validation and serialization
 
-## Test Coverage
+## Testing
 
-- JWT token creation and validation
-- User repository CRUD operations
-- Authentication endpoints
-- Middleware token validation
-- Error handling for invalid/expired tokens
+Tests cover:
+- OIDC initialization and discovery
+- Authorization URL generation
+- Token exchange and validation
+- User creation and retrieval
+- Middleware authentication flow
+- API endpoint behavior

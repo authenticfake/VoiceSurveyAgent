@@ -1,92 +1,129 @@
-"""Authentication middleware for FastAPI."""
+"""
+Authentication middleware.
+
+Provides JWT validation middleware for FastAPI.
+"""
 
 from typing import Annotated
 
-from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+import jwt
+from fastapi import Depends, Header, Request
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.jwt import JWTHandler
-from app.auth.models import User
-from app.auth.repository import UserRepository
-from app.config import get_settings
+from app.auth.schemas import TokenPayload, UserContext, UserRole
+from app.campaigns.models import User
+from app.config import Settings, get_settings
 from app.shared.database import get_db_session
-from app.shared.exceptions import TokenExpiredError, TokenInvalidError
+from app.shared.exceptions import AuthenticationError
 from app.shared.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Security scheme for OpenAPI
-security = HTTPBearer(auto_error=False)
 
-class AuthMiddleware:
-    """Middleware for validating JWT tokens."""
+async def get_token_payload(
+    authorization: Annotated[str | None, Header()] = None,
+    settings: Settings = Depends(get_settings),
+) -> TokenPayload:
+    """Extract and validate JWT token from Authorization header.
 
-    def __init__(self) -> None:
-        self._settings = get_settings()
-        self._jwt_handler = JWTHandler(self._settings)
+    Args:
+        authorization: Authorization header value
+        settings: Application settings
 
-    async def __call__(
-        self,
-        request: Request,
-        credentials: HTTPAuthorizationCredentials | None = Depends(security),
-        session: AsyncSession = Depends(get_db_session),
-    ) -> User:
-        """Validate token and return current user."""
-        if credentials is None:
-            logger.warning("No authorization header provided")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Not authenticated",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+    Returns:
+        Validated token payload
 
-        try:
-            payload = self._jwt_handler.validate_access_token(credentials.credentials)
-            user_id = payload["sub"]
+    Raises:
+        AuthenticationError: If token is missing, invalid, or expired
+    """
+    if not authorization:
+        raise AuthenticationError(message="Missing authorization header")
 
-            # Get user from database
-            user_repo = UserRepository(session)
-            user = await user_repo.get_by_id(user_id)
+    if not authorization.startswith("Bearer "):
+        raise AuthenticationError(message="Invalid authorization header format")
 
-            if user is None:
-                logger.warning(f"User not found: {user_id}")
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="User not found",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
+    token = authorization[7:]  # Remove "Bearer " prefix
 
-            return user
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+            audience=settings.jwt_audience,
+        )
 
-        except TokenExpiredError:
-            logger.warning("Token expired")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token has expired",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-        except TokenInvalidError as e:
-            logger.warning(f"Invalid token: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+        from datetime import datetime, timezone
 
-# Dependency for getting current user
+        return TokenPayload(
+            sub=payload["sub"],
+            exp=datetime.fromtimestamp(payload["exp"], tz=timezone.utc),
+            iat=datetime.fromtimestamp(payload["iat"], tz=timezone.utc),
+            iss=payload.get("iss"),
+            aud=payload.get("aud"),
+            email=payload.get("email"),
+            name=payload.get("name"),
+            role=UserRole(payload["role"]) if payload.get("role") else None,
+        )
+
+    except jwt.ExpiredSignatureError as e:
+        logger.warning("Token expired", error=str(e))
+        raise AuthenticationError(message="Token has expired") from e
+    except jwt.InvalidTokenError as e:
+        logger.warning("Invalid token", error=str(e))
+        raise AuthenticationError(
+            message="Invalid token",
+            details={"error": str(e)},
+        ) from e
+
+
 async def get_current_user(
-    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
-    session: Annotated[AsyncSession, Depends(get_db_session)],
-) -> User:
-    """Get the current authenticated user."""
-    middleware = AuthMiddleware()
-    # Create a mock request since we're using this as a dependency
-    return await middleware(
-        request=None,  # type: ignore[arg-type]
-        credentials=credentials,
-        session=session,
+    token: Annotated[TokenPayload, Depends(get_token_payload)],
+    db: AsyncSession = Depends(get_db_session),
+) -> UserContext:
+    """Get current authenticated user from token.
+
+    Args:
+        token: Validated token payload
+        db: Database session
+
+    Returns:
+        Current user context
+
+    Raises:
+        AuthenticationError: If user not found
+    """
+    result = await db.execute(
+        select(User).where(User.oidc_sub == token.sub)
+    )
+    user = result.scalar_one_or_none()
+
+    if not user:
+        # Create user on first login (should have been created during auth flow)
+        logger.warning(
+            "User not found for token, creating",
+            oidc_sub=token.sub,
+        )
+        from app.campaigns.models import UserRoleEnum
+
+        user = User(
+            oidc_sub=token.sub,
+            email=token.email or f"{token.sub}@unknown.local",
+            name=token.name or "Unknown User",
+            role=UserRoleEnum.VIEWER,
+        )
+        db.add(user)
+        await db.flush()
+        await db.refresh(user)
+
+    return UserContext(
+        id=user.id,
+        oidc_sub=user.oidc_sub,
+        email=user.email,
+        name=user.name,
+        role=UserRole(user.role.value),
     )
 
+
 # Type alias for dependency injection
-CurrentUser = Annotated[User, Depends(get_current_user)]
+CurrentUser = Annotated[UserContext, Depends(get_current_user)]

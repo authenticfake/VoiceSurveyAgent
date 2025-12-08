@@ -1,101 +1,142 @@
-"""Custom exception classes for the application."""
+"""
+Custom exception classes.
+
+Provides domain-specific exceptions with structured error information.
+"""
 
 from typing import Any
 
-class AppException(Exception):
-    """Base application exception."""
+
+class AppError(Exception):
+    """Base application error."""
 
     def __init__(
         self,
         message: str,
         code: str = "APP_ERROR",
+        status_code: int = 500,
         details: dict[str, Any] | None = None,
     ) -> None:
+        """Initialize application error."""
         super().__init__(message)
         self.message = message
         self.code = code
+        self.status_code = status_code
         self.details = details or {}
 
-class AuthenticationError(AppException):
-    """Authentication-related errors."""
+
+class AuthenticationError(AppError):
+    """Authentication failed error."""
 
     def __init__(
         self,
         message: str = "Authentication failed",
-        code: str = "AUTH_ERROR",
         details: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(message, code, details)
+        """Initialize authentication error."""
+        super().__init__(
+            message=message,
+            code="AUTHENTICATION_ERROR",
+            status_code=401,
+            details=details,
+        )
 
-class TokenExpiredError(AuthenticationError):
-    """Token has expired."""
 
-    def __init__(self, message: str = "Token has expired") -> None:
-        super().__init__(message, "TOKEN_EXPIRED")
-
-class TokenInvalidError(AuthenticationError):
-    """Token is invalid."""
-
-    def __init__(self, message: str = "Invalid token") -> None:
-        super().__init__(message, "TOKEN_INVALID")
-
-class OIDCError(AuthenticationError):
-    """OIDC-specific errors."""
-
-    def __init__(
-        self,
-        message: str = "OIDC error",
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, "OIDC_ERROR", details)
-
-class AuthorizationError(AppException):
-    """Authorization-related errors."""
+class AuthorizationError(AppError):
+    """Authorization denied error."""
 
     def __init__(
         self,
         message: str = "Access denied",
-        code: str = "AUTHZ_ERROR",
+        required_role: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(message, code, details)
-
-class InsufficientPermissionsError(AuthorizationError):
-    """User lacks required permissions."""
-
-    def __init__(
-        self,
-        required_role: str,
-        user_role: str | None = None,
-    ) -> None:
-        details = {"required_role": required_role}
-        if user_role:
-            details["user_role"] = user_role
+        """Initialize authorization error."""
+        error_details = details or {}
+        if required_role:
+            error_details["required_role"] = required_role
         super().__init__(
-            f"Insufficient permissions. Required role: {required_role}",
-            "INSUFFICIENT_PERMISSIONS",
-            details,
+            message=message,
+            code="AUTHORIZATION_ERROR",
+            status_code=403,
+            details=error_details,
         )
 
-class NotFoundError(AppException):
-    """Resource not found."""
+
+class ConfigurationError(AppError):
+    """Configuration error."""
 
     def __init__(
         self,
-        resource: str,
-        identifier: str | None = None,
+        message: str = "Configuration error",
+        details: dict[str, Any] | None = None,
     ) -> None:
-        message = f"{resource} not found"
-        if identifier:
-            message = f"{resource} with id '{identifier}' not found"
-        super().__init__(message, "NOT_FOUND", {"resource": resource})
+        """Initialize configuration error."""
+        super().__init__(
+            message=message,
+            code="CONFIGURATION_ERROR",
+            status_code=500,
+            details=details,
+        )
 
-class ValidationError(AppException):
+
+class NotFoundError(AppError):
+    """Resource not found error."""
+
+    def __init__(
+        self,
+        message: str = "Resource not found",
+        resource_type: str | None = None,
+        resource_id: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize not found error."""
+        error_details = details or {}
+        if resource_type:
+            error_details["resource_type"] = resource_type
+        if resource_id:
+            error_details["resource_id"] = resource_id
+        super().__init__(
+            message=message,
+            code="NOT_FOUND",
+            status_code=404,
+            details=error_details,
+        )
+
+
+class ValidationError(AppError):
     """Validation error."""
 
     def __init__(
         self,
         message: str = "Validation failed",
         errors: list[dict[str, Any]] | None = None,
+        details: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__(message, "VALIDATION_ERROR", {"errors": errors or []})
+        """Initialize validation error."""
+        error_details = details or {}
+        if errors:
+            error_details["errors"] = errors
+        super().__init__(
+            message=message,
+            code="VALIDATION_ERROR",
+            status_code=422,
+            details=error_details,
+        )
+
+
+class ConflictError(AppError):
+    """Resource conflict error."""
+
+    def __init__(
+        self,
+        message: str = "Resource conflict",
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Initialize conflict error."""
+        super().__init__(
+            message=message,
+            code="CONFLICT",
+            status_code=409,
+            details=details,
+        )

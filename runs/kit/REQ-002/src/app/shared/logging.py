@@ -1,83 +1,85 @@
-"""Structured JSON logging configuration."""
+"""
+Structured logging configuration.
+
+Provides JSON-formatted logging with correlation ID support.
+"""
 
 import logging
 import sys
-from contextvars import ContextVar
 from typing import Any
-import json
-from datetime import datetime, timezone
+
+import structlog
+from structlog.types import Processor
 
 from app.config import get_settings
 
-# Context variable for correlation ID
-correlation_id_var: ContextVar[str | None] = ContextVar("correlation_id", default=None)
 
-class JSONFormatter(logging.Formatter):
-    """JSON log formatter for structured logging."""
+def get_logger(name: str) -> structlog.stdlib.BoundLogger:
+    """Get a configured logger instance.
 
-    def format(self, record: logging.LogRecord) -> str:
-        """Format log record as JSON."""
-        log_data: dict[str, Any] = {
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "level": record.levelname,
-            "logger": record.name,
-            "message": record.getMessage(),
-        }
+    Args:
+        name: Logger name (typically __name__)
 
-        # Add correlation ID if present
-        correlation_id = correlation_id_var.get()
-        if correlation_id:
-            log_data["correlation_id"] = correlation_id
+    Returns:
+        Configured structlog logger
+    """
+    return structlog.get_logger(name)
 
-        # Add extra fields
-        if hasattr(record, "extra_fields"):
-            log_data.update(record.extra_fields)
 
-        # Add exception info if present
-        if record.exc_info:
-            log_data["exception"] = self.formatException(record.exc_info)
-
-        return json.dumps(log_data, default=str)
-
-def setup_logging() -> None:
-    """Configure structured JSON logging."""
+def configure_logging() -> None:
+    """Configure structured logging for the application."""
     settings = get_settings()
 
-    # Create JSON handler
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(JSONFormatter())
+    # Determine processors based on format
+    shared_processors: list[Processor] = [
+        structlog.contextvars.merge_contextvars,
+        structlog.stdlib.add_log_level,
+        structlog.stdlib.add_logger_name,
+        structlog.stdlib.PositionalArgumentsFormatter(),
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.UnicodeDecoder(),
+    ]
 
-    # Configure root logger
-    root_logger = logging.getLogger()
-    root_logger.setLevel(settings.log_level)
-    root_logger.handlers = [handler]
+    if settings.log_format == "json":
+        # JSON format for production
+        processors: list[Processor] = [
+            *shared_processors,
+            structlog.processors.format_exc_info,
+            structlog.processors.JSONRenderer(),
+        ]
+    else:
+        # Console format for development
+        processors = [
+            *shared_processors,
+            structlog.dev.ConsoleRenderer(colors=True),
+        ]
 
-    # Reduce noise from third-party libraries
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
-    logging.getLogger("sqlalchemy.engine").setLevel(
-        logging.DEBUG if settings.debug else logging.WARNING
+    structlog.configure(
+        processors=processors,
+        wrapper_class=structlog.stdlib.BoundLogger,
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
     )
 
-def get_logger(name: str) -> logging.Logger:
-    """Get a logger with the given name."""
-    return logging.getLogger(name)
-
-def log_with_context(
-    logger: logging.Logger,
-    level: int,
-    message: str,
-    **extra: Any,
-) -> None:
-    """Log a message with extra context fields."""
-    record = logger.makeRecord(
-        logger.name,
-        level,
-        "",
-        0,
-        message,
-        (),
-        None,
+    # Configure standard library logging
+    logging.basicConfig(
+        format="%(message)s",
+        stream=sys.stdout,
+        level=getattr(logging, settings.log_level.upper()),
     )
-    record.extra_fields = extra  # type: ignore[attr-defined]
-    logger.handle(record)
+
+
+def bind_context(**kwargs: Any) -> None:
+    """Bind context variables for structured logging.
+
+    Args:
+        **kwargs: Context variables to bind
+    """
+    structlog.contextvars.bind_contextvars(**kwargs)
+
+
+def clear_context() -> None:
+    """Clear all bound context variables."""
+    structlog.contextvars.clear_contextvars()

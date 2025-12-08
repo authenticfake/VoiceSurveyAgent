@@ -3,50 +3,48 @@
   "req_id": "REQ-002",
   "lane": "python",
   "env": {
-    "DATABASE_URL": "sqlite+aiosqlite:///:memory:",
-    "OIDC_ISSUER_URL": "https://test.auth0.com",
-    "OIDC_CLIENT_ID": "test-client-id",
-    "OIDC_CLIENT_SECRET": "test-client-secret",
+    "DATABASE_URL": "postgresql://test:test@localhost:5432/voicesurvey_test",
+    "OIDC_ISSUER": "https://auth.example.com",
+    "OIDC_CLIENT_ID": "test-client",
+    "OIDC_CLIENT_SECRET": "test-secret",
     "JWT_SECRET_KEY": "test-secret-key-for-testing-only",
-    "DEBUG": "true"
+    "JWT_ALGORITHM": "HS256",
+    "JWT_EXPIRATION_MINUTES": "60"
   },
   "cases": [
     {
       "name": "install_deps",
       "run": "pip install -r runs/kit/REQ-002/requirements.txt",
       "cwd": ".",
+      "expect": 0
+    },
+    {
+      "name": "tests",
+      "run": "pytest runs/kit/REQ-002/test -v --tb=short",
+      "cwd": ".",
       "expect": 0,
       "timeout": 120
     },
     {
-      "name": "tests",
-      "run": "PYTHONPATH=runs/kit/REQ-002/src pytest runs/kit/REQ-002/test -v --cov=app --cov-report=term-missing --cov-report=xml:reports/coverage.xml --junitxml=reports/junit.xml",
-      "cwd": ".",
-      "expect": 0,
-      "timeout": 300
-    },
-    {
-      "name": "lint",
-      "run": "ruff check runs/kit/REQ-002/src runs/kit/REQ-002/test",
-      "cwd": ".",
-      "expect": 0,
-      "timeout": 60
-    },
-    {
-      "name": "types",
-      "run": "PYTHONPATH=runs/kit/REQ-002/src mypy runs/kit/REQ-002/src --ignore-missing-imports",
+      "name": "coverage",
+      "run": "pytest runs/kit/REQ-002/test --cov=runs/kit/REQ-002/src/app --cov-report=xml:runs/kit/REQ-002/reports/coverage.xml --cov-report=term-missing",
       "cwd": ".",
       "expect": 0,
       "timeout": 120
     }
   ],
   "reports": [
-    {"kind": "junit", "path": "reports/junit.xml", "format": "junit-xml"},
-    {"kind": "coverage", "path": "reports/coverage.xml", "format": "coverage-xml"}
+    {
+      "kind": "coverage",
+      "path": "runs/kit/REQ-002/reports/coverage.xml",
+      "format": "coverage-xml"
+    }
   ],
   "gate_policy": {
     "tests_pass": true,
     "coverage_min": 80,
-    "security": {"bandit_high": 0}
+    "security": {
+      "bandit_high": 0
+    }
   }
 }

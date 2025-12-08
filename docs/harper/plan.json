@@ -1,8 +1,8 @@
 {
   "snapshot": {
     "total": 24,
-    "open": 20,
-    "in_progress": 4,
+    "open": 22,
+    "in_progress": 2,
     "done": 0,
     "deferred": 0,
     "progressPct": 0
@@ -36,7 +36,7 @@
         "Invalid or expired tokens return 401 with appropriate error message"
       ],
       "dependsOn": [
-        ""
+        "REQ-001"
       ],
       "track": "App",
       "status": "in_progress",
@@ -58,7 +58,7 @@
         "REQ-002"
       ],
       "track": "App",
-      "status": "in_progress",
+      "status": "open",
       "lane": "python",
       "test_profile": "app-core",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"
@@ -77,7 +77,7 @@
         "REQ-003"
       ],
       "track": "App",
-      "status": "in_progress",
+      "status": "open",
       "lane": "python",
       "test_profile": "app-core",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"
