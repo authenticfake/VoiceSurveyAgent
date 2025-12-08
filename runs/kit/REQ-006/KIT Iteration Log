@@ -1,0 +1,25 @@
+KIT Iteration Log
+- Targeted REQ-ID(s) and rationale: REQ-006 to deliver survey event publishing and email worker per plan dependencies (REQ-005/REQ-009).
+- In/Out of scope: In-scope event message schema, SQS adapters, SMTP provider, email notification processor, worker loop, SQLAlchemy models subset, unit tests, docs, LTC/HOWTO. Out-of-scope: actual scheduler wiring, deployment manifests, non-email event consumers.
+- How to run tests: `PYTHONPATH=runs/kit/REQ-006/src pytest -q runs/kit/REQ-006/test`
+- Prerequisites: Python 3.12, pip, optional AWS creds for SQS when running worker, SMTP server for integration.
+- Dependencies and mocks: Tests stub boto3 SQS (botocore Stubber) and use fake email provider plus in-memory queue to avoid external calls; acceptable per guidance because production paths use real implementations.
+- Product Owner Notes: None.
+- RAG citations: Reused schema patterns and mixins from REQ-009 models (runs/kit/REQ-009/src/app/infra/db/models.py, storage specs) to keep enums and relationships aligned.
+
+{
+  "index": [
+    {
+      "req": "REQ-006",
+      "src": [
+        "runs/kit/REQ-006/src/app/events/bus/*",
+        "runs/kit/REQ-006/src/app/infra/*",
+        "runs/kit/REQ-006/src/app/notifications/*"
+      ],
+      "tests": [
+        "runs/kit/REQ-006/test/events/test_event_publisher.py",
+        "runs/kit/REQ-006/test/notifications/test_email_worker.py"
+      ]
+    }
+  ]
+}

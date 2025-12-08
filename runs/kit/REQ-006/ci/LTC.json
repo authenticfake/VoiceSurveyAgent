@@ -1,0 +1,44 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-006",
+  "lane": "python",
+  "tools": {
+    "tests": "pytest",
+    "lint": "ruff",
+    "types": "mypy",
+    "security": "bandit",
+    "build": "docker"
+  },
+  "commands": {
+    "tests": "PYTHONPATH=runs/kit/REQ-006/src pytest -q runs/kit/REQ-006/test"
+  },
+  "cases": [
+    {
+      "name": "tests",
+      "run": "PYTHONPATH=runs/kit/REQ-006/src pytest -q runs/kit/REQ-006/test",
+      "cwd": ".",
+      "pip-file": "runs/kit/REQ-006/requirements.txt",
+      "expect": 0
+    }
+  ],
+  "reports": [],
+  "env": {
+    "PYTHONPATH": "runs/kit/REQ-006/src"
+  },
+  "normalize": {
+    "tests_pass": "cases[0].expect"
+  },
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 0.8,
+    "security": {
+      "bandit_high": 0
+    }
+  },
+  "external_runner": null,
+  "constraints_applied": [
+    "composition-first",
+    "real-infra",
+    "deterministic-artifacts"
+  ]
+}

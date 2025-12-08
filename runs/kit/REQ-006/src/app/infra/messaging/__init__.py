@@ -1,0 +1,1 @@
+"""Messaging adapters (SQS-focused for this slice)."""
