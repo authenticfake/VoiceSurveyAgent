@@ -1,0 +1,55 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-010",
+  "lane": "infra",
+  "tools": {
+    "tests": "pytest",
+    "lint": "ruff (future)",
+    "types": "mypy (future)",
+    "security": "trivy (future)",
+    "build": "n/a"
+  },
+  "commands": {
+    "tests": "PYTHONPATH=runs/kit/REQ-010/src pytest --junitxml runs/kit/REQ-010/.reports/junit.xml --cov=runs/kit/REQ-010/src --cov-report=xml:runs/kit/REQ-010/.reports/coverage.xml -q runs/kit/REQ-010/test"
+  },
+  "cases": [
+    {
+      "name": "tests",
+      "run": "PYTHONPATH=runs/kit/REQ-010/src pytest --junitxml runs/kit/REQ-010/.reports/junit.xml --cov=runs/kit/REQ-010/src --cov-report=xml:runs/kit/REQ-010/.reports/coverage.xml -q runs/kit/REQ-010/test",
+      "cwd": ".",
+      "pip-file": "runs/kit/REQ-010/requirements.txt",
+      "expect": 0
+    }
+  ],
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "runs/kit/REQ-010/.reports/junit.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "runs/kit/REQ-010/.reports/coverage.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "env": {
+    "PYTHONPATH": "runs/kit/REQ-010/src"
+    },
+  "normalize": {
+    "tests": "pytest"
+  },
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 0.0,
+    "security": {
+      "critical": 0
+    }
+  },
+  "external_runner": null,
+  "constraints_applied": [
+    "composition-first",
+    "real-infra",
+    "env-driven-config"
+  ]
+}

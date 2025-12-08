@@ -1,0 +1,12 @@
+(empty file placeholder for report directory creation)
+
+KIT Iteration Log
+-----------------
+- Targeted REQ-ID(s): REQ-010 (per PLAN dependency chain: messaging/config/worker infra to unblock scheduler/email workers).
+- In scope: env-driven config loader, SQS abstraction, observability helper, scheduler/email worker entrypoints, associated tests/docs/LTC/HOWTO.
+- Out of scope: concrete scheduler/email business logic (implemented later REQs), non-SQS brokers, tracing exporters.
+- How to run tests: `PYTHONPATH=runs/kit/REQ-010/src pytest -q runs/kit/REQ-010/test`
+- Prerequisites: Python 3.12+, pip install `runs/kit/REQ-010/requirements.txt`, AWS creds (or stubber) for SQS when running workers, set `PYTHONPATH` to `runs/kit/REQ-010/src`.
+- Dependencies and mocks: boto3 SQS interactions stubbed via `botocore.stub.Stubber` in tests; scheduler/email handler factories provided via test fixtures.
+- Product Owner Notes: Factories must return runnable/handler objects; entrypoints enforce this with clear error messaging; docs show env layout for EKS deployment.
+- RAG citations: Alignment with PLAN lanes/modules (`app.infra.*`, worker entrypoints) and TECH_CONSTRAINTS (Python lane, SQS messaging, env config).

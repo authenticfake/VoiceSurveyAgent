@@ -1,0 +1,1 @@
+"""Infrastructure helpers (config, messaging, observability) for KIT REQ-010."""
