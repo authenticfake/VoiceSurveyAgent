@@ -1,0 +1,93 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-005",
+  "lane": "python",
+  "env": {
+    "PYTHONPATH": "runs/kit/REQ-005/src:runs/kit/REQ-004/src:runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src",
+    "DATABASE_URL": "postgresql://user:password@localhost:5432/voicesurvey_test",
+    "DISABLE_TESTCONTAINERS": "1"
+  },
+  "cases": [
+    {
+      "name": "install_deps",
+      "run": "pip install -r runs/kit/REQ-005/requirements.txt",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "unit_tests",
+      "run": "pytest runs/kit/REQ-005/test/test_validation.py -v --tb=short",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "integration_tests",
+      "run": "pytest runs/kit/REQ-005/test/test_router_validation.py -v --tb=short",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "all_tests_with_coverage",
+      "run": "pytest runs/kit/REQ-005/test/ --cov=runs/kit/REQ-005/src --cov-report=xml:runs/kit/REQ-005/reports/coverage.xml --junitxml=runs/kit/REQ-005/reports/junit.xml -v",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "type_check",
+      "run": "mypy runs/kit/REQ-005/src/app/campaigns/validation.py --ignore-missing-imports",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "lint",
+      "run": "ruff check runs/kit/REQ-005/src runs/kit/REQ-005/test",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 30
+    }
+  ],
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "runs/kit/REQ-005/reports/junit.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "runs/kit/REQ-005/reports/coverage.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 80,
+    "security": {
+      "bandit_high": 0
+    }
+  },
+  "tools": {
+    "tests": "pytest>=8.0",
+    "lint": "ruff>=0.4",
+    "types": "mypy>=1.10",
+    "security": "bandit>=1.7",
+    "build": "docker>=24.0"
+  },
+  "commands": {
+    "install": "pip install -r runs/kit/REQ-005/requirements.txt",
+    "test": "pytest runs/kit/REQ-005/test/ -v",
+    "lint": "ruff check runs/kit/REQ-005/src runs/kit/REQ-005/test",
+    "types": "mypy runs/kit/REQ-005/src --ignore-missing-imports"
+  },
+  "constraints_applied": [
+    "Python 3.12+",
+    "FastAPI framework",
+    "pytest for testing",
+    "Composition over inheritance",
+    "Dependency injection"
+  ]
+}
