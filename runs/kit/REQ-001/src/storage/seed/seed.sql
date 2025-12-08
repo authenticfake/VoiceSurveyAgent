@@ -19,28 +19,23 @@ VALUES
     ('00000000-0000-0000-0001-000000000001', 'Survey Completed - EN', 'completed', 
      'Thank you for completing our survey', 
      '<html><body><h1>Thank you!</h1><p>Dear {{contact_name}},</p><p>Thank you for taking the time to complete our survey for {{campaign_name}}.</p></body></html>',
-     'Thank you for completing our survey for {{campaign_name}}.',
+     'Thank you!\n\nDear {{contact_name}},\n\nThank you for taking the time to complete our survey for {{campaign_name}}.',
      'en'),
-    ('00000000-0000-0000-0001-000000000002', 'Survey Completed - IT', 'completed', 
-     'Grazie per aver completato il nostro sondaggio', 
+    ('00000000-0000-0000-0001-000000000002', 'Survey Completed - IT', 'completed',
+     'Grazie per aver completato il nostro sondaggio',
      '<html><body><h1>Grazie!</h1><p>Gentile {{contact_name}},</p><p>Grazie per aver dedicato del tempo a completare il nostro sondaggio per {{campaign_name}}.</p></body></html>',
-     'Grazie per aver completato il nostro sondaggio per {{campaign_name}}.',
+     'Grazie!\n\nGentile {{contact_name}},\n\nGrazie per aver dedicato del tempo a completare il nostro sondaggio per {{campaign_name}}.',
      'it'),
-    ('00000000-0000-0000-0001-000000000003', 'Survey Refused - EN', 'refused', 
-     'We respect your decision', 
+    ('00000000-0000-0000-0001-000000000003', 'Survey Refused - EN', 'refused',
+     'We respect your decision',
      '<html><body><h1>Thank you</h1><p>Dear {{contact_name}},</p><p>We respect your decision not to participate in our survey.</p></body></html>',
-     'We respect your decision not to participate in our survey.',
+     'Thank you\n\nDear {{contact_name}},\n\nWe respect your decision not to participate in our survey.',
      'en'),
-    ('00000000-0000-0000-0001-000000000004', 'Not Reached - EN', 'not_reached', 
-     'We tried to reach you', 
-     '<html><body><h1>We tried to reach you</h1><p>Dear {{contact_name}},</p><p>We attempted to contact you for our survey but were unable to reach you.</p></body></html>',
-     'We attempted to contact you for our survey but were unable to reach you.',
-     'en'),
-    ('00000000-0000-0000-0001-000000000005', 'Not Reached - IT', 'not_reached', 
-     'Abbiamo provato a contattarti', 
-     '<html><body><h1>Abbiamo provato a raggiungerti</h1><p>Gentile {{contact_name}},</p><p>Abbiamo provato a contattarti per il nostro sondaggio ma non siamo riusciti a raggiungerti.</p></body></html>',
-     'Abbiamo provato a contattarti per il nostro sondaggio ma non siamo riusciti a raggiungerti.',
-     'it')
+    ('00000000-0000-0000-0001-000000000004', 'Not Reached - EN', 'not_reached',
+     'We tried to reach you',
+     '<html><body><h1>We missed you</h1><p>Dear {{contact_name}},</p><p>We tried to reach you for our survey but were unable to connect.</p></body></html>',
+     'We missed you\n\nDear {{contact_name}},\n\nWe tried to reach you for our survey but were unable to connect.',
+     'en')
 ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
     type = EXCLUDED.type,
@@ -71,13 +66,13 @@ INSERT INTO campaigns (id, name, description, status, language, intro_script,
     max_attempts, retry_interval_minutes, allowed_call_start_local, allowed_call_end_local,
     email_completed_template_id, email_refused_template_id, email_not_reached_template_id, created_by_user_id)
 VALUES 
-    ('00000000-0000-0000-0003-000000000001', 'Customer Satisfaction Survey Q1', 
-     'Quarterly customer satisfaction survey for Q1 2024',
+    ('00000000-0000-0000-0003-000000000001', 'Customer Satisfaction Survey Q1 2025', 
+     'Quarterly customer satisfaction survey for product feedback',
      'draft', 'en',
-     'Hello, this is VoiceSurvey calling on behalf of Acme Corp. We are conducting a brief 3-question survey about your recent experience. This will take approximately 2 minutes. Do you consent to participate?',
-     'On a scale of 1 to 10, how satisfied are you with our service?', 'scale',
-     'What aspect of our service do you value most?', 'free_text',
-     'How likely are you to recommend us to a friend or colleague, on a scale of 1 to 10?', 'scale',
+     'Hello, this is a call from VoiceSurvey Company. We are conducting a brief 3-question survey about your recent experience. This will take approximately 2 minutes. Do you consent to participate?',
+     'On a scale of 1 to 10, how satisfied are you with our product?', 'scale',
+     'What feature do you use most frequently?', 'free_text',
+     'How likely are you to recommend us to a friend? Please answer from 1 to 10.', 'numeric',
      3, 60, '09:00:00', '20:00:00',
      '00000000-0000-0000-0001-000000000001', '00000000-0000-0000-0001-000000000003', '00000000-0000-0000-0001-000000000004',
      '00000000-0000-0000-0000-000000000002')
@@ -86,7 +81,7 @@ ON CONFLICT (id) DO UPDATE SET
     description = EXCLUDED.description,
     updated_at = NOW();
 
--- Seed contacts for the campaign (idempotent via unique constraint workaround)
+-- Seed sample contacts for the campaign
 INSERT INTO contacts (id, campaign_id, external_contact_id, phone_number, email, preferred_language, has_prior_consent, do_not_call, state)
 VALUES 
     ('00000000-0000-0000-0004-000000000001', '00000000-0000-0000-0003-000000000001', 'EXT-001', '+14155550101', 'contact1@example.com', 'en', true, false, 'pending'),

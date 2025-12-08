@@ -9,7 +9,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.shared.database import Base
 
-
 class SurveyResponse(Base):
     """Survey response entity storing completed survey answers."""
     
@@ -47,9 +46,12 @@ class SurveyResponse(Base):
     q1_confidence: Mapped[Decimal | None] = mapped_column(Numeric(3, 2), nullable=True)
     q2_confidence: Mapped[Decimal | None] = mapped_column(Numeric(3, 2), nullable=True)
     q3_confidence: Mapped[Decimal | None] = mapped_column(Numeric(3, 2), nullable=True)
-    completed_at: Mapped[datetime] = mapped_column(nullable=False, default=datetime.utcnow)
+    completed_at: Mapped[datetime] = mapped_column(
+        nullable=False,
+        default=datetime.utcnow,
+    )
     
     # Relationships
-    contact = relationship("Contact", backref="survey_responses")
-    campaign = relationship("Campaign", backref="survey_responses")
-    call_attempt = relationship("CallAttempt", backref="survey_response")
+    contact = relationship("Contact", foreign_keys=[contact_id])
+    campaign = relationship("Campaign", foreign_keys=[campaign_id])
+    call_attempt = relationship("CallAttempt", foreign_keys=[call_attempt_id])

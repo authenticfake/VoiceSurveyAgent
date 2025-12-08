@@ -16,7 +16,6 @@ down_revision: Union[str, None] = "V0008"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-
 def upgrade() -> None:
     op.create_table(
         "events",
@@ -47,25 +46,20 @@ def upgrade() -> None:
             sa.ForeignKey("call_attempts.id", ondelete="SET NULL"),
             nullable=True,
         ),
-        sa.Column("payload", postgresql.JSONB, nullable=True),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("CURRENT_TIMESTAMP"),
-        ),
+        sa.Column("payload", postgresql.JSONB, nullable=True, server_default="{}"),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
     )
     
-    # Indexes for common queries
-    op.create_index("ix_events_campaign_id", "events", ["campaign_id"])
-    op.create_index("ix_events_contact_id", "events", ["contact_id"])
-    op.create_index("ix_events_event_type", "events", ["event_type"])
-    op.create_index("ix_events_created_at", "events", ["created_at"])
-
+    op.create_index("idx_events_event_type", "events", ["event_type"])
+    op.create_index("idx_events_campaign_id", "events", ["campaign_id"])
+    op.create_index("idx_events_contact_id", "events", ["contact_id"])
+    op.create_index("idx_events_call_attempt_id", "events", ["call_attempt_id"])
+    op.create_index("idx_events_created_at", "events", ["created_at"])
 
 def downgrade() -> None:
-    op.drop_index("ix_events_created_at", table_name="events")
-    op.drop_index("ix_events_event_type", table_name="events")
-    op.drop_index("ix_events_contact_id", table_name="events")
-    op.drop_index("ix_events_campaign_id", table_name="events")
+    op.drop_index("idx_events_created_at", table_name="events")
+    op.drop_index("idx_events_call_attempt_id", table_name="events")
+    op.drop_index("idx_events_contact_id", table_name="events")
+    op.drop_index("idx_events_campaign_id", table_name="events")
+    op.drop_index("idx_events_event_type", table_name="events")
     op.drop_table("events")

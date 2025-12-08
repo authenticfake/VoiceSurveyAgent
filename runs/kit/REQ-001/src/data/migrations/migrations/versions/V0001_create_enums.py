@@ -15,7 +15,6 @@ down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-
 def upgrade() -> None:
     # User role enum
     op.execute("""
@@ -66,7 +65,7 @@ def upgrade() -> None:
         END $$;
     """)
     
-    # Contact preferred language enum (includes 'auto')
+    # Contact language enum
     op.execute("""
         DO $$ BEGIN
             CREATE TYPE contact_language AS ENUM ('en', 'it', 'auto');
@@ -78,9 +77,7 @@ def upgrade() -> None:
     # Call outcome enum
     op.execute("""
         DO $$ BEGIN
-            CREATE TYPE call_outcome AS ENUM (
-                'completed', 'refused', 'no_answer', 'busy', 'failed'
-            );
+            CREATE TYPE call_outcome AS ENUM ('completed', 'refused', 'no_answer', 'busy', 'failed');
         EXCEPTION
             WHEN duplicate_object THEN null;
         END $$;
@@ -98,15 +95,13 @@ def upgrade() -> None:
     # Event type enum
     op.execute("""
         DO $$ BEGIN
-            CREATE TYPE event_type AS ENUM (
-                'survey.completed', 'survey.refused', 'survey.not_reached'
-            );
+            CREATE TYPE event_type AS ENUM ('survey.completed', 'survey.refused', 'survey.not_reached');
         EXCEPTION
             WHEN duplicate_object THEN null;
         END $$;
     """)
     
-    # Email notification status enum
+    # Email status enum
     op.execute("""
         DO $$ BEGIN
             CREATE TYPE email_status AS ENUM ('pending', 'sent', 'failed');
@@ -141,7 +136,6 @@ def upgrade() -> None:
             WHEN duplicate_object THEN null;
         END $$;
     """)
-
 
 def downgrade() -> None:
     op.execute("DROP TYPE IF EXISTS llm_provider CASCADE;")

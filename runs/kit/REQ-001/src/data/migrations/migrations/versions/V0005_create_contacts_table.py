@@ -16,7 +16,6 @@ down_revision: Union[str, None] = "V0004"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-
 def upgrade() -> None:
     op.create_table(
         "contacts",
@@ -57,35 +56,20 @@ def upgrade() -> None:
             ),
             nullable=True,
         ),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("CURRENT_TIMESTAMP"),
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("CURRENT_TIMESTAMP"),
-        ),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
     )
     
-    # Indexes for common queries
-    op.create_index("ix_contacts_campaign_id", "contacts", ["campaign_id"])
-    op.create_index("ix_contacts_phone_number", "contacts", ["phone_number"])
-    op.create_index("ix_contacts_state", "contacts", ["state"])
-    # Composite index for scheduler queries
-    op.create_index(
-        "ix_contacts_scheduler_lookup",
-        "contacts",
-        ["campaign_id", "state", "attempts_count", "do_not_call"],
-    )
-
+    op.create_index("idx_contacts_campaign_id", "contacts", ["campaign_id"])
+    op.create_index("idx_contacts_phone_number", "contacts", ["phone_number"])
+    op.create_index("idx_contacts_state", "contacts", ["state"])
+    op.create_index("idx_contacts_do_not_call", "contacts", ["do_not_call"])
+    op.create_index("idx_contacts_attempts", "contacts", ["attempts_count"])
 
 def downgrade() -> None:
-    op.drop_index("ix_contacts_scheduler_lookup", table_name="contacts")
-    op.drop_index("ix_contacts_state", table_name="contacts")
-    op.drop_index("ix_contacts_phone_number", table_name="contacts")
-    op.drop_index("ix_contacts_campaign_id", table_name="contacts")
+    op.drop_index("idx_contacts_attempts", table_name="contacts")
+    op.drop_index("idx_contacts_do_not_call", table_name="contacts")
+    op.drop_index("idx_contacts_state", table_name="contacts")
+    op.drop_index("idx_contacts_phone_number", table_name="contacts")
+    op.drop_index("idx_contacts_campaign_id", table_name="contacts")
     op.drop_table("contacts")

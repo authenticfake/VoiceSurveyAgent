@@ -9,7 +9,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.shared.database import Base
 from app.shared.models.enums import CampaignStatus, LanguageCode, QuestionType
 
-
 class Campaign(Base):
     """Campaign entity representing a survey campaign."""
     
@@ -32,52 +31,54 @@ class Campaign(Base):
         nullable=False,
         default=LanguageCode.EN,
     )
-    intro_script: Mapped[str | None] = mapped_column(Text, nullable=True)
-    
-    question_1_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    question_1_type: Mapped[QuestionType | None] = mapped_column(
+    intro_script: Mapped[str] = mapped_column(Text, nullable=False)
+    question_1_text: Mapped[str] = mapped_column(Text, nullable=False)
+    question_1_type: Mapped[QuestionType] = mapped_column(
         SAEnum(QuestionType, name="question_type", create_type=False),
-        nullable=True,
+        nullable=False,
     )
-    question_2_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    question_2_type: Mapped[QuestionType | None] = mapped_column(
+    question_2_text: Mapped[str] = mapped_column(Text, nullable=False)
+    question_2_type: Mapped[QuestionType] = mapped_column(
         SAEnum(QuestionType, name="question_type", create_type=False),
-        nullable=True,
+        nullable=False,
     )
-    question_3_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    question_3_type: Mapped[QuestionType | None] = mapped_column(
+    question_3_text: Mapped[str] = mapped_column(Text, nullable=False)
+    question_3_type: Mapped[QuestionType] = mapped_column(
         SAEnum(QuestionType, name="question_type", create_type=False),
-        nullable=True,
+        nullable=False,
     )
-    
     max_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
     retry_interval_minutes: Mapped[int] = mapped_column(Integer, nullable=False, default=60)
-    allowed_call_start_local: Mapped[time | None] = mapped_column(Time, nullable=True)
-    allowed_call_end_local: Mapped[time | None] = mapped_column(Time, nullable=True)
-    
+    allowed_call_start_local: Mapped[time] = mapped_column(Time, nullable=False, default=time(9, 0))
+    allowed_call_end_local: Mapped[time] = mapped_column(Time, nullable=False, default=time(20, 0))
     email_completed_template_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("email_templates.id", ondelete="SET NULL"),
         nullable=True,
+        index=True,
     )
     email_refused_template_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("email_templates.id", ondelete="SET NULL"),
         nullable=True,
+        index=True,
     )
     email_not_reached_template_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("email_templates.id", ondelete="SET NULL"),
         nullable=True,
+        index=True,
     )
-    
-    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+    created_by_user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="SET NULL"),
-        nullable=True,
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
     )
-    
-    created_at: Mapped[datetime] = mapped_column(nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        nullable=False,
+        default=datetime.utcnow,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         nullable=False,
         default=datetime.utcnow,

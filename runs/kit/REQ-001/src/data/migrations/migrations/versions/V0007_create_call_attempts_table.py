@@ -16,7 +16,6 @@ down_revision: Union[str, None] = "V0006"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-
 def upgrade() -> None:
     op.create_table(
         "call_attempts",
@@ -34,9 +33,9 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.Column("attempt_number", sa.Integer, nullable=False),
-        sa.Column("call_id", sa.String(100), nullable=False, unique=True),
+        sa.Column("call_id", sa.String(255), nullable=False, unique=True),
         sa.Column("provider_call_id", sa.String(255), nullable=True),
-        sa.Column("started_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("started_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
         sa.Column("answered_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("ended_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column(
@@ -49,19 +48,20 @@ def upgrade() -> None:
         ),
         sa.Column("provider_raw_status", sa.String(255), nullable=True),
         sa.Column("error_code", sa.String(100), nullable=True),
-        sa.Column("metadata", postgresql.JSONB, nullable=True),
+        sa.Column("metadata", postgresql.JSONB, nullable=True, server_default="{}"),
+        sa.CheckConstraint("attempt_number >= 1", name="ck_call_attempts_attempt_number"),
     )
     
-    # Indexes for common queries
-    op.create_index("ix_call_attempts_contact_id", "call_attempts", ["contact_id"])
-    op.create_index("ix_call_attempts_campaign_id", "call_attempts", ["campaign_id"])
-    op.create_index("ix_call_attempts_call_id", "call_attempts", ["call_id"])
-    op.create_index("ix_call_attempts_started_at", "call_attempts", ["started_at"])
-
+    op.create_index("idx_call_attempts_contact_id", "call_attempts", ["contact_id"])
+    op.create_index("idx_call_attempts_campaign_id", "call_attempts", ["campaign_id"])
+    op.create_index("idx_call_attempts_call_id", "call_attempts", ["call_id"])
+    op.create_index("idx_call_attempts_outcome", "call_attempts", ["outcome"])
+    op.create_index("idx_call_attempts_started_at", "call_attempts", ["started_at"])
 
 def downgrade() -> None:
-    op.drop_index("ix_call_attempts_started_at", table_name="call_attempts")
-    op.drop_index("ix_call_attempts_call_id", table_name="call_attempts")
-    op.drop_index("ix_call_attempts_campaign_id", table_name="call_attempts")
-    op.drop_index("ix_call_attempts_contact_id", table_name="call_attempts")
+    op.drop_index("idx_call_attempts_started_at", table_name="call_attempts")
+    op.drop_index("idx_call_attempts_outcome", table_name="call_attempts")
+    op.drop_index("idx_call_attempts_call_id", table_name="call_attempts")
+    op.drop_index("idx_call_attempts_campaign_id", table_name="call_attempts")
+    op.drop_index("idx_call_attempts_contact_id", table_name="call_attempts")
     op.drop_table("call_attempts")

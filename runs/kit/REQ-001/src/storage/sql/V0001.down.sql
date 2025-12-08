@@ -38,6 +38,3 @@ DROP TYPE IF EXISTS question_type;
 DROP TYPE IF EXISTS campaign_language;
 DROP TYPE IF EXISTS campaign_status;
 DROP TYPE IF EXISTS user_role;
-
--- Drop UUID extension (optional - may be used by other schemas)
--- DROP EXTENSION IF EXISTS "uuid-ossp";

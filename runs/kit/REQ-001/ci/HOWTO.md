@@ -2,197 +2,142 @@
 
 ## Prerequisites
 
-### Required Software
+### Required Tools
 - Python 3.12+
-- PostgreSQL 15+
-- pip or Poetry for dependency management
+- PostgreSQL 15+ (local or Docker)
+- Docker (optional, for testcontainers)
 
-### Environment Setup
-
-1. **Create and activate virtual environment:**
-```bash
-python -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# or
-.venv\Scripts\activate  # Windows
-```
-
-2. **Install dependencies:**
-```bash
-pip install -r runs/kit/REQ-001/requirements.txt
-```
-
-3. **Set environment variables:**
-```bash
+### Environment Variables
+bash
 export DB_USER=postgres
 export DB_PASSWORD=postgres
 export DB_HOST=localhost
 export DB_PORT=5432
-export DB_NAME=voicesurveyagent_test
-```
+export DB_NAME=voicesurveyagent
+export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/voicesurveyagent
 
-Or create a `.env` file:
-```
-DB_USER=postgres
-DB_PASSWORD=postgres
-DB_HOST=localhost
-DB_PORT=5432
-DB_NAME=voicesurveyagent_test
-```
+## Installation
 
-### Database Setup
+### Option 1: Using pip
+bash
+cd /path/to/project
+pip install -r runs/kit/REQ-001/requirements.txt
 
-1. **Create test database:**
-```bash
-createdb voicesurveyagent_test
-```
-
-Or via psql:
-```sql
-CREATE DATABASE voicesurveyagent_test;
-```
+### Option 2: Using Poetry (if available)
+bash
+poetry install
 
 ## Running Tests
 
-### All Tests
-```bash
-pytest runs/kit/REQ-001/test -v
-```
+### With Testcontainers (Recommended)
+Testcontainers will automatically spin up a PostgreSQL container:
+bash
+pytest -p no:cacheprovider -q runs/kit/REQ-001/test/test_migration_sql.py -v
 
-### Unit Tests Only (Models)
-```bash
-pytest runs/kit/REQ-001/test/test_models.py -v
-```
+### Without Testcontainers
+If Docker is not available, set `DISABLE_TESTCONTAINERS=1` and provide a `DATABASE_URL`:
+bash
+export DISABLE_TESTCONTAINERS=1
+export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/voicesurveyagent
+pytest -p no:cacheprovider -q runs/kit/REQ-001/test/test_migration_sql.py -v
 
-### Migration Tests Only
-```bash
-pytest runs/kit/REQ-001/test/test_migrations.py -v
-```
+### Running Specific Test Classes
+bash
+# Schema shape tests
+pytest runs/kit/REQ-001/test/test_migration_sql.py::TestSchemaShape -v
 
-### With Coverage
-```bash
-pytest runs/kit/REQ-001/test --cov=runs/kit/REQ-001/src --cov-report=term-missing
-```
+# Idempotency tests
+pytest runs/kit/REQ-001/test/test_migration_sql.py::TestIdempotency -v
 
-## Running Migrations
+# Round-trip tests
+pytest runs/kit/REQ-001/test/test_migration_sql.py::TestRoundTrip -v
 
-### Set PYTHONPATH
-```bash
-export PYTHONPATH="${PYTHONPATH}:runs/kit/REQ-001/src"
-```
+# Seed data tests
+pytest runs/kit/REQ-001/test/test_migration_sql.py::TestSeedData -v
 
-### Upgrade to Latest
-```bash
+## Manual Database Operations
+
+### Apply Migrations (Upgrade)
+bash
+chmod +x runs/kit/REQ-001/scripts/db_upgrade.sh
+./runs/kit/REQ-001/scripts/db_upgrade.sh
+
+### Revert Migrations (Downgrade)
+bash
+chmod +x runs/kit/REQ-001/scripts/db_downgrade.sh
+./runs/kit/REQ-001/scripts/db_downgrade.sh
+
+### Apply Seed Data
+bash
+PGPASSWORD=$DB_PASSWORD psql -h $DB_HOST -p $DB_PORT -U $DB_USER -d $DB_NAME \
+  -f runs/kit/REQ-001/src/storage/seed/seed.sql
+
+## Using Alembic (Alternative)
+
+### Setup
+bash
 cd runs/kit/REQ-001/src/data/migrations
+export DB_USER=postgres DB_PASSWORD=postgres DB_HOST=localhost DB_PORT=5432 DB_NAME=voicesurveyagent
+
+### Run Migrations
+bash
 alembic upgrade head
-```
 
-### Downgrade One Version
-```bash
-alembic downgrade -1
-```
-
-### Downgrade to Base
-```bash
-alembic downgrade base
-```
-
-### Check Current Version
-```bash
-alembic current
-```
-
-### View Migration History
-```bash
-alembic history
-```
-
-## Linting and Type Checking
-
-### Ruff Linting
-```bash
-ruff check runs/kit/REQ-001/src runs/kit/REQ-001/test
-```
-
-### Ruff Auto-fix
-```bash
-ruff check runs/kit/REQ-001/src runs/kit/REQ-001/test --fix
-```
-
-### MyPy Type Checking
-```bash
-mypy runs/kit/REQ-001/src --ignore-missing-imports
-```
-
-## Docker-based Testing
-
-### Using Docker Compose for PostgreSQL
-```yaml
-# docker-compose.test.yml
-version: '3.8'
-services:
-  postgres:
-    image: postgres:15
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: voicesurveyagent_test
-    ports:
-      - "5432:5432"
-```
-
-```bash
-docker-compose -f docker-compose.test.yml up -d
-pytest runs/kit/REQ-001/test -v
-docker-compose -f docker-compose.test.yml down
-```
+### Downgrade
+bash
+alembic downgrade -1  # One step back
+alembic downgrade base  # All the way back
 
 ## Troubleshooting
 
 ### Import Errors
-If you encounter import errors, ensure PYTHONPATH includes the src directory:
-```bash
-export PYTHONPATH="${PYTHONPATH}:runs/kit/REQ-001/src"
-```
+If you encounter import errors, ensure PYTHONPATH includes the project root:
+bash
+export PYTHONPATH="${PYTHONPATH}:$(pwd)"
 
 ### Database Connection Issues
-1. Verify PostgreSQL is running
-2. Check environment variables are set correctly
-3. Ensure the test database exists
+1. Verify PostgreSQL is running:
+   bash
+   pg_isready -h localhost -p 5432
+   
+2. Check credentials match environment variables
+3. Ensure database exists:
+   bash
+   createdb -h localhost -U postgres voicesurveyagent
+   
 
-### Migration Conflicts
-If migrations fail due to existing objects:
-```bash
-# Reset the database
-dropdb voicesurveyagent_test
-createdb voicesurveyagent_test
-alembic upgrade head
-```
+### Testcontainers Issues
+- Ensure Docker daemon is running
+- Check Docker permissions for current user
+- Try with `DISABLE_TESTCONTAINERS=1` as fallback
 
 ## CI/CD Integration
 
 ### GitHub Actions
-The LTC.json file defines test cases that can be executed in CI:
-```yaml
-- name: Run Tests
+yaml
+- name: Run REQ-001 Tests
+  env:
+    DISABLE_TESTCONTAINERS: "0"
   run: |
     pip install -r runs/kit/REQ-001/requirements.txt
-    pytest runs/kit/REQ-001/test -v --junitxml=reports/junit.xml
-```
+    pytest -p no:cacheprovider -q runs/kit/REQ-001/test/test_migration_sql.py -v
 
 ### Jenkins
-```groovy
-stage('Test REQ-001') {
+groovy
+stage('REQ-001 Tests') {
     steps {
         sh 'pip install -r runs/kit/REQ-001/requirements.txt'
-        sh 'pytest runs/kit/REQ-001/test -v --junitxml=reports/junit.xml'
+        sh 'pytest -p no:cacheprovider -q runs/kit/REQ-001/test/test_migration_sql.py -v --junitxml=reports/junit-req001.xml'
     }
 }
-```
 
 ## Artifacts
 
-- **Migrations**: `runs/kit/REQ-001/src/data/migrations/migrations/versions/`
-- **Models**: `runs/kit/REQ-001/src/app/shared/models/`
-- **Tests**: `runs/kit/REQ-001/test/`
-- **Reports**: `reports/` (generated during test runs)
+| Artifact | Path |
+|----------|------|
+| Up Migration | `runs/kit/REQ-001/src/storage/sql/V0001.up.sql` |
+| Down Migration | `runs/kit/REQ-001/src/storage/sql/V0001.down.sql` |
+| Seed Data | `runs/kit/REQ-001/src/storage/seed/seed.sql` |
+| Alembic Migrations | `runs/kit/REQ-001/src/data/migrations/migrations/versions/` |
+| SQLAlchemy Models | `runs/kit/REQ-001/src/app/shared/models/` |
+| Tests | `runs/kit/REQ-001/test/test_migration_sql.py` |

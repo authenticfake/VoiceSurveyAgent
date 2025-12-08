@@ -1,33 +1,30 @@
-"""Alembic environment configuration for voicesurveyagent."""
+"""Alembic environment configuration."""
 import os
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import engine_from_config, pool
-
-from app.shared.database import Base
+from alembic import context
 
 config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata = Base.metadata
+# Get database URL from environment
+db_user = os.environ.get("DB_USER", "postgres")
+db_password = os.environ.get("DB_PASSWORD", "postgres")
+db_host = os.environ.get("DB_HOST", "localhost")
+db_port = os.environ.get("DB_PORT", "5432")
+db_name = os.environ.get("DB_NAME", "voicesurveyagent")
 
+database_url = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+config.set_main_option("sqlalchemy.url", database_url)
 
-def get_url() -> str:
-    """Build database URL from environment variables."""
-    user = os.getenv("DB_USER", "postgres")
-    password = os.getenv("DB_PASSWORD", "postgres")
-    host = os.getenv("DB_HOST", "localhost")
-    port = os.getenv("DB_PORT", "5432")
-    name = os.getenv("DB_NAME", "voicesurveyagent")
-    return f"postgresql://{user}:{password}@{host}:{port}/{name}"
-
+target_metadata = None
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = get_url()
+    url = config.get_main_option("sqlalchemy.url")
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -38,14 +35,10 @@ def run_migrations_offline() -> None:
     with context.begin_transaction():
         context.run_migrations()
 
-
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    configuration = config.get_section(config.config_ini_section) or {}
-    configuration["sqlalchemy.url"] = get_url()
-    
     connectable = engine_from_config(
-        configuration,
+        config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
@@ -58,7 +51,6 @@ def run_migrations_online() -> None:
 
         with context.begin_transaction():
             context.run_migrations()
-
 
 if context.is_offline_mode():
     run_migrations_offline()

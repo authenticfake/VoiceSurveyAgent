@@ -9,7 +9,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.shared.database import Base
 from app.shared.models.enums import LanguageCode
 
-
 class TranscriptSnippet(Base):
     """Transcript snippet entity for call transcripts."""
     
@@ -30,8 +29,12 @@ class TranscriptSnippet(Base):
     language: Mapped[LanguageCode] = mapped_column(
         SAEnum(LanguageCode, name="language_code", create_type=False),
         nullable=False,
+        default=LanguageCode.EN,
     )
-    created_at: Mapped[datetime] = mapped_column(nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        nullable=False,
+        default=datetime.utcnow,
+    )
     
     # Relationships
-    call_attempt = relationship("CallAttempt", backref="transcript_snippets")
+    call_attempt = relationship("CallAttempt", foreign_keys=[call_attempt_id])

@@ -16,7 +16,6 @@ down_revision: Union[str, None] = "V0002"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-
 def upgrade() -> None:
     op.create_table(
         "email_templates",
@@ -34,25 +33,16 @@ def upgrade() -> None:
             "locale",
             postgresql.ENUM("en", "it", name="language_code", create_type=False),
             nullable=False,
+            server_default="en",
         ),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("CURRENT_TIMESTAMP"),
-        ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("CURRENT_TIMESTAMP"),
-        ),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
     )
     
-    # Index for template lookups by type and locale
-    op.create_index("ix_email_templates_type_locale", "email_templates", ["type", "locale"])
-
+    op.create_index("idx_email_templates_type", "email_templates", ["type"])
+    op.create_index("idx_email_templates_locale", "email_templates", ["locale"])
 
 def downgrade() -> None:
-    op.drop_index("ix_email_templates_type_locale", table_name="email_templates")
+    op.drop_index("idx_email_templates_locale", table_name="email_templates")
+    op.drop_index("idx_email_templates_type", table_name="email_templates")
     op.drop_table("email_templates")

@@ -16,7 +16,6 @@ down_revision: Union[str, None] = "V0011"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-
 def upgrade() -> None:
     op.create_table(
         "transcript_snippets",
@@ -32,19 +31,13 @@ def upgrade() -> None:
             "language",
             postgresql.ENUM("en", "it", name="language_code", create_type=False),
             nullable=False,
+            server_default="en",
         ),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("CURRENT_TIMESTAMP"),
-        ),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
     )
     
-    # Index for call attempt lookups
-    op.create_index("ix_transcript_snippets_call_attempt_id", "transcript_snippets", ["call_attempt_id"])
-
+    op.create_index("idx_transcript_snippets_call_attempt_id", "transcript_snippets", ["call_attempt_id"])
 
 def downgrade() -> None:
-    op.drop_index("ix_transcript_snippets_call_attempt_id", table_name="transcript_snippets")
+    op.drop_index("idx_transcript_snippets_call_attempt_id", table_name="transcript_snippets")
     op.drop_table("transcript_snippets")

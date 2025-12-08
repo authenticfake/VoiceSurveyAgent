@@ -1,1 +1,1 @@
-"""Shared utilities and base classes."""
+"""Shared application components."""

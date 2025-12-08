@@ -9,7 +9,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.shared.database import Base
 from app.shared.models.enums import EmailStatus
 
-
 class EmailNotification(Base):
     """Email notification entity tracking sent emails."""
     
@@ -38,10 +37,10 @@ class EmailNotification(Base):
         nullable=False,
         index=True,
     )
-    template_id: Mapped[uuid.UUID | None] = mapped_column(
+    template_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("email_templates.id", ondelete="SET NULL"),
-        nullable=True,
+        ForeignKey("email_templates.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     to_email: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[EmailStatus] = mapped_column(
@@ -52,7 +51,10 @@ class EmailNotification(Base):
     )
     provider_message_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        nullable=False,
+        default=datetime.utcnow,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         nullable=False,
         default=datetime.utcnow,
@@ -60,7 +62,7 @@ class EmailNotification(Base):
     )
     
     # Relationships
-    event = relationship("Event", backref="email_notifications")
-    contact = relationship("Contact", backref="email_notifications")
-    campaign = relationship("Campaign", backref="email_notifications")
-    template = relationship("EmailTemplate", backref="email_notifications")
+    event = relationship("Event", foreign_keys=[event_id])
+    contact = relationship("Contact", foreign_keys=[contact_id])
+    campaign = relationship("Campaign", foreign_keys=[campaign_id])
+    template = relationship("EmailTemplate", foreign_keys=[template_id])

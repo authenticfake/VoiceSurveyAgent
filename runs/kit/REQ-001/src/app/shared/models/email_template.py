@@ -9,9 +9,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.shared.database import Base
 from app.shared.models.enums import EmailTemplateType, LanguageCode
 
-
 class EmailTemplate(Base):
-    """Email template entity for notification emails."""
+    """Email template entity for survey notifications."""
     
     __tablename__ = "email_templates"
     
@@ -24,6 +23,7 @@ class EmailTemplate(Base):
     type: Mapped[EmailTemplateType] = mapped_column(
         SAEnum(EmailTemplateType, name="email_template_type", create_type=False),
         nullable=False,
+        index=True,
     )
     subject: Mapped[str] = mapped_column(String(500), nullable=False)
     body_html: Mapped[str] = mapped_column(Text, nullable=False)
@@ -31,8 +31,13 @@ class EmailTemplate(Base):
     locale: Mapped[LanguageCode] = mapped_column(
         SAEnum(LanguageCode, name="language_code", create_type=False),
         nullable=False,
+        default=LanguageCode.EN,
+        index=True,
     )
-    created_at: Mapped[datetime] = mapped_column(nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        nullable=False,
+        default=datetime.utcnow,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         nullable=False,
         default=datetime.utcnow,

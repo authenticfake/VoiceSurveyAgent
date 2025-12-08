@@ -9,7 +9,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.shared.database import Base
 from app.shared.models.enums import ContactState, ContactLanguage, CallOutcome
 
-
 class Contact(Base):
     """Contact entity representing a survey target."""
     
@@ -35,19 +34,23 @@ class Contact(Base):
         default=ContactLanguage.AUTO,
     )
     has_prior_consent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    do_not_call: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    do_not_call: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     state: Mapped[ContactState] = mapped_column(
         SAEnum(ContactState, name="contact_state", create_type=False),
         nullable=False,
         default=ContactState.PENDING,
+        index=True,
     )
-    attempts_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    attempts_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
     last_attempt_at: Mapped[datetime | None] = mapped_column(nullable=True)
     last_outcome: Mapped[CallOutcome | None] = mapped_column(
         SAEnum(CallOutcome, name="call_outcome", create_type=False),
         nullable=True,
     )
-    created_at: Mapped[datetime] = mapped_column(nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        nullable=False,
+        default=datetime.utcnow,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         nullable=False,
         default=datetime.utcnow,
@@ -55,4 +58,4 @@ class Contact(Base):
     )
     
     # Relationships
-    campaign = relationship("Campaign", backref="contacts")
+    campaign = relationship("Campaign", foreign_keys=[campaign_id])

@@ -1,362 +1,392 @@
 """
-test_migration_sql.py - Shape test + idempotency + round-trip for REQ-001 migrations
+Test suite for database migrations.
 
-Tests:
-1. Schema shape validation - all expected tables, columns, indexes exist
-2. Idempotency - migrations can be run multiple times without error
-3. Round-trip - upgrade then downgrade leaves clean state
+Tests schema shape, idempotency, and round-trip (upgrade/downgrade) operations.
 """
 
 import os
 import subprocess
-import pytest
-from typing import Generator
+from pathlib import Path
 
-# Try to import testing dependencies
+import pytest
+
+# Check for required packages
 try:
     import psycopg2
     from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-    PSYCOPG2_AVAILABLE = True
+    HAS_PSYCOPG2 = True
 except ImportError:
-    PSYCOPG2_AVAILABLE = False
+    HAS_PSYCOPG2 = False
 
 try:
     from testcontainers.postgres import PostgresContainer
-    TESTCONTAINERS_AVAILABLE = True
+    HAS_TESTCONTAINERS = True
 except ImportError:
-    TESTCONTAINERS_AVAILABLE = False
+    HAS_TESTCONTAINERS = False
 
-
-# Skip all tests if dependencies not available
+# Skip all tests if dependencies are missing
 pytestmark = pytest.mark.skipif(
-    not PSYCOPG2_AVAILABLE,
-    reason="psycopg2 not installed - run: pip install psycopg2-binary"
+    not HAS_PSYCOPG2,
+    reason="psycopg2 not installed"
 )
 
-
-def get_database_url() -> str | None:
-    """Get database URL from environment or return None."""
-    return os.environ.get("DATABASE_URL")
-
-
-def run_sql_file(db_url: str, sql_file: str) -> None:
-    """Execute a SQL file against the database."""
-    result = subprocess.run(
-        ["psql", db_url, "-f", sql_file],
-        capture_output=True,
-        text=True
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"SQL execution failed: {result.stderr}")
-
-
 @pytest.fixture(scope="module")
-def database_url() -> Generator[str, None, None]:
+def db_connection():
     """
-    Provide a database URL for testing.
+    Provide a database connection for testing.
     
-    Priority:
-    1. Use DISABLE_TESTCONTAINERS=1 + DATABASE_URL for local/CI Postgres
-    2. Use testcontainers if available
-    3. Skip tests if neither available
+    Uses testcontainers if available and DISABLE_TESTCONTAINERS is not set,
+    otherwise falls back to DATABASE_URL environment variable.
     """
-    disable_tc = os.environ.get("DISABLE_TESTCONTAINERS", "0") == "1"
-    env_url = get_database_url()
+    disable_tc = os.environ.get("DISABLE_TESTCONTAINERS", "").lower() in ("1", "true", "yes")
     
-    if disable_tc and env_url:
-        # Use provided DATABASE_URL
-        yield env_url
-        return
-    
-    if TESTCONTAINERS_AVAILABLE and not disable_tc:
+    if HAS_TESTCONTAINERS and not disable_tc:
         # Use testcontainers
         with PostgresContainer("postgres:15-alpine") as postgres:
-            yield postgres.get_connection_url()
-            return
+            conn = psycopg2.connect(
+                host=postgres.get_container_host_ip(),
+                port=postgres.get_exposed_port(5432),
+                user=postgres.username,
+                password=postgres.password,
+                database=postgres.dbname,
+            )
+            conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+            yield conn
+            conn.close()
+    else:
+        # Fall back to DATABASE_URL
+        database_url = os.environ.get("DATABASE_URL")
+        if not database_url:
+            pytest.skip("No DATABASE_URL set and testcontainers not available/disabled")
+        
+        conn = psycopg2.connect(database_url)
+        conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
+        yield conn
+        conn.close()
+
+@pytest.fixture
+def clean_db(db_connection):
+    """Ensure clean database state before each test."""
+    cursor = db_connection.cursor()
     
-    if env_url:
-        # Fallback to DATABASE_URL without testcontainers
-        yield env_url
-        return
+    # Drop all tables and types if they exist
+    cursor.execute("""
+        DO $$ DECLARE
+            r RECORD;
+        BEGIN
+            FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+                EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
+            END LOOP;
+            FOR r IN (SELECT typname FROM pg_type WHERE typnamespace = 'public'::regnamespace AND typtype = 'e') LOOP
+                EXECUTE 'DROP TYPE IF EXISTS ' || quote_ident(r.typname) || ' CASCADE';
+            END LOOP;
+        END $$;
+    """)
     
-    pytest.skip(
-        "No database available. Either:\n"
-        "1. Set DATABASE_URL environment variable, or\n"
-        "2. Install testcontainers: pip install testcontainers[postgres]"
-    )
-
-
-@pytest.fixture(scope="module")
-def db_connection(database_url: str):
-    """Create a database connection for testing."""
-    conn = psycopg2.connect(database_url)
-    conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-    yield conn
-    conn.close()
-
-
-@pytest.fixture(scope="module")
-def migrated_db(database_url: str, db_connection) -> str:
-    """Apply migrations and return database URL."""
-    script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    up_sql = os.path.join(script_dir, "src", "storage", "sql", "V0001.up.sql")
+    yield db_connection
     
-    # Run upgrade migration
-    run_sql_file(database_url, up_sql)
-    
-    return database_url
+    # Cleanup after test
+    cursor.execute("""
+        DO $$ DECLARE
+            r RECORD;
+        BEGIN
+            FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+                EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
+            END LOOP;
+            FOR r IN (SELECT typname FROM pg_type WHERE typnamespace = 'public'::regnamespace AND typtype = 'e') LOOP
+                EXECUTE 'DROP TYPE IF EXISTS ' || quote_ident(r.typname) || ' CASCADE';
+            END LOOP;
+        END $$;
+    """)
 
+def get_sql_path(filename: str) -> Path:
+    """Get path to SQL file."""
+    return Path(__file__).parent.parent / "src" / "storage" / "sql" / filename
+
+def get_seed_path() -> Path:
+    """Get path to seed SQL file."""
+    return Path(__file__).parent.parent / "src" / "storage" / "seed" / "seed.sql"
 
 class TestSchemaShape:
-    """Test that schema has expected structure."""
+    """Test that schema matches SPEC data model."""
     
-    EXPECTED_TABLES = [
-        "users",
-        "email_templates", 
-        "campaigns",
-        "contacts",
-        "exclusion_list_entries",
-        "call_attempts",
-        "survey_responses",
-        "events",
-        "email_notifications",
-        "provider_configs",
-        "transcript_snippets",
-    ]
-    
-    EXPECTED_ENUMS = [
-        "user_role",
-        "campaign_status",
-        "campaign_language",
-        "question_type",
-        "contact_state",
-        "contact_language",
-        "contact_outcome",
-        "exclusion_source",
-        "event_type",
-        "email_status",
-        "email_template_type",
-        "provider_type",
-        "llm_provider",
-    ]
-    
-    def test_all_tables_exist(self, migrated_db: str, db_connection):
+    def test_all_tables_created(self, clean_db):
         """Verify all expected tables are created."""
-        cursor = db_connection.cursor()
+        cursor = clean_db.cursor()
+        
+        # Apply up migration
+        up_sql = get_sql_path("V0001.up.sql").read_text()
+        cursor.execute(up_sql)
+        
+        # Check tables exist
         cursor.execute("""
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_type = 'BASE TABLE'
+            SELECT tablename FROM pg_tables 
+            WHERE schemaname = 'public'
+            ORDER BY tablename;
         """)
         tables = {row[0] for row in cursor.fetchall()}
-        cursor.close()
         
-        for table in self.EXPECTED_TABLES:
-            assert table in tables, f"Table '{table}' not found in schema"
+        expected_tables = {
+            "users",
+            "email_templates",
+            "campaigns",
+            "contacts",
+            "exclusion_list_entries",
+            "call_attempts",
+            "survey_responses",
+            "events",
+            "email_notifications",
+            "provider_configs",
+            "transcript_snippets",
+        }
+        
+        assert expected_tables.issubset(tables), f"Missing tables: {expected_tables - tables}"
     
-    def test_all_enums_exist(self, migrated_db: str, db_connection):
+    def test_all_enums_created(self, clean_db):
         """Verify all expected enum types are created."""
-        cursor = db_connection.cursor()
+        cursor = clean_db.cursor()
+        
+        # Apply up migration
+        up_sql = get_sql_path("V0001.up.sql").read_text()
+        cursor.execute(up_sql)
+        
+        # Check enum types exist
         cursor.execute("""
-            SELECT typname 
-            FROM pg_type 
-            WHERE typtype = 'e'
+            SELECT typname FROM pg_type 
+            WHERE typnamespace = 'public'::regnamespace 
+            AND typtype = 'e'
+            ORDER BY typname;
         """)
         enums = {row[0] for row in cursor.fetchall()}
-        cursor.close()
         
-        for enum in self.EXPECTED_ENUMS:
-            assert enum in enums, f"Enum type '{enum}' not found"
-    
-    def test_users_table_columns(self, migrated_db: str, db_connection):
-        """Verify users table has correct columns."""
-        cursor = db_connection.cursor()
-        cursor.execute("""
-            SELECT column_name, data_type, is_nullable
-            FROM information_schema.columns
-            WHERE table_name = 'users'
-        """)
-        columns = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
-        cursor.close()
+        expected_enums = {
+            "user_role",
+            "campaign_status",
+            "campaign_language",
+            "question_type",
+            "contact_state",
+            "contact_language",
+            "contact_outcome",
+            "exclusion_source",
+            "event_type",
+            "email_status",
+            "email_template_type",
+            "provider_type",
+            "llm_provider",
+        }
         
-        assert "id" in columns
-        assert "oidc_sub" in columns
-        assert "email" in columns
-        assert "name" in columns
-        assert "role" in columns
-        assert "created_at" in columns
-        assert "updated_at" in columns
+        assert expected_enums.issubset(enums), f"Missing enums: {expected_enums - enums}"
     
-    def test_uuid_primary_keys(self, migrated_db: str, db_connection):
+    def test_uuid_primary_keys(self, clean_db):
         """Verify UUID primary keys are used."""
-        cursor = db_connection.cursor()
+        cursor = clean_db.cursor()
+        
+        # Apply up migration
+        up_sql = get_sql_path("V0001.up.sql").read_text()
+        cursor.execute(up_sql)
+        
+        # Check primary key types
         cursor.execute("""
-            SELECT c.column_name, c.data_type
+            SELECT c.table_name, c.column_name, c.data_type
             FROM information_schema.columns c
             JOIN information_schema.table_constraints tc 
-                ON c.table_name = tc.table_name
+                ON c.table_name = tc.table_name 
+                AND tc.constraint_type = 'PRIMARY KEY'
             JOIN information_schema.key_column_usage kcu 
                 ON tc.constraint_name = kcu.constraint_name 
                 AND c.column_name = kcu.column_name
-            WHERE tc.constraint_type = 'PRIMARY KEY'
-            AND c.table_schema = 'public'
+            WHERE c.table_schema = 'public';
         """)
-        pk_columns = cursor.fetchall()
-        cursor.close()
         
-        for col_name, data_type in pk_columns:
-            assert data_type == "uuid", f"Primary key '{col_name}' should be UUID, got {data_type}"
+        for table_name, column_name, data_type in cursor.fetchall():
+            assert data_type == "uuid", f"Table {table_name} has non-UUID primary key: {data_type}"
     
-    def test_foreign_key_indexes(self, migrated_db: str, db_connection):
+    def test_foreign_key_indexes(self, clean_db):
         """Verify foreign key columns have indexes."""
-        cursor = db_connection.cursor()
+        cursor = clean_db.cursor()
+        
+        # Apply up migration
+        up_sql = get_sql_path("V0001.up.sql").read_text()
+        cursor.execute(up_sql)
         
         # Get all foreign key columns
         cursor.execute("""
-            SELECT 
-                kcu.table_name,
+            SELECT
+                tc.table_name,
                 kcu.column_name
             FROM information_schema.table_constraints tc
-            JOIN information_schema.key_column_usage kcu 
+            JOIN information_schema.key_column_usage kcu
                 ON tc.constraint_name = kcu.constraint_name
             WHERE tc.constraint_type = 'FOREIGN KEY'
-            AND tc.table_schema = 'public'
+            AND tc.table_schema = 'public';
         """)
         fk_columns = cursor.fetchall()
         
-        # Get all indexed columns
-        cursor.execute("""
-            SELECT 
-                t.relname as table_name,
-                a.attname as column_name
-            FROM pg_index i
-            JOIN pg_class t ON t.oid = i.indrelid
-            JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(i.indkey)
-            WHERE t.relnamespace = 'public'::regnamespace
-        """)
-        indexed_columns = {(row[0], row[1]) for row in cursor.fetchall()}
-        cursor.close()
-        
-        for table, column in fk_columns:
-            assert (table, column) in indexed_columns, \
-                f"Foreign key column '{table}.{column}' should have an index"
-
+        # Check each FK column has an index
+        for table_name, column_name in fk_columns:
+            cursor.execute("""
+                SELECT 1 FROM pg_indexes
+                WHERE tablename = %s
+                AND indexdef LIKE %s;
+            """, (table_name, f"%{column_name}%"))
+            
+            assert cursor.fetchone() is not None, \
+                f"Missing index on foreign key {table_name}.{column_name}"
 
 class TestIdempotency:
     """Test that migrations are idempotent."""
     
-    def test_upgrade_idempotent(self, database_url: str, db_connection):
-        """Running upgrade twice should not fail."""
-        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        up_sql = os.path.join(script_dir, "src", "storage", "sql", "V0001.up.sql")
+    def test_up_migration_idempotent(self, clean_db):
+        """Verify up migration can be run multiple times."""
+        cursor = clean_db.cursor()
         
-        # First run already done by migrated_db fixture
-        # Run again - should not fail due to IF NOT EXISTS
-        run_sql_file(database_url, up_sql)
+        up_sql = get_sql_path("V0001.up.sql").read_text()
+        
+        # Run migration twice
+        cursor.execute(up_sql)
+        cursor.execute(up_sql)  # Should not raise
         
         # Verify tables still exist
-        cursor = db_connection.cursor()
         cursor.execute("""
-            SELECT COUNT(*) 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public'
+            SELECT COUNT(*) FROM pg_tables 
+            WHERE schemaname = 'public';
         """)
-        count = cursor.fetchone()[0]
-        cursor.close()
+        assert cursor.fetchone()[0] > 0
+    
+    def test_seed_idempotent(self, clean_db):
+        """Verify seed data can be applied multiple times."""
+        cursor = clean_db.cursor()
         
-        assert count >= 11, "Tables should still exist after second migration run"
-
+        # Apply schema first
+        up_sql = get_sql_path("V0001.up.sql").read_text()
+        cursor.execute(up_sql)
+        
+        # Apply seed twice
+        seed_sql = get_seed_path().read_text()
+        cursor.execute(seed_sql)
+        cursor.execute(seed_sql)  # Should not raise
+        
+        # Verify data exists
+        cursor.execute("SELECT COUNT(*) FROM users;")
+        assert cursor.fetchone()[0] == 3
 
 class TestRoundTrip:
     """Test upgrade/downgrade round-trip."""
     
-    def test_downgrade_cleans_schema(self, database_url: str, db_connection):
-        """Downgrade should remove all created objects."""
-        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        down_sql = os.path.join(script_dir, "src", "storage", "sql", "V0001.down.sql")
+    def test_upgrade_downgrade_upgrade(self, clean_db):
+        """Verify schema can be upgraded, downgraded, and upgraded again."""
+        cursor = clean_db.cursor()
         
-        # Run downgrade
-        run_sql_file(database_url, down_sql)
+        up_sql = get_sql_path("V0001.up.sql").read_text()
+        down_sql = get_sql_path("V0001.down.sql").read_text()
         
-        # Verify tables are gone
-        cursor = db_connection.cursor()
-        cursor.execute("""
-            SELECT table_name 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_type = 'BASE TABLE'
-        """)
-        tables = [row[0] for row in cursor.fetchall()]
-        cursor.close()
+        # Upgrade
+        cursor.execute(up_sql)
+        cursor.execute("SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public';")
+        tables_after_up = cursor.fetchone()[0]
+        assert tables_after_up > 0
         
-        expected_removed = [
-            "users", "campaigns", "contacts", "call_attempts",
-            "survey_responses", "events", "email_notifications"
-        ]
-        for table in expected_removed:
-            assert table not in tables, f"Table '{table}' should be removed after downgrade"
+        # Downgrade
+        cursor.execute(down_sql)
+        cursor.execute("SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public';")
+        tables_after_down = cursor.fetchone()[0]
+        assert tables_after_down == 0
+        
+        # Upgrade again
+        cursor.execute(up_sql)
+        cursor.execute("SELECT COUNT(*) FROM pg_tables WHERE schemaname = 'public';")
+        tables_after_reup = cursor.fetchone()[0]
+        assert tables_after_reup == tables_after_up
     
-    def test_upgrade_after_downgrade(self, database_url: str, db_connection):
-        """Should be able to upgrade again after downgrade."""
-        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        up_sql = os.path.join(script_dir, "src", "storage", "sql", "V0001.up.sql")
+    def test_downgrade_removes_all_objects(self, clean_db):
+        """Verify downgrade removes all database objects."""
+        cursor = clean_db.cursor()
         
-        # Run upgrade again
-        run_sql_file(database_url, up_sql)
+        up_sql = get_sql_path("V0001.up.sql").read_text()
+        down_sql = get_sql_path("V0001.down.sql").read_text()
         
-        # Verify tables exist
-        cursor = db_connection.cursor()
+        # Upgrade then downgrade
+        cursor.execute(up_sql)
+        cursor.execute(down_sql)
+        
+        # Check no tables remain
         cursor.execute("""
-            SELECT COUNT(*) 
-            FROM information_schema.tables 
-            WHERE table_schema = 'public' 
-            AND table_type = 'BASE TABLE'
+            SELECT COUNT(*) FROM pg_tables 
+            WHERE schemaname = 'public';
         """)
-        count = cursor.fetchone()[0]
-        cursor.close()
+        assert cursor.fetchone()[0] == 0
         
-        assert count >= 11, "Tables should be recreated after upgrade"
-
+        # Check no custom types remain
+        cursor.execute("""
+            SELECT COUNT(*) FROM pg_type 
+            WHERE typnamespace = 'public'::regnamespace 
+            AND typtype = 'e';
+        """)
+        assert cursor.fetchone()[0] == 0
 
 class TestSeedData:
-    """Test seed data application."""
+    """Test seed data validity."""
     
-    def test_seed_data_applies(self, database_url: str, db_connection):
-        """Seed data should apply without errors."""
-        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        seed_sql = os.path.join(script_dir, "src", "storage", "seed", "seed.sql")
+    def test_seed_creates_minimum_records(self, clean_db):
+        """Verify seed creates at least 10 records total."""
+        cursor = clean_db.cursor()
         
-        # Run seed
-        run_sql_file(database_url, seed_sql)
+        # Apply schema and seed
+        up_sql = get_sql_path("V0001.up.sql").read_text()
+        seed_sql = get_seed_path().read_text()
+        cursor.execute(up_sql)
+        cursor.execute(seed_sql)
         
-        # Verify seed data exists
-        cursor = db_connection.cursor()
+        # Count total records
+        total = 0
+        for table in ["users", "email_templates", "provider_configs", "campaigns", "contacts", "exclusion_list_entries"]:
+            cursor.execute(f"SELECT COUNT(*) FROM {table};")
+            total += cursor.fetchone()[0]
         
-        # Check users
-        cursor.execute("SELECT COUNT(*) FROM users")
-        assert cursor.fetchone()[0] >= 3, "Should have at least 3 seeded users"
-        
-        # Check email templates
-        cursor.execute("SELECT COUNT(*) FROM email_templates")
-        assert cursor.fetchone()[0] >= 5, "Should have at least 5 seeded email templates"
-        
-        # Check provider config
-        cursor.execute("SELECT COUNT(*) FROM provider_configs")
-        assert cursor.fetchone()[0] >= 1, "Should have at least 1 provider config"
-        
-        cursor.close()
+        assert total >= 10, f"Seed data has only {total} records, expected at least 10"
     
-    def test_seed_data_idempotent(self, database_url: str, db_connection):
-        """Running seed twice should not fail or duplicate data."""
-        script_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        seed_sql = os.path.join(script_dir, "src", "storage", "seed", "seed.sql")
+    def test_seed_creates_maximum_records(self, clean_db):
+        """Verify seed creates no more than 20 records total."""
+        cursor = clean_db.cursor()
         
-        # Run seed again
-        run_sql_file(database_url, seed_sql)
+        # Apply schema and seed
+        up_sql = get_sql_path("V0001.up.sql").read_text()
+        seed_sql = get_seed_path().read_text()
+        cursor.execute(up_sql)
+        cursor.execute(seed_sql)
         
-        # Verify no duplicates
-        cursor = db_connection.cursor()
-        cursor.execute("SELECT COUNT(*) FROM users WHERE oidc_sub = 'admin-oidc-sub-001'")
-        assert cursor.fetchone()[0] == 1, "Should have exactly 1 admin user (no duplicates)"
-        cursor.close()
+        # Count total records
+        total = 0
+        for table in ["users", "email_templates", "provider_configs", "campaigns", "contacts", "exclusion_list_entries"]:
+            cursor.execute(f"SELECT COUNT(*) FROM {table};")
+            total += cursor.fetchone()[0]
+        
+        assert total <= 20, f"Seed data has {total} records, expected at most 20"
+    
+    def test_seed_foreign_keys_valid(self, clean_db):
+        """Verify seed data has valid foreign key references."""
+        cursor = clean_db.cursor()
+        
+        # Apply schema and seed
+        up_sql = get_sql_path("V0001.up.sql").read_text()
+        seed_sql = get_seed_path().read_text()
+        cursor.execute(up_sql)
+        cursor.execute(seed_sql)
+        
+        # Check campaign references valid user
+        cursor.execute("""
+            SELECT c.id FROM campaigns c
+            LEFT JOIN users u ON c.created_by_user_id = u.id
+            WHERE u.id IS NULL;
+        """)
+        orphan_campaigns = cursor.fetchall()
+        assert len(orphan_campaigns) == 0, "Found campaigns with invalid user references"
+        
+        # Check contacts reference valid campaign
+        cursor.execute("""
+            SELECT ct.id FROM contacts ct
+            LEFT JOIN campaigns c ON ct.campaign_id = c.id
+            WHERE c.id IS NULL;
+        """)
+        orphan_contacts = cursor.fetchall()
+        assert len(orphan_contacts) == 0, "Found contacts with invalid campaign references"

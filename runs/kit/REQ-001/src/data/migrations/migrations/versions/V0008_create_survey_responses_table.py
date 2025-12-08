@@ -16,7 +16,6 @@ down_revision: Union[str, None] = "V0007"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-
 def upgrade() -> None:
     op.create_table(
         "survey_responses",
@@ -45,30 +44,19 @@ def upgrade() -> None:
         sa.Column("q1_confidence", sa.Numeric(3, 2), nullable=True),
         sa.Column("q2_confidence", sa.Numeric(3, 2), nullable=True),
         sa.Column("q3_confidence", sa.Numeric(3, 2), nullable=True),
-        sa.Column(
-            "completed_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("CURRENT_TIMESTAMP"),
-        ),
+        sa.Column("completed_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.UniqueConstraint("contact_id", "campaign_id", name="uq_survey_responses_contact_campaign"),
+        sa.CheckConstraint("q1_confidence >= 0 AND q1_confidence <= 1", name="ck_survey_responses_q1_confidence"),
+        sa.CheckConstraint("q2_confidence >= 0 AND q2_confidence <= 1", name="ck_survey_responses_q2_confidence"),
+        sa.CheckConstraint("q3_confidence >= 0 AND q3_confidence <= 1", name="ck_survey_responses_q3_confidence"),
     )
     
-    # Unique constraint: one response per contact per campaign
-    op.create_unique_constraint(
-        "uq_survey_responses_contact_campaign",
-        "survey_responses",
-        ["contact_id", "campaign_id"],
-    )
-    
-    # Indexes for common queries
-    op.create_index("ix_survey_responses_contact_id", "survey_responses", ["contact_id"])
-    op.create_index("ix_survey_responses_campaign_id", "survey_responses", ["campaign_id"])
-    op.create_index("ix_survey_responses_call_attempt_id", "survey_responses", ["call_attempt_id"])
-
+    op.create_index("idx_survey_responses_contact_id", "survey_responses", ["contact_id"])
+    op.create_index("idx_survey_responses_campaign_id", "survey_responses", ["campaign_id"])
+    op.create_index("idx_survey_responses_call_attempt_id", "survey_responses", ["call_attempt_id"])
 
 def downgrade() -> None:
-    op.drop_index("ix_survey_responses_call_attempt_id", table_name="survey_responses")
-    op.drop_index("ix_survey_responses_campaign_id", table_name="survey_responses")
-    op.drop_index("ix_survey_responses_contact_id", table_name="survey_responses")
-    op.drop_constraint("uq_survey_responses_contact_campaign", "survey_responses", type_="unique")
+    op.drop_index("idx_survey_responses_call_attempt_id", table_name="survey_responses")
+    op.drop_index("idx_survey_responses_campaign_id", table_name="survey_responses")
+    op.drop_index("idx_survey_responses_contact_id", table_name="survey_responses")
     op.drop_table("survey_responses")

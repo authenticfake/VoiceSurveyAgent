@@ -9,7 +9,6 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.shared.database import Base
 from app.shared.models.enums import CallOutcome
 
-
 class CallAttempt(Base):
     """Call attempt entity tracking individual call attempts."""
     
@@ -35,17 +34,22 @@ class CallAttempt(Base):
     attempt_number: Mapped[int] = mapped_column(Integer, nullable=False)
     call_id: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     provider_call_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    started_at: Mapped[datetime] = mapped_column(nullable=False)
+    started_at: Mapped[datetime] = mapped_column(
+        nullable=False,
+        default=datetime.utcnow,
+        index=True,
+    )
     answered_at: Mapped[datetime | None] = mapped_column(nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(nullable=True)
     outcome: Mapped[CallOutcome | None] = mapped_column(
         SAEnum(CallOutcome, name="call_outcome", create_type=False),
         nullable=True,
+        index=True,
     )
     provider_raw_status: Mapped[str | None] = mapped_column(String(255), nullable=True)
     error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True, default=dict)
     
     # Relationships
-    contact = relationship("Contact", backref="call_attempts")
-    campaign = relationship("Campaign", backref="call_attempts")
+    contact = relationship("Contact", foreign_keys=[contact_id])
+    campaign = relationship("Campaign", foreign_keys=[campaign_id])

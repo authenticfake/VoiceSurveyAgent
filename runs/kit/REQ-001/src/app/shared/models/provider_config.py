@@ -9,7 +9,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.shared.database import Base
 from app.shared.models.enums import ProviderType, LLMProvider
 
-
 class ProviderConfig(Base):
     """Provider configuration entity for telephony and LLM settings."""
     
@@ -34,7 +33,10 @@ class ProviderConfig(Base):
     llm_model: Mapped[str] = mapped_column(String(100), nullable=False)
     recording_retention_days: Mapped[int] = mapped_column(Integer, nullable=False, default=180)
     transcript_retention_days: Mapped[int] = mapped_column(Integer, nullable=False, default=180)
-    created_at: Mapped[datetime] = mapped_column(nullable=False, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        nullable=False,
+        default=datetime.utcnow,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         nullable=False,
         default=datetime.utcnow,

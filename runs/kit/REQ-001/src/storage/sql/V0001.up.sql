@@ -34,7 +34,7 @@ CREATE INDEX IF NOT EXISTS idx_users_oidc_sub ON users(oidc_sub);
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 
--- Email templates table (referenced by campaigns)
+-- Email templates table (must be created before campaigns due to FK)
 CREATE TABLE IF NOT EXISTS email_templates (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(255) NOT NULL,
@@ -105,8 +105,7 @@ CREATE INDEX IF NOT EXISTS idx_contacts_campaign_id ON contacts(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_contacts_phone_number ON contacts(phone_number);
 CREATE INDEX IF NOT EXISTS idx_contacts_state ON contacts(state);
 CREATE INDEX IF NOT EXISTS idx_contacts_do_not_call ON contacts(do_not_call);
-CREATE INDEX IF NOT EXISTS idx_contacts_attempts_count ON contacts(attempts_count);
-CREATE INDEX IF NOT EXISTS idx_contacts_last_attempt_at ON contacts(last_attempt_at);
+CREATE INDEX IF NOT EXISTS idx_contacts_attempts ON contacts(attempts_count);
 
 -- Exclusion list entries table
 CREATE TABLE IF NOT EXISTS exclusion_list_entries (
@@ -161,7 +160,6 @@ CREATE TABLE IF NOT EXISTS survey_responses (
 CREATE INDEX IF NOT EXISTS idx_survey_responses_contact_id ON survey_responses(contact_id);
 CREATE INDEX IF NOT EXISTS idx_survey_responses_campaign_id ON survey_responses(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_survey_responses_call_attempt_id ON survey_responses(call_attempt_id);
-CREATE INDEX IF NOT EXISTS idx_survey_responses_completed_at ON survey_responses(completed_at);
 
 -- Events table
 CREATE TABLE IF NOT EXISTS events (
@@ -170,7 +168,7 @@ CREATE TABLE IF NOT EXISTS events (
     campaign_id UUID NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
     contact_id UUID NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
     call_attempt_id UUID REFERENCES call_attempts(id) ON DELETE SET NULL,
-    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+    payload JSONB DEFAULT '{}'::jsonb,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
 
@@ -200,15 +198,15 @@ CREATE INDEX IF NOT EXISTS idx_email_notifications_contact_id ON email_notificat
 CREATE INDEX IF NOT EXISTS idx_email_notifications_campaign_id ON email_notifications(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_email_notifications_status ON email_notifications(status);
 
--- Provider configs table (single row or per-env)
+-- Provider configs table (single row expected)
 CREATE TABLE IF NOT EXISTS provider_configs (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    provider_type provider_type NOT NULL DEFAULT 'telephony_api',
+    provider_type provider_type NOT NULL,
     provider_name VARCHAR(100) NOT NULL,
-    outbound_number VARCHAR(20) NOT NULL,
+    outbound_number VARCHAR(20),
     max_concurrent_calls INTEGER NOT NULL DEFAULT 5,
-    llm_provider llm_provider NOT NULL DEFAULT 'openai',
-    llm_model VARCHAR(100) NOT NULL DEFAULT 'gpt-4.1-mini',
+    llm_provider llm_provider NOT NULL,
+    llm_model VARCHAR(100) NOT NULL,
     recording_retention_days INTEGER NOT NULL DEFAULT 180,
     transcript_retention_days INTEGER NOT NULL DEFAULT 180,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
@@ -226,7 +224,7 @@ CREATE TABLE IF NOT EXISTS transcript_snippets (
 
 CREATE INDEX IF NOT EXISTS idx_transcript_snippets_call_attempt_id ON transcript_snippets(call_attempt_id);
 
--- Trigger function for updated_at
+-- Function to update updated_at timestamp
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$
 BEGIN

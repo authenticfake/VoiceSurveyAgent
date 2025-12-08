@@ -16,7 +16,6 @@ down_revision: Union[str, None] = "V0003"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-
 def upgrade() -> None:
     op.create_table(
         "campaigns",
@@ -38,29 +37,29 @@ def upgrade() -> None:
             nullable=False,
             server_default="en",
         ),
-        sa.Column("intro_script", sa.Text, nullable=True),
-        sa.Column("question_1_text", sa.Text, nullable=True),
+        sa.Column("intro_script", sa.Text, nullable=False),
+        sa.Column("question_1_text", sa.Text, nullable=False),
         sa.Column(
             "question_1_type",
             postgresql.ENUM("free_text", "numeric", "scale", name="question_type", create_type=False),
-            nullable=True,
+            nullable=False,
         ),
-        sa.Column("question_2_text", sa.Text, nullable=True),
+        sa.Column("question_2_text", sa.Text, nullable=False),
         sa.Column(
             "question_2_type",
             postgresql.ENUM("free_text", "numeric", "scale", name="question_type", create_type=False),
-            nullable=True,
+            nullable=False,
         ),
-        sa.Column("question_3_text", sa.Text, nullable=True),
+        sa.Column("question_3_text", sa.Text, nullable=False),
         sa.Column(
             "question_3_type",
             postgresql.ENUM("free_text", "numeric", "scale", name="question_type", create_type=False),
-            nullable=True,
+            nullable=False,
         ),
         sa.Column("max_attempts", sa.Integer, nullable=False, server_default="3"),
         sa.Column("retry_interval_minutes", sa.Integer, nullable=False, server_default="60"),
-        sa.Column("allowed_call_start_local", sa.Time, nullable=True),
-        sa.Column("allowed_call_end_local", sa.Time, nullable=True),
+        sa.Column("allowed_call_start_local", sa.Time, nullable=False, server_default="09:00:00"),
+        sa.Column("allowed_call_end_local", sa.Time, nullable=False, server_default="20:00:00"),
         sa.Column(
             "email_completed_template_id",
             postgresql.UUID(as_uuid=True),
@@ -82,37 +81,26 @@ def upgrade() -> None:
         sa.Column(
             "created_by_user_id",
             postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("users.id", ondelete="SET NULL"),
-            nullable=True,
-        ),
-        sa.Column(
-            "created_at",
-            sa.DateTime(timezone=True),
+            sa.ForeignKey("users.id", ondelete="RESTRICT"),
             nullable=False,
-            server_default=sa.text("CURRENT_TIMESTAMP"),
         ),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("CURRENT_TIMESTAMP"),
-        ),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.CheckConstraint("max_attempts >= 1 AND max_attempts <= 5", name="ck_campaigns_max_attempts"),
     )
     
-    # Indexes for common queries
-    op.create_index("ix_campaigns_name", "campaigns", ["name"])
-    op.create_index("ix_campaigns_status", "campaigns", ["status"])
-    op.create_index("ix_campaigns_created_by_user_id", "campaigns", ["created_by_user_id"])
-    op.create_index("ix_campaigns_email_completed_template_id", "campaigns", ["email_completed_template_id"])
-    op.create_index("ix_campaigns_email_refused_template_id", "campaigns", ["email_refused_template_id"])
-    op.create_index("ix_campaigns_email_not_reached_template_id", "campaigns", ["email_not_reached_template_id"])
-
+    op.create_index("idx_campaigns_name", "campaigns", ["name"])
+    op.create_index("idx_campaigns_status", "campaigns", ["status"])
+    op.create_index("idx_campaigns_created_by", "campaigns", ["created_by_user_id"])
+    op.create_index("idx_campaigns_email_completed", "campaigns", ["email_completed_template_id"])
+    op.create_index("idx_campaigns_email_refused", "campaigns", ["email_refused_template_id"])
+    op.create_index("idx_campaigns_email_not_reached", "campaigns", ["email_not_reached_template_id"])
 
 def downgrade() -> None:
-    op.drop_index("ix_campaigns_email_not_reached_template_id", table_name="campaigns")
-    op.drop_index("ix_campaigns_email_refused_template_id", table_name="campaigns")
-    op.drop_index("ix_campaigns_email_completed_template_id", table_name="campaigns")
-    op.drop_index("ix_campaigns_created_by_user_id", table_name="campaigns")
-    op.drop_index("ix_campaigns_status", table_name="campaigns")
-    op.drop_index("ix_campaigns_name", table_name="campaigns")
+    op.drop_index("idx_campaigns_email_not_reached", table_name="campaigns")
+    op.drop_index("idx_campaigns_email_refused", table_name="campaigns")
+    op.drop_index("idx_campaigns_email_completed", table_name="campaigns")
+    op.drop_index("idx_campaigns_created_by", table_name="campaigns")
+    op.drop_index("idx_campaigns_status", table_name="campaigns")
+    op.drop_index("idx_campaigns_name", table_name="campaigns")
     op.drop_table("campaigns")
