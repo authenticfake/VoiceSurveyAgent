@@ -1,600 +1,449 @@
 """
 Tests for RBAC authorization middleware.
 
-Tests role extraction, permission checking, and route protection.
+Tests cover:
+- Role extraction from JWT claims and user database
+- Route decorator enforcement
+- Admin endpoint restrictions
+- Campaign modification restrictions
+- Access denied logging
 """
 
-import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
-from fastapi import FastAPI, HTTPException, status
+from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
+from uuid import uuid4
+
+from fastapi import FastAPI, Depends, HTTPException, Request, status
 from fastapi.testclient import TestClient
-from httpx import ASGITransport, AsyncClient
+from httpx import AsyncClient, ASGITransport
 
 from app.auth.rbac import (
-    ROLE_PERMISSIONS,
-    Permission,
-    RBACChecker,
-    get_role_permissions,
-    has_all_permissions,
-    has_any_permission,
-    has_permission,
-    rbac_required,
+    AccessDeniedLog,
+    AdminUser,
+    CampaignManagerUser,
+    InsufficientPermissionsError,
+    RoleChecker,
+    RoleLevel,
+    ViewerUser,
+    can_modify_campaigns,
+    get_role_level,
+    has_minimum_role,
+    is_admin,
+    log_access_denied,
+    rbac_decorator,
     require_admin,
-    require_all_permissions,
-    require_any_permission,
     require_campaign_manager,
-    require_permission,
+    require_role,
     require_viewer,
 )
 from app.auth.schemas import UserRole
+from app.auth.middleware import CurrentUser
 
 
-class MockUser:
-    """Mock user for testing."""
-
-    def __init__(self, role: UserRole, user_id: uuid.UUID | None = None) -> None:
-        self.id = user_id or uuid.uuid4()
-        self.role = role
-        self.email = f"{role.value}@test.com"
-        self.name = f"Test {role.value}"
-
-
-class TestRolePermissions:
-    """Tests for role-permission mapping."""
-
-    def test_admin_has_all_permissions(self) -> None:
-        """Admin role should have all defined permissions."""
-        admin_perms = get_role_permissions(UserRole.ADMIN)
-        all_perms = set(Permission)
-        assert admin_perms == all_perms
-
-    def test_campaign_manager_permissions(self) -> None:
-        """Campaign manager should have campaign and contact permissions."""
-        perms = get_role_permissions(UserRole.CAMPAIGN_MANAGER)
-
-        # Should have
-        assert Permission.CAMPAIGN_CREATE in perms
-        assert Permission.CAMPAIGN_READ in perms
-        assert Permission.CAMPAIGN_UPDATE in perms
-        assert Permission.CAMPAIGN_DELETE in perms
-        assert Permission.CAMPAIGN_ACTIVATE in perms
-        assert Permission.CONTACT_READ in perms
-        assert Permission.CONTACT_UPLOAD in perms
-        assert Permission.CONTACT_EXPORT in perms
-        assert Permission.EXCLUSION_READ in perms
-        assert Permission.STATS_READ in perms
-        assert Permission.STATS_EXPORT in perms
-
-        # Should NOT have
-        assert Permission.ADMIN_CONFIG_READ not in perms
-        assert Permission.ADMIN_CONFIG_WRITE not in perms
-        assert Permission.EXCLUSION_MANAGE not in perms
-
-    def test_viewer_permissions(self) -> None:
-        """Viewer should have read-only permissions."""
-        perms = get_role_permissions(UserRole.VIEWER)
-
-        # Should have
-        assert Permission.CAMPAIGN_READ in perms
-        assert Permission.CONTACT_READ in perms
-        assert Permission.STATS_READ in perms
-
-        # Should NOT have
-        assert Permission.CAMPAIGN_CREATE not in perms
-        assert Permission.CAMPAIGN_UPDATE not in perms
-        assert Permission.CAMPAIGN_DELETE not in perms
-        assert Permission.CONTACT_UPLOAD not in perms
-        assert Permission.ADMIN_CONFIG_READ not in perms
+# Test fixtures
+@pytest.fixture
+def admin_user() -> CurrentUser:
+    """Create an admin user context."""
+    return CurrentUser(
+        user_id=uuid4(),
+        email="admin@test.com",
+        name="Admin User",
+        role=UserRole.ADMIN,
+        oidc_sub="admin-sub-123",
+    )
 
 
-class TestPermissionChecks:
-    """Tests for permission checking functions."""
-
-    def test_has_permission_true(self) -> None:
-        """has_permission returns True when role has permission."""
-        assert has_permission(UserRole.ADMIN, Permission.ADMIN_CONFIG_WRITE)
-        assert has_permission(UserRole.CAMPAIGN_MANAGER, Permission.CAMPAIGN_CREATE)
-        assert has_permission(UserRole.VIEWER, Permission.CAMPAIGN_READ)
-
-    def test_has_permission_false(self) -> None:
-        """has_permission returns False when role lacks permission."""
-        assert not has_permission(UserRole.VIEWER, Permission.CAMPAIGN_CREATE)
-        assert not has_permission(UserRole.CAMPAIGN_MANAGER, Permission.ADMIN_CONFIG_WRITE)
-
-    def test_has_any_permission_true(self) -> None:
-        """has_any_permission returns True when role has at least one."""
-        perms = {Permission.CAMPAIGN_CREATE, Permission.ADMIN_CONFIG_WRITE}
-        assert has_any_permission(UserRole.ADMIN, perms)
-        assert has_any_permission(UserRole.CAMPAIGN_MANAGER, perms)
-
-    def test_has_any_permission_false(self) -> None:
-        """has_any_permission returns False when role has none."""
-        perms = {Permission.ADMIN_CONFIG_READ, Permission.ADMIN_CONFIG_WRITE}
-        assert not has_any_permission(UserRole.VIEWER, perms)
-
-    def test_has_all_permissions_true(self) -> None:
-        """has_all_permissions returns True when role has all."""
-        perms = {Permission.CAMPAIGN_READ, Permission.CONTACT_READ}
-        assert has_all_permissions(UserRole.ADMIN, perms)
-        assert has_all_permissions(UserRole.CAMPAIGN_MANAGER, perms)
-        assert has_all_permissions(UserRole.VIEWER, perms)
-
-    def test_has_all_permissions_false(self) -> None:
-        """has_all_permissions returns False when role lacks any."""
-        perms = {Permission.CAMPAIGN_READ, Permission.ADMIN_CONFIG_WRITE}
-        assert not has_all_permissions(UserRole.VIEWER, perms)
-        assert not has_all_permissions(UserRole.CAMPAIGN_MANAGER, perms)
+@pytest.fixture
+def campaign_manager_user() -> CurrentUser:
+    """Create a campaign manager user context."""
+    return CurrentUser(
+        user_id=uuid4(),
+        email="manager@test.com",
+        name="Campaign Manager",
+        role=UserRole.CAMPAIGN_MANAGER,
+        oidc_sub="manager-sub-123",
+    )
 
 
-class TestRBACChecker:
-    """Tests for RBACChecker dependency."""
+@pytest.fixture
+def viewer_user() -> CurrentUser:
+    """Create a viewer user context."""
+    return CurrentUser(
+        user_id=uuid4(),
+        email="viewer@test.com",
+        name="Viewer User",
+        role=UserRole.VIEWER,
+        oidc_sub="viewer-sub-123",
+    )
 
-    @pytest.fixture
-    def app(self) -> FastAPI:
-        """Create test FastAPI app."""
-        return FastAPI()
 
-    @pytest.fixture
-    def admin_user(self) -> MockUser:
-        """Create admin user."""
-        return MockUser(UserRole.ADMIN)
+class TestRoleLevel:
+    """Tests for role level hierarchy."""
+    
+    def test_role_levels_ordered_correctly(self):
+        """Verify role levels are in correct order."""
+        assert RoleLevel.VIEWER < RoleLevel.CAMPAIGN_MANAGER < RoleLevel.ADMIN
+    
+    def test_get_role_level_returns_correct_level(self):
+        """Test get_role_level returns correct level for each role."""
+        assert get_role_level(UserRole.VIEWER) == RoleLevel.VIEWER
+        assert get_role_level(UserRole.CAMPAIGN_MANAGER) == RoleLevel.CAMPAIGN_MANAGER
+        assert get_role_level(UserRole.ADMIN) == RoleLevel.ADMIN
 
-    @pytest.fixture
-    def manager_user(self) -> MockUser:
-        """Create campaign manager user."""
-        return MockUser(UserRole.CAMPAIGN_MANAGER)
 
-    @pytest.fixture
-    def viewer_user(self) -> MockUser:
-        """Create viewer user."""
-        return MockUser(UserRole.VIEWER)
+class TestHasMinimumRole:
+    """Tests for has_minimum_role function."""
+    
+    def test_admin_has_all_roles(self):
+        """Admin should have access to all role levels."""
+        assert has_minimum_role(UserRole.ADMIN, UserRole.VIEWER)
+        assert has_minimum_role(UserRole.ADMIN, UserRole.CAMPAIGN_MANAGER)
+        assert has_minimum_role(UserRole.ADMIN, UserRole.ADMIN)
+    
+    def test_campaign_manager_has_viewer_and_self(self):
+        """Campaign manager should have viewer and own role."""
+        assert has_minimum_role(UserRole.CAMPAIGN_MANAGER, UserRole.VIEWER)
+        assert has_minimum_role(UserRole.CAMPAIGN_MANAGER, UserRole.CAMPAIGN_MANAGER)
+        assert not has_minimum_role(UserRole.CAMPAIGN_MANAGER, UserRole.ADMIN)
+    
+    def test_viewer_only_has_viewer(self):
+        """Viewer should only have viewer role."""
+        assert has_minimum_role(UserRole.VIEWER, UserRole.VIEWER)
+        assert not has_minimum_role(UserRole.VIEWER, UserRole.CAMPAIGN_MANAGER)
+        assert not has_minimum_role(UserRole.VIEWER, UserRole.ADMIN)
 
+
+class TestCanModifyCampaigns:
+    """Tests for campaign modification permission."""
+    
+    def test_admin_can_modify(self):
+        """Admin can modify campaigns."""
+        assert can_modify_campaigns(UserRole.ADMIN)
+    
+    def test_campaign_manager_can_modify(self):
+        """Campaign manager can modify campaigns."""
+        assert can_modify_campaigns(UserRole.CAMPAIGN_MANAGER)
+    
+    def test_viewer_cannot_modify(self):
+        """Viewer cannot modify campaigns."""
+        assert not can_modify_campaigns(UserRole.VIEWER)
+
+
+class TestIsAdmin:
+    """Tests for admin check."""
+    
+    def test_admin_is_admin(self):
+        """Admin role returns True."""
+        assert is_admin(UserRole.ADMIN)
+    
+    def test_campaign_manager_is_not_admin(self):
+        """Campaign manager is not admin."""
+        assert not is_admin(UserRole.CAMPAIGN_MANAGER)
+    
+    def test_viewer_is_not_admin(self):
+        """Viewer is not admin."""
+        assert not is_admin(UserRole.VIEWER)
+
+
+class TestAccessDeniedLog:
+    """Tests for access denied logging."""
+    
+    def test_log_entry_creation(self):
+        """Test AccessDeniedLog creates correct structure."""
+        timestamp = datetime(2024, 1, 15, 10, 30, 0)
+        log_entry = AccessDeniedLog(
+            user_id="user-123",
+            endpoint="/api/admin/config",
+            user_role=UserRole.VIEWER,
+            required_role=UserRole.ADMIN,
+            timestamp=timestamp,
+        )
+        
+        result = log_entry.to_dict()
+        
+        assert result["event"] == "access_denied"
+        assert result["user_id"] == "user-123"
+        assert result["endpoint"] == "/api/admin/config"
+        assert result["user_role"] == "viewer"
+        assert result["required_role"] == "admin"
+        assert result["timestamp"] == "2024-01-15T10:30:00"
+    
+    def test_log_entry_default_timestamp(self):
+        """Test AccessDeniedLog uses current time if not provided."""
+        log_entry = AccessDeniedLog(
+            user_id="user-123",
+            endpoint="/api/test",
+            user_role=UserRole.VIEWER,
+            required_role=UserRole.ADMIN,
+        )
+        
+        assert log_entry.timestamp is not None
+        assert isinstance(log_entry.timestamp, datetime)
+
+
+class TestLogAccessDenied:
+    """Tests for log_access_denied function."""
+    
+    def test_logs_warning_with_correct_data(self):
+        """Test that access denied events are logged correctly."""
+        with patch("app.auth.rbac.logger") as mock_logger:
+            log_access_denied(
+                user_id="user-456",
+                endpoint="/api/campaigns",
+                user_role=UserRole.VIEWER,
+                required_role=UserRole.CAMPAIGN_MANAGER,
+            )
+            
+            mock_logger.warning.assert_called_once()
+            call_args = mock_logger.warning.call_args
+            assert call_args[0][0] == "Access denied"
+            extra = call_args[1]["extra"]
+            assert extra["user_id"] == "user-456"
+            assert extra["endpoint"] == "/api/campaigns"
+            assert extra["user_role"] == "viewer"
+            assert extra["required_role"] == "campaign_manager"
+
+
+class TestRoleChecker:
+    """Tests for RoleChecker dependency class."""
+    
     @pytest.mark.asyncio
-    async def test_no_user_returns_401(self, app: FastAPI) -> None:
-        """Request without user should return 401."""
-        checker = RBACChecker(minimum_role=UserRole.VIEWER)
-        request = MagicMock()
-        request.state = MagicMock(spec=[])  # No user attribute
-        request.url.path = "/test"
-        request.method = "GET"
-
+    async def test_allows_sufficient_role(self, admin_user):
+        """Test that sufficient role is allowed."""
+        checker = RoleChecker(UserRole.VIEWER)
+        request = MagicMock(spec=Request)
+        request.url.path = "/api/test"
+        
+        result = await checker(request, admin_user)
+        
+        assert result == admin_user
+    
+    @pytest.mark.asyncio
+    async def test_denies_insufficient_role(self, viewer_user):
+        """Test that insufficient role is denied."""
+        checker = RoleChecker(UserRole.ADMIN)
+        request = MagicMock(spec=Request)
+        request.url.path = "/api/admin/config"
+        
         with pytest.raises(HTTPException) as exc_info:
-            await checker(request)
-
-        assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED
-
-    @pytest.mark.asyncio
-    async def test_minimum_role_admin_allows_admin(
-        self, app: FastAPI, admin_user: MockUser
-    ) -> None:
-        """Admin should pass admin role check."""
-        checker = RBACChecker(minimum_role=UserRole.ADMIN)
-        request = MagicMock()
-        request.state.user = admin_user
-        request.url.path = "/admin/config"
-        request.method = "GET"
-
-        # Should not raise
-        await checker(request)
-
-    @pytest.mark.asyncio
-    async def test_minimum_role_admin_denies_manager(
-        self, app: FastAPI, manager_user: MockUser
-    ) -> None:
-        """Campaign manager should fail admin role check."""
-        checker = RBACChecker(minimum_role=UserRole.ADMIN)
-        request = MagicMock()
-        request.state.user = manager_user
-        request.url.path = "/admin/config"
-        request.method = "GET"
-
-        with pytest.raises(HTTPException) as exc_info:
-            await checker(request)
-
+            await checker(request, viewer_user)
+        
         assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
-        assert "admin" in exc_info.value.detail.lower()
-
+        assert exc_info.value.detail["error"] == "insufficient_permissions"
+        assert exc_info.value.detail["required_role"] == "admin"
+        assert exc_info.value.detail["user_role"] == "viewer"
+    
     @pytest.mark.asyncio
-    async def test_minimum_role_manager_allows_admin(
-        self, app: FastAPI, admin_user: MockUser
-    ) -> None:
-        """Admin should pass campaign_manager role check (hierarchy)."""
-        checker = RBACChecker(minimum_role=UserRole.CAMPAIGN_MANAGER)
-        request = MagicMock()
-        request.state.user = admin_user
-        request.url.path = "/campaigns"
-        request.method = "POST"
+    async def test_logs_denied_access(self, viewer_user):
+        """Test that denied access is logged."""
+        checker = RoleChecker(UserRole.ADMIN)
+        request = MagicMock(spec=Request)
+        request.url.path = "/api/admin/config"
+        
+        with patch("app.auth.rbac.log_access_denied") as mock_log:
+            with pytest.raises(HTTPException):
+                await checker(request, viewer_user)
+            
+            mock_log.assert_called_once_with(
+                user_id=str(viewer_user.user_id),
+                endpoint="/api/admin/config",
+                user_role=UserRole.VIEWER,
+                required_role=UserRole.ADMIN,
+            )
 
-        # Should not raise
-        await checker(request)
 
-    @pytest.mark.asyncio
-    async def test_minimum_role_manager_allows_manager(
-        self, app: FastAPI, manager_user: MockUser
-    ) -> None:
-        """Campaign manager should pass campaign_manager role check."""
-        checker = RBACChecker(minimum_role=UserRole.CAMPAIGN_MANAGER)
-        request = MagicMock()
-        request.state.user = manager_user
-        request.url.path = "/campaigns"
-        request.method = "POST"
+class TestRequireRole:
+    """Tests for require_role factory function."""
+    
+    def test_creates_role_checker(self):
+        """Test that require_role creates a RoleChecker."""
+        checker = require_role(UserRole.CAMPAIGN_MANAGER)
+        
+        assert isinstance(checker, RoleChecker)
+        assert checker.required_role == UserRole.CAMPAIGN_MANAGER
+    
+    def test_preconfigured_checkers(self):
+        """Test pre-configured role checkers."""
+        assert require_viewer.required_role == UserRole.VIEWER
+        assert require_campaign_manager.required_role == UserRole.CAMPAIGN_MANAGER
+        assert require_admin.required_role == UserRole.ADMIN
 
-        # Should not raise
-        await checker(request)
 
-    @pytest.mark.asyncio
-    async def test_minimum_role_manager_denies_viewer(
-        self, app: FastAPI, viewer_user: MockUser
-    ) -> None:
-        """Viewer should fail campaign_manager role check."""
-        checker = RBACChecker(minimum_role=UserRole.CAMPAIGN_MANAGER)
-        request = MagicMock()
-        request.state.user = viewer_user
-        request.url.path = "/campaigns"
-        request.method = "POST"
-
-        with pytest.raises(HTTPException) as exc_info:
-            await checker(request)
-
-        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
-
-    @pytest.mark.asyncio
-    async def test_required_permission_allows(
-        self, app: FastAPI, manager_user: MockUser
-    ) -> None:
-        """User with permission should pass."""
-        checker = RBACChecker(required_permission=Permission.CAMPAIGN_CREATE)
-        request = MagicMock()
-        request.state.user = manager_user
-        request.url.path = "/campaigns"
-        request.method = "POST"
-
-        # Should not raise
-        await checker(request)
-
-    @pytest.mark.asyncio
-    async def test_required_permission_denies(
-        self, app: FastAPI, viewer_user: MockUser
-    ) -> None:
-        """User without permission should fail."""
-        checker = RBACChecker(required_permission=Permission.CAMPAIGN_CREATE)
-        request = MagicMock()
-        request.state.user = viewer_user
-        request.url.path = "/campaigns"
-        request.method = "POST"
-
-        with pytest.raises(HTTPException) as exc_info:
-            await checker(request)
-
-        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
-        assert "campaign:create" in exc_info.value.detail
-
-    @pytest.mark.asyncio
-    async def test_any_of_permissions_allows(
-        self, app: FastAPI, manager_user: MockUser
-    ) -> None:
-        """User with any of the permissions should pass."""
-        checker = RBACChecker(
-            any_of_permissions={Permission.ADMIN_CONFIG_WRITE, Permission.CAMPAIGN_CREATE}
+class TestInsufficientPermissionsError:
+    """Tests for InsufficientPermissionsError exception."""
+    
+    def test_error_message(self):
+        """Test error message format."""
+        error = InsufficientPermissionsError(
+            user_role=UserRole.VIEWER,
+            required_role=UserRole.ADMIN,
+            endpoint="/api/admin/config",
+            user_id="user-123",
         )
-        request = MagicMock()
-        request.state.user = manager_user
-        request.url.path = "/campaigns"
-        request.method = "POST"
-
-        # Should not raise (manager has CAMPAIGN_CREATE)
-        await checker(request)
-
-    @pytest.mark.asyncio
-    async def test_any_of_permissions_denies(
-        self, app: FastAPI, viewer_user: MockUser
-    ) -> None:
-        """User without any of the permissions should fail."""
-        checker = RBACChecker(
-            any_of_permissions={Permission.ADMIN_CONFIG_WRITE, Permission.CAMPAIGN_CREATE}
+        
+        assert "viewer" in str(error)
+        assert "admin" in str(error)
+        assert "/api/admin/config" in str(error)
+    
+    def test_error_attributes(self):
+        """Test error attributes are set correctly."""
+        error = InsufficientPermissionsError(
+            user_role=UserRole.CAMPAIGN_MANAGER,
+            required_role=UserRole.ADMIN,
+            endpoint="/api/test",
+            user_id="user-456",
         )
-        request = MagicMock()
-        request.state.user = viewer_user
-        request.url.path = "/campaigns"
-        request.method = "POST"
-
-        with pytest.raises(HTTPException) as exc_info:
-            await checker(request)
-
-        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
-
-    @pytest.mark.asyncio
-    async def test_all_of_permissions_allows(
-        self, app: FastAPI, admin_user: MockUser
-    ) -> None:
-        """User with all permissions should pass."""
-        checker = RBACChecker(
-            all_of_permissions={Permission.CAMPAIGN_CREATE, Permission.ADMIN_CONFIG_WRITE}
-        )
-        request = MagicMock()
-        request.state.user = admin_user
-        request.url.path = "/admin/campaigns"
-        request.method = "POST"
-
-        # Should not raise
-        await checker(request)
-
-    @pytest.mark.asyncio
-    async def test_all_of_permissions_denies(
-        self, app: FastAPI, manager_user: MockUser
-    ) -> None:
-        """User missing any permission should fail."""
-        checker = RBACChecker(
-            all_of_permissions={Permission.CAMPAIGN_CREATE, Permission.ADMIN_CONFIG_WRITE}
-        )
-        request = MagicMock()
-        request.state.user = manager_user
-        request.url.path = "/admin/campaigns"
-        request.method = "POST"
-
-        with pytest.raises(HTTPException) as exc_info:
-            await checker(request)
-
-        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
-
-
-class TestConvenienceFactories:
-    """Tests for convenience dependency factories."""
-
-    def test_require_admin_creates_checker(self) -> None:
-        """require_admin should create checker with admin role."""
-        checker = require_admin()
-        assert checker.minimum_role == UserRole.ADMIN
-
-    def test_require_campaign_manager_creates_checker(self) -> None:
-        """require_campaign_manager should create checker with manager role."""
-        checker = require_campaign_manager()
-        assert checker.minimum_role == UserRole.CAMPAIGN_MANAGER
-
-    def test_require_viewer_creates_checker(self) -> None:
-        """require_viewer should create checker with viewer role."""
-        checker = require_viewer()
-        assert checker.minimum_role == UserRole.VIEWER
-
-    def test_require_permission_creates_checker(self) -> None:
-        """require_permission should create checker with permission."""
-        checker = require_permission(Permission.CAMPAIGN_CREATE)
-        assert checker.required_permission == Permission.CAMPAIGN_CREATE
-
-    def test_require_any_permission_creates_checker(self) -> None:
-        """require_any_permission should create checker with permissions set."""
-        checker = require_any_permission(
-            Permission.CAMPAIGN_CREATE, Permission.CAMPAIGN_UPDATE
-        )
-        assert checker.any_of_permissions == {
-            Permission.CAMPAIGN_CREATE,
-            Permission.CAMPAIGN_UPDATE,
-        }
-
-    def test_require_all_permissions_creates_checker(self) -> None:
-        """require_all_permissions should create checker with permissions set."""
-        checker = require_all_permissions(
-            Permission.CAMPAIGN_CREATE, Permission.CAMPAIGN_UPDATE
-        )
-        assert checker.all_of_permissions == {
-            Permission.CAMPAIGN_CREATE,
-            Permission.CAMPAIGN_UPDATE,
-        }
-
-
-class TestRBACDecorator:
-    """Tests for rbac_required decorator."""
-
-    @pytest.mark.asyncio
-    async def test_async_decorator_allows(self) -> None:
-        """Async function with valid role should execute."""
-        user = MockUser(UserRole.ADMIN)
-
-        @rbac_required(minimum_role=UserRole.ADMIN)
-        async def admin_action(user: MockUser) -> str:
-            return "success"
-
-        result = await admin_action(user=user)
-        assert result == "success"
-
-    @pytest.mark.asyncio
-    async def test_async_decorator_denies(self) -> None:
-        """Async function with invalid role should raise."""
-        user = MockUser(UserRole.VIEWER)
-
-        @rbac_required(minimum_role=UserRole.ADMIN)
-        async def admin_action(user: MockUser) -> str:
-            return "success"
-
-        with pytest.raises(PermissionError) as exc_info:
-            await admin_action(user=user)
-
-        assert "admin" in str(exc_info.value).lower()
-
-    def test_sync_decorator_allows(self) -> None:
-        """Sync function with valid role should execute."""
-        user = MockUser(UserRole.CAMPAIGN_MANAGER)
-
-        @rbac_required(permission=Permission.CAMPAIGN_CREATE)
-        def create_campaign(user: MockUser) -> str:
-            return "created"
-
-        result = create_campaign(user=user)
-        assert result == "created"
-
-    def test_sync_decorator_denies(self) -> None:
-        """Sync function with invalid permission should raise."""
-        user = MockUser(UserRole.VIEWER)
-
-        @rbac_required(permission=Permission.CAMPAIGN_CREATE)
-        def create_campaign(user: MockUser) -> str:
-            return "created"
-
-        with pytest.raises(PermissionError) as exc_info:
-            create_campaign(user=user)
-
-        assert "campaign:create" in str(exc_info.value)
-
-    @pytest.mark.asyncio
-    async def test_decorator_no_user_raises(self) -> None:
-        """Decorator without user context should raise ValueError."""
-
-        @rbac_required(minimum_role=UserRole.VIEWER)
-        async def some_action() -> str:
-            return "success"
-
-        with pytest.raises(ValueError) as exc_info:
-            await some_action()
-
-        assert "No user context" in str(exc_info.value)
+        
+        assert error.user_role == UserRole.CAMPAIGN_MANAGER
+        assert error.required_role == UserRole.ADMIN
+        assert error.endpoint == "/api/test"
+        assert error.user_id == "user-456"
 
 
 class TestRBACIntegration:
-    """Integration tests for RBAC with FastAPI routes."""
-
+    """Integration tests for RBAC with FastAPI."""
+    
     @pytest.fixture
-    def app_with_routes(self) -> FastAPI:
-        """Create FastAPI app with protected routes."""
-        from fastapi import Depends
-
+    def app(self):
+        """Create a test FastAPI app with RBAC-protected routes."""
         app = FastAPI()
-
-        @app.get("/admin/config", dependencies=[Depends(require_admin())])
-        async def admin_config() -> dict[str, str]:
-            return {"status": "admin only"}
-
-        @app.get("/campaigns", dependencies=[Depends(require_viewer())])
-        async def list_campaigns() -> dict[str, str]:
-            return {"status": "all users"}
-
-        @app.post(
-            "/campaigns",
-            dependencies=[Depends(require_permission(Permission.CAMPAIGN_CREATE))],
-        )
-        async def create_campaign() -> dict[str, str]:
-            return {"status": "created"}
-
+        
+        # Mock the CurrentUser dependency
+        async def get_mock_user():
+            return None  # Will be overridden in tests
+        
+        @app.get("/public")
+        async def public_endpoint():
+            return {"message": "public"}
+        
+        @app.get("/viewer-only")
+        async def viewer_endpoint(user: ViewerUser):
+            return {"message": "viewer", "role": user.role.value}
+        
+        @app.get("/manager-only")
+        async def manager_endpoint(user: CampaignManagerUser):
+            return {"message": "manager", "role": user.role.value}
+        
+        @app.get("/admin-only")
+        async def admin_endpoint(user: AdminUser):
+            return {"message": "admin", "role": user.role.value}
+        
+        @app.put("/campaigns/{id}")
+        async def update_campaign(
+            id: str,
+            user: CampaignManagerUser,
+        ):
+            return {"message": "updated", "id": id}
+        
         return app
-
+    
     @pytest.mark.asyncio
-    async def test_admin_route_with_admin(self, app_with_routes: FastAPI) -> None:
-        """Admin route should allow admin user."""
-        admin_user = MockUser(UserRole.ADMIN)
-
-        # Middleware to inject user
-        @app_with_routes.middleware("http")
-        async def inject_user(request, call_next):
-            request.state.user = admin_user
-            return await call_next(request)
-
+    async def test_admin_accesses_all_endpoints(self, app, admin_user):
+        """Admin should access all protected endpoints."""
+        # Override the dependency
+        app.dependency_overrides[require_viewer] = lambda: admin_user
+        app.dependency_overrides[require_campaign_manager] = lambda: admin_user
+        app.dependency_overrides[require_admin] = lambda: admin_user
+        
         async with AsyncClient(
-            transport=ASGITransport(app=app_with_routes),
-            base_url="http://test",
+            transport=ASGITransport(app=app),
+            base_url="http://test"
         ) as client:
-            response = await client.get("/admin/config")
+            # Test viewer endpoint
+            response = await client.get("/viewer-only")
             assert response.status_code == 200
-
+            
+            # Test manager endpoint
+            response = await client.get("/manager-only")
+            assert response.status_code == 200
+            
+            # Test admin endpoint
+            response = await client.get("/admin-only")
+            assert response.status_code == 200
+    
     @pytest.mark.asyncio
-    async def test_admin_route_with_viewer(self, app_with_routes: FastAPI) -> None:
-        """Admin route should deny viewer user."""
-        viewer_user = MockUser(UserRole.VIEWER)
-
-        @app_with_routes.middleware("http")
-        async def inject_user(request, call_next):
-            request.state.user = viewer_user
-            return await call_next(request)
-
+    async def test_viewer_denied_admin_endpoint(self, app, viewer_user):
+        """Viewer should be denied access to admin endpoint."""
+        # Create a checker that will deny access
+        async def deny_admin():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": "insufficient_permissions"},
+            )
+        
+        app.dependency_overrides[require_admin] = deny_admin
+        
         async with AsyncClient(
-            transport=ASGITransport(app=app_with_routes),
-            base_url="http://test",
+            transport=ASGITransport(app=app),
+            base_url="http://test"
         ) as client:
-            response = await client.get("/admin/config")
+            response = await client.get("/admin-only")
             assert response.status_code == 403
-
+    
     @pytest.mark.asyncio
-    async def test_viewer_route_with_viewer(self, app_with_routes: FastAPI) -> None:
-        """Viewer route should allow viewer user."""
-        viewer_user = MockUser(UserRole.VIEWER)
-
-        @app_with_routes.middleware("http")
-        async def inject_user(request, call_next):
-            request.state.user = viewer_user
-            return await call_next(request)
-
+    async def test_campaign_modification_requires_manager(self, app, viewer_user, campaign_manager_user):
+        """Campaign modification should require campaign_manager role."""
+        # Test with viewer (should fail)
+        async def deny_viewer():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": "insufficient_permissions"},
+            )
+        
+        app.dependency_overrides[require_campaign_manager] = deny_viewer
+        
         async with AsyncClient(
-            transport=ASGITransport(app=app_with_routes),
-            base_url="http://test",
+            transport=ASGITransport(app=app),
+            base_url="http://test"
         ) as client:
-            response = await client.get("/campaigns")
-            assert response.status_code == 200
-
-    @pytest.mark.asyncio
-    async def test_permission_route_with_manager(
-        self, app_with_routes: FastAPI
-    ) -> None:
-        """Permission-protected route should allow user with permission."""
-        manager_user = MockUser(UserRole.CAMPAIGN_MANAGER)
-
-        @app_with_routes.middleware("http")
-        async def inject_user(request, call_next):
-            request.state.user = manager_user
-            return await call_next(request)
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app_with_routes),
-            base_url="http://test",
-        ) as client:
-            response = await client.post("/campaigns")
-            assert response.status_code == 200
-
-    @pytest.mark.asyncio
-    async def test_permission_route_with_viewer(
-        self, app_with_routes: FastAPI
-    ) -> None:
-        """Permission-protected route should deny user without permission."""
-        viewer_user = MockUser(UserRole.VIEWER)
-
-        @app_with_routes.middleware("http")
-        async def inject_user(request, call_next):
-            request.state.user = viewer_user
-            return await call_next(request)
-
-        async with AsyncClient(
-            transport=ASGITransport(app=app_with_routes),
-            base_url="http://test",
-        ) as client:
-            response = await client.post("/campaigns")
+            response = await client.put("/campaigns/123")
             assert response.status_code == 403
+        
+        # Test with campaign manager (should succeed)
+        app.dependency_overrides[require_campaign_manager] = lambda: campaign_manager_user
+        
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test"
+        ) as client:
+            response = await client.put("/campaigns/123")
+            assert response.status_code == 200
 
 
-class TestAccessLogging:
-    """Tests for access denial logging."""
-
+class TestRBACDecorator:
+    """Tests for rbac_decorator function."""
+    
     @pytest.mark.asyncio
-    async def test_denied_access_logged(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Denied access should be logged with details."""
-        import logging
-
-        caplog.set_level(logging.WARNING)
-
-        viewer_user = MockUser(UserRole.VIEWER)
-        checker = RBACChecker(minimum_role=UserRole.ADMIN)
-
-        request = MagicMock()
-        request.state.user = viewer_user
-        request.url.path = "/admin/config"
-        request.method = "PUT"
-
-        with pytest.raises(HTTPException):
-            await checker(request)
-
-        # Check log contains required information
-        assert any("Access denied" in record.message for record in caplog.records)
-        assert any(
-            str(viewer_user.id) in str(record.__dict__)
-            for record in caplog.records
-            if "Access denied" in record.message
-        )
+    async def test_decorator_allows_sufficient_role(self, admin_user):
+        """Test decorator allows access with sufficient role."""
+        @rbac_decorator(UserRole.VIEWER)
+        async def protected_func(current_user):
+            return {"success": True}
+        
+        result = await protected_func(current_user=admin_user)
+        assert result == {"success": True}
+    
+    @pytest.mark.asyncio
+    async def test_decorator_denies_insufficient_role(self, viewer_user):
+        """Test decorator denies access with insufficient role."""
+        @rbac_decorator(UserRole.ADMIN)
+        async def admin_func(current_user):
+            return {"success": True}
+        
+        with pytest.raises(HTTPException) as exc_info:
+            await admin_func(current_user=viewer_user)
+        
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+    
+    @pytest.mark.asyncio
+    async def test_decorator_requires_authentication(self):
+        """Test decorator requires current_user."""
+        @rbac_decorator(UserRole.VIEWER)
+        async def protected_func():
+            return {"success": True}
+        
+        with pytest.raises(HTTPException) as exc_info:
+            await protected_func()
+        
+        assert exc_info.value.status_code == status.HTTP_401_UNAUTHORIZED

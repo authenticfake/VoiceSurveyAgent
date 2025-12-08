@@ -1,65 +1,166 @@
-# HOWTO — REQ-003: RBAC Authorization Middleware
+# REQ-003: RBAC Authorization Middleware - Execution Guide
+
+## Overview
+
+This KIT implements Role-Based Access Control (RBAC) middleware for the Voice Survey Agent application. It provides role extraction, permission checking, and route decorators for enforcing minimum required roles on API endpoints.
 
 ## Prerequisites
 
+### System Requirements
 - Python 3.12+
-- pip or poetry
-- REQ-001 and REQ-002 implementations available
+- pip or poetry for dependency management
+
+### Dependencies
+The implementation depends on:
+- REQ-001: Database schema (User model with role field)
+- REQ-002: OIDC authentication (CurrentUser context)
 
 ## Environment Setup
 
-### Option 1: Using PYTHONPATH (Recommended for Development)
+### 1. Set PYTHONPATH
 
 ```bash
-# Set PYTHONPATH to include all required KIT sources
 export PYTHONPATH="runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src:$PYTHONPATH"
-
-# Verify imports work
-python -c "from app.auth.rbac import RBACChecker; print('OK')"
 ```
 
-### Option 2: Editable Install
+### 2. Environment Variables
 
 ```bash
-# If using a unified pyproject.toml
-pip install -e .
+export DATABASE_URL="postgresql://user:password@localhost:5432/voicesurvey"
+export OIDC_ISSUER="https://your-idp.example.com"
+export OIDC_CLIENT_ID="your-client-id"
+export OIDC_CLIENT_SECRET="your-client-secret"
+export JWT_SECRET_KEY="your-jwt-secret-key"
+export LOG_LEVEL="INFO"
+```
+
+### 3. Install Dependencies
+
+```bash
+pip install -r runs/kit/REQ-003/requirements.txt
 ```
 
 ## Running Tests
 
-### Local Execution
-
+### All Tests
 ```bash
-# Install test dependencies
-pip install pytest pytest-asyncio pytest-cov httpx fastapi pydantic
-
-# Run all tests
-pytest runs/kit/REQ-003/test/test_rbac.py -v
-
-# Run with coverage
-pytest runs/kit/REQ-003/test/test_rbac.py \
-  --cov=runs/kit/REQ-003/src \
-  --cov-report=term-missing \
-  --cov-fail-under=80
-
-# Run specific test class
-pytest runs/kit/REQ-003/test/test_rbac.py::TestRBACChecker -v
+pytest runs/kit/REQ-003/test -v
 ```
 
-### Using LTC Cases
+### With Coverage
+```bash
+pytest runs/kit/REQ-003/test -v --cov=runs/kit/REQ-003/src --cov-report=term-missing
+```
+
+### Specific Test Classes
+```bash
+# Test role hierarchy
+pytest runs/kit/REQ-003/test/test_rbac.py::TestRoleLevel -v
+
+# Test permission checks
+pytest runs/kit/REQ-003/test/test_rbac.py::TestHasMinimumRole -v
+
+# Test integration
+pytest runs/kit/REQ-003/test/test_rbac.py::TestRBACIntegration -v
+```
+
+## Code Quality Checks
+
+### Linting
+```bash
+ruff check runs/kit/REQ-003/src runs/kit/REQ-003/test
+```
+
+### Type Checking
+```bash
+mypy runs/kit/REQ-003/src --ignore-missing-imports
+```
+
+### Security Scan
+```bash
+bandit -r runs/kit/REQ-003/src -ll
+```
+
+## Usage Examples
+
+### Using Role Dependencies
+
+```python
+from fastapi import APIRouter, Depends
+from app.auth.rbac import require_admin, require_campaign_manager, AdminUser, CampaignManagerUser
+
+router = APIRouter()
+
+# Admin-only endpoint
+@router.get("/admin/config")
+async def get_config(user: AdminUser):
+    return {"config": "..."}
+
+# Campaign manager endpoint
+@router.put("/campaigns/{id}")
+async def update_campaign(id: str, user: CampaignManagerUser):
+    return {"updated": id}
+```
+
+### Using Role Decorator
+
+```python
+from app.auth.rbac import rbac_decorator
+from app.auth.schemas import UserRole
+
+@router.delete("/campaigns/{id}")
+@rbac_decorator(UserRole.ADMIN)
+async def delete_campaign(id: str, current_user: CurrentUser):
+    return {"deleted": id}
+```
+
+### Checking Permissions Programmatically
+
+```python
+from app.auth.rbac import has_minimum_role, can_modify_campaigns, is_admin
+from app.auth.schemas import UserRole
+
+# Check if user has minimum role
+if has_minimum_role(user.role, UserRole.CAMPAIGN_MANAGER):
+    # Allow action
+
+# Check campaign modification permission
+if can_modify_campaigns(user.role):
+    # Allow campaign modification
+
+# Check admin status
+if is_admin(user.role):
+    # Allow admin action
+```
+
+## Troubleshooting
+
+### Import Errors
+
+If you encounter import errors, ensure PYTHONPATH includes all required KIT paths:
 
 ```bash
-# Install dependencies (case: install_deps)
-pip install pytest pytest-asyncio pytest-cov httpx fastapi pydantic
+export PYTHONPATH="runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src"
+```
 
-# Run tests (case: tests)
-pytest runs/kit/REQ-003/test/test_rbac.py -v --tb=short
+### Test Failures
 
-# Run with coverage reports (case: tests_with_coverage)
-pytest runs/kit/REQ-003/test/test_rbac.py \
-  --cov=runs/kit/REQ-003/src \
-  --cov-report=xml:runs/kit/REQ-003/reports/coverage.xml \
-  --junitxml=runs/kit/REQ-003/reports/junit.xml
+1. **Missing dependencies**: Run `pip install -r runs/kit/REQ-003/requirements.txt`
+2. **Database connection**: Ensure DATABASE_URL is set correctly
+3. **OIDC configuration**: Verify OIDC environment variables
+
+### Access Denied Logging
+
+Access denied events are logged with the following structure:
+```json
+{
+  "event": "access_denied",
+  "user_id": "uuid",
+  "endpoint": "/api/path",
+  "user_role": "viewer",
+  "required_role": "admin",
+  "timestamp": "2024-01-15T10:30:00"
+}
 ```
 
 ## CI/CD Integration
@@ -67,147 +168,41 @@ pytest runs/kit/REQ-003/test/test_rbac.py \
 ### GitHub Actions
 
 ```yaml
-- name: Run REQ-003 Tests
+- name: Run RBAC Tests
   env:
     PYTHONPATH: runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src
   run: |
-    pip install pytest pytest-asyncio pytest-cov httpx fastapi pydantic
-    pytest runs/kit/REQ-003/test/test_rbac.py \
-      --cov=runs/kit/REQ-003/src \
-      --cov-report=xml \
-      --junitxml=test-results.xml
+    pip install -r runs/kit/REQ-003/requirements.txt
+    pytest runs/kit/REQ-003/test -v --junitxml=reports/junit.xml
 ```
 
 ### Jenkins
 
 ```groovy
-stage('REQ-003 Tests') {
+stage('RBAC Tests') {
     environment {
         PYTHONPATH = "runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src"
     }
     steps {
-        sh 'pip install pytest pytest-asyncio pytest-cov httpx fastapi pydantic'
-        sh 'pytest runs/kit/REQ-003/test/test_rbac.py --junitxml=test-results.xml'
-    }
-    post {
-        always {
-            junit 'test-results.xml'
-        }
+        sh 'pip install -r runs/kit/REQ-003/requirements.txt'
+        sh 'pytest runs/kit/REQ-003/test -v --junitxml=reports/junit.xml'
     }
 }
 ```
 
-## Artifacts
+## Architecture Notes
 
-| Artifact | Path | Description |
-|----------|------|-------------|
-| JUnit XML | `runs/kit/REQ-003/reports/junit.xml` | Test results |
-| Coverage XML | `runs/kit/REQ-003/reports/coverage.xml` | Coverage report |
+### Role Hierarchy
 
-## Troubleshooting
-
-### Import Errors
-
-**Problem**: `ModuleNotFoundError: No module named 'app'`
-
-**Solution**: Ensure PYTHONPATH includes all required KIT source directories:
-```bash
-export PYTHONPATH="runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src"
+```
+ADMIN (30) > CAMPAIGN_MANAGER (20) > VIEWER (10)
 ```
 
-### Missing Dependencies
+### Permission Matrix
 
-**Problem**: `ModuleNotFoundError: No module named 'fastapi'`
-
-**Solution**: Install test dependencies:
-```bash
-pip install pytest pytest-asyncio pytest-cov httpx fastapi pydantic
-```
-
-### Test Failures
-
-**Problem**: Tests fail with authentication errors
-
-**Solution**: Ensure REQ-002 auth middleware is properly mocked in tests. The test suite uses `MockUser` objects that don't require actual OIDC configuration.
-```
-
----
-
-## KIT Iteration Log
-
-### Targeted REQ-ID(s)
-- **REQ-003**: RBAC authorization middleware
-
-### Rationale
-REQ-003 depends on REQ-002 (OIDC authentication) which provides the user context. This implementation builds on the auth module structure established in REQ-002.
-
-### In Scope
-- Role-permission mapping (admin, campaign_manager, viewer)
-- Permission checking functions
-- FastAPI dependency-based route protection
-- Decorator-based RBAC for service methods
-- Access denial logging with user ID, endpoint, and timestamp
-- Comprehensive test coverage
-
-### Out of Scope
-- Database-driven permission configuration (uses static mapping)
-- Fine-grained resource-level permissions (e.g., per-campaign access)
-- Permission caching (permissions are computed on each request)
-
-### How to Run Tests
-
-```bash
-# Set PYTHONPATH
-export PYTHONPATH="runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src"
-
-# Install dependencies
-pip install pytest pytest-asyncio pytest-cov httpx fastapi pydantic
-
-# Run tests
-pytest runs/kit/REQ-003/test/test_rbac.py -v
-
-# Run with coverage
-pytest runs/kit/REQ-003/test/test_rbac.py --cov=runs/kit/REQ-003/src --cov-report=term-missing
-```
-
-### Prerequisites
-- Python 3.12+
-- REQ-001 (database models) and REQ-002 (auth middleware) implementations
-- Test dependencies: pytest, pytest-asyncio, httpx, fastapi, pydantic
-
-### Dependencies and Mocks
-- **MockUser**: Simulates authenticated user with role for testing
-- **MagicMock request**: Simulates FastAPI Request object with state.user
-- No external services required for unit tests
-
-### Product Owner Notes
-- Role hierarchy implemented: admin > campaign_manager > viewer
-- Viewer role has read-only access to campaigns, contacts, and stats
-- Exclusion management restricted to admin only
-- All admin config endpoints require admin role
-
-### RAG Citations
-- `runs/kit/REQ-002/src/app/auth/schemas.py`: Reused `UserRole` enum
-- `runs/kit/REQ-002/src/app/auth/middleware.py`: Referenced for user context pattern
-- `runs/kit/REQ-001/src/app/shared/models/enums.py`: Aligned with database enum definitions
-
-```json
-{
-  "index": [
-    {
-      "req": "REQ-003",
-      "src": [
-        "runs/kit/REQ-003/src/app/auth/rbac.py",
-        "runs/kit/REQ-003/src/app/auth/dependencies.py"
-      ],
-      "tests": [
-        "runs/kit/REQ-003/test/test_rbac.py"
-      ]
-    }
-  ]
-}
-```
-Human: 
-Human: continue
-Human: 
-Human: continue
+| Endpoint Type | VIEWER | CAMPAIGN_MANAGER | ADMIN |
+|--------------|--------|------------------|-------|
+| Read campaigns | ✓ | ✓ | ✓ |
+| Modify campaigns | ✗ | ✓ | ✓ |
+| Admin config | ✗ | ✗ | ✓ |
+| Export data | ✗ | ✓ | ✓ |

@@ -2,361 +2,318 @@
 RBAC (Role-Based Access Control) module.
 
 Provides role extraction, permission checking, and route decorators
-for enforcing authorization based on user roles.
+for enforcing minimum required roles on API endpoints.
 """
 
-from collections.abc import Callable
-from enum import Enum
-from functools import wraps
-from typing import Any
+import functools
+from datetime import datetime
+from enum import IntEnum
+from typing import Annotated, Callable, TypeVar
 
-from fastapi import HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, status
 
+from app.auth.middleware import CurrentUser
 from app.auth.schemas import UserRole
 from app.shared.logging import get_logger
 
 logger = get_logger(__name__)
 
-
-class Permission(str, Enum):
-    """Permission enumeration for fine-grained access control."""
-
-    # Campaign permissions
-    CAMPAIGN_CREATE = "campaign:create"
-    CAMPAIGN_READ = "campaign:read"
-    CAMPAIGN_UPDATE = "campaign:update"
-    CAMPAIGN_DELETE = "campaign:delete"
-    CAMPAIGN_ACTIVATE = "campaign:activate"
-
-    # Contact permissions
-    CONTACT_READ = "contact:read"
-    CONTACT_UPLOAD = "contact:upload"
-    CONTACT_EXPORT = "contact:export"
-
-    # Exclusion permissions
-    EXCLUSION_READ = "exclusion:read"
-    EXCLUSION_MANAGE = "exclusion:manage"
-
-    # Admin permissions
-    ADMIN_CONFIG_READ = "admin:config:read"
-    ADMIN_CONFIG_WRITE = "admin:config:write"
-
-    # Stats permissions
-    STATS_READ = "stats:read"
-    STATS_EXPORT = "stats:export"
+F = TypeVar("F", bound=Callable)
 
 
-# Role to permissions mapping
-ROLE_PERMISSIONS: dict[UserRole, set[Permission]] = {
-    UserRole.ADMIN: {
-        # Admin has all permissions
-        Permission.CAMPAIGN_CREATE,
-        Permission.CAMPAIGN_READ,
-        Permission.CAMPAIGN_UPDATE,
-        Permission.CAMPAIGN_DELETE,
-        Permission.CAMPAIGN_ACTIVATE,
-        Permission.CONTACT_READ,
-        Permission.CONTACT_UPLOAD,
-        Permission.CONTACT_EXPORT,
-        Permission.EXCLUSION_READ,
-        Permission.EXCLUSION_MANAGE,
-        Permission.ADMIN_CONFIG_READ,
-        Permission.ADMIN_CONFIG_WRITE,
-        Permission.STATS_READ,
-        Permission.STATS_EXPORT,
-    },
-    UserRole.CAMPAIGN_MANAGER: {
-        # Campaign manager can manage campaigns and contacts
-        Permission.CAMPAIGN_CREATE,
-        Permission.CAMPAIGN_READ,
-        Permission.CAMPAIGN_UPDATE,
-        Permission.CAMPAIGN_DELETE,
-        Permission.CAMPAIGN_ACTIVATE,
-        Permission.CONTACT_READ,
-        Permission.CONTACT_UPLOAD,
-        Permission.CONTACT_EXPORT,
-        Permission.EXCLUSION_READ,
-        Permission.STATS_READ,
-        Permission.STATS_EXPORT,
-    },
-    UserRole.VIEWER: {
-        # Viewer has read-only access
-        Permission.CAMPAIGN_READ,
-        Permission.CONTACT_READ,
-        Permission.STATS_READ,
-    },
+class RoleLevel(IntEnum):
+    """Role hierarchy levels for permission comparison.
+    
+    Higher values indicate more privileges.
+    """
+    VIEWER = 10
+    CAMPAIGN_MANAGER = 20
+    ADMIN = 30
+
+
+ROLE_HIERARCHY: dict[UserRole, RoleLevel] = {
+    UserRole.VIEWER: RoleLevel.VIEWER,
+    UserRole.CAMPAIGN_MANAGER: RoleLevel.CAMPAIGN_MANAGER,
+    UserRole.ADMIN: RoleLevel.ADMIN,
 }
 
 
-def get_role_permissions(role: UserRole) -> set[Permission]:
-    """Get all permissions for a given role."""
-    return ROLE_PERMISSIONS.get(role, set())
+class RBACError(Exception):
+    """Base exception for RBAC-related errors."""
+    pass
 
 
-def has_permission(role: UserRole, permission: Permission) -> bool:
-    """Check if a role has a specific permission."""
-    return permission in get_role_permissions(role)
-
-
-def has_any_permission(role: UserRole, permissions: set[Permission]) -> bool:
-    """Check if a role has any of the specified permissions."""
-    role_perms = get_role_permissions(role)
-    return bool(role_perms & permissions)
-
-
-def has_all_permissions(role: UserRole, permissions: set[Permission]) -> bool:
-    """Check if a role has all of the specified permissions."""
-    role_perms = get_role_permissions(role)
-    return permissions <= role_perms
-
-
-class RBACChecker:
-    """
-    RBAC checker for FastAPI dependency injection.
-
-    Validates that the current user has the required role or permission.
-    """
-
+class InsufficientPermissionsError(RBACError):
+    """Raised when user lacks required permissions."""
+    
     def __init__(
         self,
-        minimum_role: UserRole | None = None,
-        required_permission: Permission | None = None,
-        any_of_permissions: set[Permission] | None = None,
-        all_of_permissions: set[Permission] | None = None,
-    ) -> None:
-        """
-        Initialize RBAC checker.
+        user_role: UserRole,
+        required_role: UserRole,
+        endpoint: str,
+        user_id: str | None = None,
+    ):
+        self.user_role = user_role
+        self.required_role = required_role
+        self.endpoint = endpoint
+        self.user_id = user_id
+        super().__init__(
+            f"User with role '{user_role.value}' lacks permission for endpoint "
+            f"'{endpoint}' (requires '{required_role.value}')"
+        )
 
+
+def get_role_level(role: UserRole) -> RoleLevel:
+    """Get the hierarchy level for a role.
+    
+    Args:
+        role: The user role to check.
+        
+    Returns:
+        The corresponding role level.
+    """
+    return ROLE_HIERARCHY.get(role, RoleLevel.VIEWER)
+
+
+def has_minimum_role(user_role: UserRole, required_role: UserRole) -> bool:
+    """Check if user role meets minimum required role.
+    
+    Args:
+        user_role: The user's current role.
+        required_role: The minimum required role.
+        
+    Returns:
+        True if user has sufficient permissions.
+    """
+    return get_role_level(user_role) >= get_role_level(required_role)
+
+
+def can_modify_campaigns(role: UserRole) -> bool:
+    """Check if role can modify campaigns.
+    
+    Campaign modification is restricted to campaign_manager and admin roles.
+    
+    Args:
+        role: The user role to check.
+        
+    Returns:
+        True if role can modify campaigns.
+    """
+    return role in (UserRole.CAMPAIGN_MANAGER, UserRole.ADMIN)
+
+
+def is_admin(role: UserRole) -> bool:
+    """Check if role is admin.
+    
+    Args:
+        role: The user role to check.
+        
+    Returns:
+        True if role is admin.
+    """
+    return role == UserRole.ADMIN
+
+
+class AccessDeniedLog:
+    """Structured log entry for access denied events."""
+    
+    def __init__(
+        self,
+        user_id: str,
+        endpoint: str,
+        user_role: UserRole,
+        required_role: UserRole,
+        timestamp: datetime | None = None,
+    ):
+        self.user_id = user_id
+        self.endpoint = endpoint
+        self.user_role = user_role
+        self.required_role = required_role
+        self.timestamp = timestamp or datetime.utcnow()
+    
+    def to_dict(self) -> dict:
+        """Convert to dictionary for logging."""
+        return {
+            "event": "access_denied",
+            "user_id": self.user_id,
+            "endpoint": self.endpoint,
+            "user_role": self.user_role.value,
+            "required_role": self.required_role.value,
+            "timestamp": self.timestamp.isoformat(),
+        }
+
+
+def log_access_denied(
+    user_id: str,
+    endpoint: str,
+    user_role: UserRole,
+    required_role: UserRole,
+) -> None:
+    """Log an access denied event.
+    
+    Args:
+        user_id: The ID of the user who was denied.
+        endpoint: The endpoint that was accessed.
+        user_role: The user's role.
+        required_role: The required role for the endpoint.
+    """
+    log_entry = AccessDeniedLog(
+        user_id=user_id,
+        endpoint=endpoint,
+        user_role=user_role,
+        required_role=required_role,
+    )
+    logger.warning(
+        "Access denied",
+        extra=log_entry.to_dict(),
+    )
+
+
+class RoleChecker:
+    """Dependency class for checking user roles.
+    
+    This class is designed to be used as a FastAPI dependency
+    to enforce role requirements on endpoints.
+    """
+    
+    def __init__(self, required_role: UserRole):
+        """Initialize role checker.
+        
         Args:
-            minimum_role: Minimum role required (uses role hierarchy)
-            required_permission: Single permission required
-            any_of_permissions: Any of these permissions grants access
-            all_of_permissions: All of these permissions required
+            required_role: The minimum required role for access.
         """
-        self.minimum_role = minimum_role
-        self.required_permission = required_permission
-        self.any_of_permissions = any_of_permissions
-        self.all_of_permissions = all_of_permissions
-
-    async def __call__(self, request: Request) -> None:
-        """
-        Validate RBAC requirements.
-
+        self.required_role = required_role
+    
+    async def __call__(
+        self,
+        request: Request,
+        current_user: CurrentUser,
+    ) -> CurrentUser:
+        """Check if current user has required role.
+        
+        Args:
+            request: The FastAPI request object.
+            current_user: The authenticated user context.
+            
+        Returns:
+            The current user if authorized.
+            
         Raises:
-            HTTPException: If user lacks required authorization
+            HTTPException: If user lacks required permissions.
         """
-        # Get user from request state (set by auth middleware)
-        user = getattr(request.state, "user", None)
-        if user is None:
-            logger.warning(
-                "RBAC check failed: no user in request state",
-                extra={
-                    "path": request.url.path,
-                    "method": request.method,
-                },
+        if not has_minimum_role(current_user.role, self.required_role):
+            log_access_denied(
+                user_id=str(current_user.user_id),
+                endpoint=str(request.url.path),
+                user_role=current_user.role,
+                required_role=self.required_role,
             )
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required",
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": "insufficient_permissions",
+                    "message": f"This endpoint requires '{self.required_role.value}' role or higher",
+                    "required_role": self.required_role.value,
+                    "user_role": current_user.role.value,
+                },
             )
-
-        user_role = user.role
-        user_id = str(user.id)
-        endpoint = f"{request.method} {request.url.path}"
-
-        # Check minimum role
-        if self.minimum_role is not None:
-            if not self._check_role_hierarchy(user_role, self.minimum_role):
-                self._log_denied(user_id, endpoint, f"minimum_role={self.minimum_role}")
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Requires {self.minimum_role.value} role or higher",
-                )
-
-        # Check single permission
-        if self.required_permission is not None:
-            if not has_permission(user_role, self.required_permission):
-                self._log_denied(
-                    user_id, endpoint, f"permission={self.required_permission}"
-                )
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Missing required permission: {self.required_permission.value}",
-                )
-
-        # Check any of permissions
-        if self.any_of_permissions is not None:
-            if not has_any_permission(user_role, self.any_of_permissions):
-                perms = [p.value for p in self.any_of_permissions]
-                self._log_denied(user_id, endpoint, f"any_of={perms}")
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Requires one of: {', '.join(perms)}",
-                )
-
-        # Check all of permissions
-        if self.all_of_permissions is not None:
-            if not has_all_permissions(user_role, self.all_of_permissions):
-                perms = [p.value for p in self.all_of_permissions]
-                self._log_denied(user_id, endpoint, f"all_of={perms}")
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail=f"Requires all of: {', '.join(perms)}",
-                )
-
-        logger.debug(
-            "RBAC check passed",
-            extra={
-                "user_id": user_id,
-                "role": user_role.value,
-                "endpoint": endpoint,
-            },
-        )
-
-    def _check_role_hierarchy(
-        self, user_role: UserRole, minimum_role: UserRole
-    ) -> bool:
-        """Check if user role meets minimum role requirement."""
-        hierarchy = {
-            UserRole.ADMIN: 3,
-            UserRole.CAMPAIGN_MANAGER: 2,
-            UserRole.VIEWER: 1,
-        }
-        return hierarchy.get(user_role, 0) >= hierarchy.get(minimum_role, 0)
-
-    def _log_denied(self, user_id: str, endpoint: str, reason: str) -> None:
-        """Log denied access attempt."""
-        logger.warning(
-            "Access denied",
-            extra={
-                "user_id": user_id,
-                "endpoint": endpoint,
-                "reason": reason,
-            },
-        )
+        return current_user
 
 
-# Convenience dependency factories
-def require_admin() -> RBACChecker:
-    """Require admin role."""
-    return RBACChecker(minimum_role=UserRole.ADMIN)
-
-
-def require_campaign_manager() -> RBACChecker:
-    """Require campaign_manager role or higher."""
-    return RBACChecker(minimum_role=UserRole.CAMPAIGN_MANAGER)
-
-
-def require_viewer() -> RBACChecker:
-    """Require viewer role or higher (any authenticated user)."""
-    return RBACChecker(minimum_role=UserRole.VIEWER)
-
-
-def require_permission(permission: Permission) -> RBACChecker:
-    """Require a specific permission."""
-    return RBACChecker(required_permission=permission)
-
-
-def require_any_permission(*permissions: Permission) -> RBACChecker:
-    """Require any of the specified permissions."""
-    return RBACChecker(any_of_permissions=set(permissions))
-
-
-def require_all_permissions(*permissions: Permission) -> RBACChecker:
-    """Require all of the specified permissions."""
-    return RBACChecker(all_of_permissions=set(permissions))
-
-
-# Decorator-based RBAC for non-FastAPI contexts
-def rbac_required(
-    minimum_role: UserRole | None = None,
-    permission: Permission | None = None,
-) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-    """
-    Decorator for RBAC enforcement.
-
-    Can be used on service methods that receive a user context.
-
+def require_role(required_role: UserRole) -> RoleChecker:
+    """Create a role checker dependency.
+    
+    This is a factory function that creates a RoleChecker instance
+    for use as a FastAPI dependency.
+    
     Args:
-        minimum_role: Minimum role required
-        permission: Specific permission required
-
+        required_role: The minimum required role.
+        
     Returns:
-        Decorated function that checks RBAC before execution
+        A RoleChecker instance configured for the required role.
+        
+    Example:
+        @router.get("/admin/config")
+        async def get_config(
+            user: Annotated[UserContext, Depends(require_role(UserRole.ADMIN))]
+        ):
+            ...
     """
+    return RoleChecker(required_role)
 
-    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-        @wraps(func)
-        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-            # Look for user in kwargs or first arg
-            user = kwargs.get("user") or kwargs.get("current_user")
-            if user is None and args:
-                # Check if first arg has a user attribute
-                first_arg = args[0]
-                if hasattr(first_arg, "user"):
-                    user = first_arg.user
 
-            if user is None:
-                raise ValueError("No user context found for RBAC check")
+# Pre-configured role checkers for common use cases
+require_viewer = require_role(UserRole.VIEWER)
+require_campaign_manager = require_role(UserRole.CAMPAIGN_MANAGER)
+require_admin = require_role(UserRole.ADMIN)
 
-            user_role = user.role
 
-            if minimum_role is not None:
-                hierarchy = {
-                    UserRole.ADMIN: 3,
-                    UserRole.CAMPAIGN_MANAGER: 2,
-                    UserRole.VIEWER: 1,
-                }
-                if hierarchy.get(user_role, 0) < hierarchy.get(minimum_role, 0):
-                    raise PermissionError(
-                        f"Requires {minimum_role.value} role or higher"
-                    )
+# Type aliases for dependency injection
+ViewerUser = Annotated[CurrentUser, Depends(require_viewer)]
+CampaignManagerUser = Annotated[CurrentUser, Depends(require_campaign_manager)]
+AdminUser = Annotated[CurrentUser, Depends(require_admin)]
 
-            if permission is not None:
-                if not has_permission(user_role, permission):
-                    raise PermissionError(
-                        f"Missing required permission: {permission.value}"
-                    )
 
+def rbac_decorator(required_role: UserRole) -> Callable[[F], F]:
+    """Decorator for enforcing RBAC on route handlers.
+    
+    This decorator can be used as an alternative to dependency injection
+    for enforcing role requirements. It wraps the route handler and
+    performs role checking before execution.
+    
+    Args:
+        required_role: The minimum required role.
+        
+    Returns:
+        A decorator function.
+        
+    Example:
+        @router.get("/admin/settings")
+        @rbac_decorator(UserRole.ADMIN)
+        async def get_settings(current_user: CurrentUser):
+            ...
+    """
+    def decorator(func: F) -> F:
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            # Extract current_user from kwargs
+            current_user = kwargs.get("current_user")
+            if current_user is None:
+                # Try to find it in args (less common)
+                for arg in args:
+                    if hasattr(arg, "role") and hasattr(arg, "user_id"):
+                        current_user = arg
+                        break
+            
+            if current_user is None:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Authentication required",
+                )
+            
+            if not has_minimum_role(current_user.role, required_role):
+                # Get request from kwargs if available for logging
+                request = kwargs.get("request")
+                endpoint = str(request.url.path) if request else "unknown"
+                
+                log_access_denied(
+                    user_id=str(current_user.user_id),
+                    endpoint=endpoint,
+                    user_role=current_user.role,
+                    required_role=required_role,
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={
+                        "error": "insufficient_permissions",
+                        "message": f"This endpoint requires '{required_role.value}' role or higher",
+                        "required_role": required_role.value,
+                        "user_role": current_user.role.value,
+                    },
+                )
+            
             return await func(*args, **kwargs)
-
-        @wraps(func)
-        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
-            user = kwargs.get("user") or kwargs.get("current_user")
-            if user is None and args:
-                first_arg = args[0]
-                if hasattr(first_arg, "user"):
-                    user = first_arg.user
-
-            if user is None:
-                raise ValueError("No user context found for RBAC check")
-
-            user_role = user.role
-
-            if minimum_role is not None:
-                hierarchy = {
-                    UserRole.ADMIN: 3,
-                    UserRole.CAMPAIGN_MANAGER: 2,
-                    UserRole.VIEWER: 1,
-                }
-                if hierarchy.get(user_role, 0) < hierarchy.get(minimum_role, 0):
-                    raise PermissionError(
-                        f"Requires {minimum_role.value} role or higher"
-                    )
-
-            if permission is not None:
-                if not has_permission(user_role, permission):
-                    raise PermissionError(
-                        f"Missing required permission: {permission.value}"
-                    )
-
-            return func(*args, **kwargs)
-
-        # Return appropriate wrapper based on function type
-        import asyncio
-
-        if asyncio.iscoroutinefunction(func):
-            return async_wrapper
-        return sync_wrapper
-
+        
+        return wrapper  # type: ignore
+    
     return decorator
