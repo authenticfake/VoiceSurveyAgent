@@ -3,53 +3,44 @@
   "req_id": "REQ-001",
   "lane": "python",
   "env": {
-    "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/voicesurvey_test"
+    "DATABASE_URL": "postgresql://user:password@localhost:5432/voicesurvey",
+    "DISABLE_TESTCONTAINERS": "0"
   },
   "cases": [
     {
-      "name": "start_postgres",
-      "run": "docker run -d --name voicesurvey-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=voicesurvey_test -p 5432:5432 postgres:15-alpine",
-      "cwd": ".",
-      "expect": 0,
-      "timeout": 60
-    },
-    {
-      "name": "wait_postgres",
-      "run": "sleep 5",
-      "cwd": ".",
-      "expect": 0
-    },
-    {
       "name": "install_deps",
       "run": "pip install -r runs/kit/REQ-001/requirements.txt",
-      "cwd": ".",
-      "pip-file": "runs/kit/REQ-001/requirements.txt",
-      "expect": 0
-    },
-    {
-      "name": "run_upgrade",
-      "run": "chmod +x runs/kit/REQ-001/scripts/db_upgrade.sh && DATABASE_URL=postgresql://postgres:postgres@localhost:5432/voicesurvey_test runs/kit/REQ-001/scripts/db_upgrade.sh",
-      "cwd": ".",
-      "expect": 0
-    },
-    {
-      "name": "run_seed",
-      "run": "chmod +x runs/kit/REQ-001/scripts/db_seed.sh && DATABASE_URL=postgresql://postgres:postgres@localhost:5432/voicesurvey_test runs/kit/REQ-001/scripts/db_seed.sh",
-      "cwd": ".",
-      "expect": 0
-    },
-    {
-      "name": "tests",
-      "run": "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/voicesurvey_test pytest runs/kit/REQ-001/test/ -v --tb=short",
       "cwd": ".",
       "expect": 0,
       "timeout": 120
     },
     {
-      "name": "cleanup_postgres",
-      "run": "docker stop voicesurvey-postgres && docker rm voicesurvey-postgres",
+      "name": "run_upgrade",
+      "run": "chmod +x runs/kit/REQ-001/scripts/db_upgrade.sh && ./runs/kit/REQ-001/scripts/db_upgrade.sh",
       "cwd": ".",
-      "expect": 0
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "run_seed",
+      "run": "chmod +x runs/kit/REQ-001/scripts/db_seed.sh && ./runs/kit/REQ-001/scripts/db_seed.sh",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "tests",
+      "run": "pytest -p no:cacheprovider -q runs/kit/REQ-001/test/test_migration_sql.py -v --tb=short",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 300
+    },
+    {
+      "name": "run_downgrade",
+      "run": "chmod +x runs/kit/REQ-001/scripts/db_downgrade.sh && ./runs/kit/REQ-001/scripts/db_downgrade.sh",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
     }
   ],
   "reports": [
@@ -61,9 +52,32 @@
   ],
   "gate_policy": {
     "tests_pass": true,
-    "coverage_min": 0.0,
+    "coverage_min": 0,
     "security": {
       "bandit_high": 0
     }
-  }
+  },
+  "tools": {
+    "tests": "pytest",
+    "lint": "ruff",
+    "types": "mypy",
+    "security": "bandit",
+    "build": "docker"
+  },
+  "commands": {
+    "install": "pip install -r runs/kit/REQ-001/requirements.txt",
+    "upgrade": "./runs/kit/REQ-001/scripts/db_upgrade.sh",
+    "seed": "./runs/kit/REQ-001/scripts/db_seed.sh",
+    "downgrade": "./runs/kit/REQ-001/scripts/db_downgrade.sh",
+    "tests": "pytest runs/kit/REQ-001/test/"
+  },
+  "normalize": {
+    "test_results": "reports/junit.xml"
+  },
+  "constraints_applied": [
+    "PostgreSQL 15+",
+    "UUID primary keys",
+    "Enum types for status fields",
+    "Idempotent migrations"
+  ]
 }

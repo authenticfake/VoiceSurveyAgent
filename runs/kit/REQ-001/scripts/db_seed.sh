@@ -1,11 +1,11 @@
 #!/bin/bash
-# db_seed.sh - Run seed data script
+# db_seed.sh - Run seed data
 # Usage: ./db_seed.sh
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SEED_FILE="${SCRIPT_DIR}/../src/storage/seed/seed.sql"
+SEED_DIR="${SCRIPT_DIR}/../src/storage/seed"
 
 # Check for DATABASE_URL
 if [ -z "$DATABASE_URL" ]; then
@@ -14,6 +14,8 @@ if [ -z "$DATABASE_URL" ]; then
     exit 1
 fi
 
-echo "Running database seed..."
-psql "$DATABASE_URL" -f "$SEED_FILE"
-echo "Database seed complete."
+echo "Running seed data..."
+
+psql "$DATABASE_URL" -f "${SEED_DIR}/seed.sql"
+
+echo "Seed data applied successfully."

@@ -73,22 +73,14 @@ ON CONFLICT (id) DO UPDATE SET
 -- Seed a sample campaign (idempotent via ON CONFLICT on id)
 INSERT INTO campaigns (id, name, description, status, language, intro_script, question_1_text, question_1_type, question_2_text, question_2_type, question_3_text, question_3_type, max_attempts, retry_interval_minutes, allowed_call_start_local, allowed_call_end_local, email_completed_template_id, email_refused_template_id, email_not_reached_template_id, created_by_user_id)
 VALUES 
-    ('00000000-0000-0000-0003-000000000001', 
-     'Customer Satisfaction Survey Q1 2025', 
-     'Quarterly customer satisfaction survey for product feedback',
-     'draft',
-     'en',
-     'Hello, this is a call from VoiceSurvey on behalf of Acme Corp. We are conducting a brief 3-question survey about your recent experience. This call will take approximately 2 minutes. Your participation is voluntary and you may end the call at any time. Do you consent to participate in this survey?',
-     'On a scale of 1 to 10, how satisfied are you with our product overall?',
-     'scale',
-     'What feature do you find most valuable in our product?',
-     'free_text',
-     'How likely are you to recommend our product to a colleague? Please answer with a number from 0 to 10.',
-     'numeric',
-     3,
-     60,
-     '09:00:00',
-     '20:00:00',
+    ('00000000-0000-0000-0003-000000000001', 'Customer Satisfaction Survey Q1', 
+     'Quarterly customer satisfaction survey for Q1 2025',
+     'draft', 'en',
+     'Hello, this is a call from VoiceSurvey on behalf of Acme Corp. We are conducting a brief 3-question survey about your recent experience. This call will take approximately 2 minutes. Do you consent to participate?',
+     'On a scale of 1 to 10, how satisfied are you with our service?', 'scale',
+     'What is the main reason for your rating?', 'free_text',
+     'How likely are you to recommend us to a friend or colleague, on a scale of 1 to 10?', 'scale',
+     3, 60, '09:00:00', '20:00:00',
      '00000000-0000-0000-0001-000000000001',
      '00000000-0000-0000-0001-000000000003',
      '00000000-0000-0000-0001-000000000005',
@@ -114,8 +106,8 @@ ON CONFLICT (id) DO UPDATE SET
 -- Seed exclusion list entries
 INSERT INTO exclusion_list_entries (id, phone_number, reason, source)
 VALUES 
-    ('00000000-0000-0000-0005-000000000001', '+14155550105', 'Customer requested DNC', 'api'),
-    ('00000000-0000-0000-0005-000000000002', '+14155559999', 'Legal hold - do not contact', 'manual')
+    ('00000000-0000-0000-0005-000000000001', '+14155550199', 'Customer requested removal', 'api'),
+    ('00000000-0000-0000-0005-000000000002', '+14155550198', 'Legal hold', 'manual')
 ON CONFLICT (phone_number) DO UPDATE SET
     reason = EXCLUDED.reason,
     source = EXCLUDED.source;

@@ -14,13 +14,12 @@ if [ -z "$DATABASE_URL" ]; then
     exit 1
 fi
 
-echo "Running database upgrade migrations..."
+echo "Running database migrations (upgrade)..."
 
 # Find and run all .up.sql files in order
 for migration in $(ls -1 "${SQL_DIR}"/*.up.sql 2>/dev/null | sort); do
     echo "Applying: $(basename "$migration")"
     psql "$DATABASE_URL" -f "$migration"
-    echo "Applied: $(basename "$migration")"
 done
 
-echo "Database upgrade complete."
+echo "Migrations completed successfully."
