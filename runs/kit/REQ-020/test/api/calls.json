@@ -1,0 +1,146 @@
+{
+  "info": {
+    "name": "REQ-020 Call Detail API",
+    "description": "API tests for call detail view endpoint",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Get Call Detail - Success",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/calls/{{call_id}}",
+          "host": ["{{base_url}}"],
+          "path": ["api", "calls", "{{call_id}}"]
+        }
+      },
+      "response": [
+        {
+          "name": "200 OK",
+          "status": "OK",
+          "code": 200,
+          "body": {
+            "call_id": "call-abc123",
+            "contact_id": "d4444444-4444-4444-4444-444444444444",
+            "campaign_id": "c2222222-2222-2222-2222-222222222222",
+            "attempt_number": 1,
+            "provider_call_id": "CA1234567890abcdef",
+            "outcome": "completed",
+            "started_at": "2024-01-15T10:30:00Z",
+            "answered_at": "2024-01-15T10:30:15Z",
+            "ended_at": "2024-01-15T10:35:00Z",
+            "error_code": null,
+            "provider_raw_status": "completed",
+            "transcript_snippet": {
+              "text": "Hello, this is a survey call...",
+              "language": "en",
+              "created_at": "2024-01-15T10:35:01Z"
+            },
+            "recording_url": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "Get Call Detail - Not Found",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{access_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/calls/non-existent-call",
+          "host": ["{{base_url}}"],
+          "path": ["api", "calls", "non-existent-call"]
+        }
+      },
+      "response": [
+        {
+          "name": "404 Not Found",
+          "status": "Not Found",
+          "code": 404,
+          "body": {
+            "detail": "Call not found: non-existent-call"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Get Call Detail - Unauthorized",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{base_url}}/api/calls/{{call_id}}",
+          "host": ["{{base_url}}"],
+          "path": ["api", "calls", "{{call_id}}"]
+        }
+      },
+      "response": [
+        {
+          "name": "401 Unauthorized",
+          "status": "Unauthorized",
+          "code": 401,
+          "body": {
+            "detail": "Not authenticated"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Get Call Detail - Forbidden (Viewer Role)",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{viewer_access_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/calls/{{call_id}}",
+          "host": ["{{base_url}}"],
+          "path": ["api", "calls", "{{call_id}}"]
+        }
+      },
+      "response": [
+        {
+          "name": "403 Forbidden",
+          "status": "Forbidden",
+          "code": 403,
+          "body": {
+            "detail": "Access restricted to campaign_manager and admin roles"
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000"
+    },
+    {
+      "key": "call_id",
+      "value": "call-abc123"
+    },
+    {
+      "key": "access_token",
+      "value": ""
+    },
+    {
+      "key": "viewer_access_token",
+      "value": ""
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-020",
+  "lane": "python",
+  "env": {
+    "PYTHONPATH": "runs/kit/REQ-020/src",
+    "DATABASE_URL": "postgresql://user:password@localhost:5432/voicesurvey"
+  },
+  "cases": [
+    {
+      "name": "install_deps",
+      "run": "pip install -r requirements.txt",
+      "cwd": "runs/kit/REQ-020",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "unit_tests",
+      "run": "PYTHONPATH=src pytest -v test/test_call_models.py test/test_call_detail_service.py --tb=short",
+      "cwd": "runs/kit/REQ-020",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "integration_tests",
+      "run": "PYTHONPATH=src pytest -v test/test_call_detail_router.py --tb=short",
+      "cwd": "runs/kit/REQ-020",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "all_tests",
+      "run": "PYTHONPATH=src pytest -v test/ --tb=short",
+      "cwd": "runs/kit/REQ-020",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "lint",
+      "run": "ruff check src/ test/ --ignore=E501",
+      "cwd": "runs/kit/REQ-020",
+      "expect": 0,
+      "timeout": 30
+    },
+    {
+      "name": "type_check",
+      "run": "mypy src/app/calls --ignore-missing-imports",
+      "cwd": "runs/kit/REQ-020",
+      "expect": 0,
+      "timeout": 60
+    }
+  ],
+  "tools": {
+    "tests": "pytest",
+    "lint": "ruff",
+    "types": "mypy",
+    "security": "bandit",
+    "build": "pip"
+  },
+  "commands": {
+    "install": "pip install -r requirements.txt",
+    "test": "PYTHONPATH=src pytest -v test/",
+    "lint": "ruff check src/ test/",
+    "typecheck": "mypy src/app/calls"
+  },
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "reports/junit.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "reports/coverage.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 80,
+    "security": {
+      "bandit_high": 0
+    }
+  },
+  "constraints_applied": {
+    "lane": "python",
+    "framework": "FastAPI",
+    "runtime": "python@3.12"
+  }
+}

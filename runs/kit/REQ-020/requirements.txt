@@ -1,0 +1,7 @@
+# REQ-020: Call detail view API dependencies
+fastapi>=0.109.0
+pydantic>=2.5.0
+httpx>=0.26.0
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+uvicorn>=0.25.0
