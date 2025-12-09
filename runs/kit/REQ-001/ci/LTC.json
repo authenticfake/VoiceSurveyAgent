@@ -3,28 +3,58 @@
   "req_id": "REQ-001",
   "lane": "python",
   "env": {
-    "DISABLE_TESTCONTAINERS": "0",
-    "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/voicesurveyagent",
-    "DB_USER": "postgres",
-    "DB_PASSWORD": "postgres",
-    "DB_HOST": "localhost",
-    "DB_PORT": "5432",
-    "DB_NAME": "voicesurveyagent"
+    "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/voicesurveyagent_test",
+    "DISABLE_TESTCONTAINERS": "0"
   },
   "cases": [
     {
       "name": "install_deps",
-      "run": "pip install -r runs/kit/REQ-001/requirements.txt",
-      "cwd": ".",
+      "run": "pip install -r requirements.txt",
+      "cwd": "runs/kit/REQ-001",
       "expect": 0,
       "timeout": 120
     },
     {
-      "name": "migration_tests",
-      "run": "pytest -p no:cacheprovider -q runs/kit/REQ-001/test/test_migration_sql.py -v",
+      "name": "start_postgres",
+      "run": "docker run -d --name pg_test_req001 -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=voicesurveyagent_test -p 5432:5432 postgres:15-alpine && sleep 5",
       "cwd": ".",
       "expect": 0,
-      "timeout": 300
+      "timeout": 60
+    },
+    {
+      "name": "run_upgrade",
+      "run": "PGPASSWORD=postgres psql -h localhost -U postgres -d voicesurveyagent_test -f src/storage/sql/V0001.up.sql -v ON_ERROR_STOP=1",
+      "cwd": "runs/kit/REQ-001",
+      "expect": 0,
+      "timeout": 30
+    },
+    {
+      "name": "run_seed",
+      "run": "PGPASSWORD=postgres psql -h localhost -U postgres -d voicesurveyagent_test -f src/storage/seed/seed.sql -v ON_ERROR_STOP=1",
+      "cwd": "runs/kit/REQ-001",
+      "expect": 0,
+      "timeout": 30
+    },
+    {
+      "name": "run_tests",
+      "run": "DISABLE_TESTCONTAINERS=1 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/voicesurveyagent_test pytest test/test_migration_sql.py -v --tb=short",
+      "cwd": "runs/kit/REQ-001",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "run_downgrade",
+      "run": "PGPASSWORD=postgres psql -h localhost -U postgres -d voicesurveyagent_test -f src/storage/sql/V0001.down.sql -v ON_ERROR_STOP=1",
+      "cwd": "runs/kit/REQ-001",
+      "expect": 0,
+      "timeout": 30
+    },
+    {
+      "name": "cleanup_postgres",
+      "run": "docker stop pg_test_req001 && docker rm pg_test_req001",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 30
     }
   ],
   "tools": {
@@ -35,20 +65,30 @@
     "build": "docker"
   },
   "commands": {
-    "install": "pip install -r runs/kit/REQ-001/requirements.txt",
-    "tests": "pytest -p no:cacheprovider -q runs/kit/REQ-001/test/test_migration_sql.py -v"
+    "install": "pip install -r requirements.txt",
+    "upgrade": "psql $DATABASE_URL -f src/storage/sql/V0001.up.sql",
+    "downgrade": "psql $DATABASE_URL -f src/storage/sql/V0001.down.sql",
+    "seed": "psql $DATABASE_URL -f src/storage/seed/seed.sql",
+    "tests": "pytest test/test_migration_sql.py -v"
   },
   "reports": [
-    {"kind": "junit", "path": "reports/junit.xml", "format": "junit-xml"},
-    {"kind": "coverage", "path": "reports/coverage.xml", "format": "coverage-xml"}
+    {
+      "kind": "junit",
+      "path": "reports/junit.xml",
+      "format": "junit-xml"
+    }
   ],
   "gate_policy": {
     "tests_pass": true,
-    "coverage_min": 0.0,
-    "security": {"bandit_high": 0}
+    "coverage_min": 0,
+    "security": {
+      "bandit_high": 0
+    }
   },
   "constraints_applied": {
-    "lane": "python",
-    "test_profile": "app-core"
+    "database": "PostgreSQL 15+",
+    "migration_strategy": "Versioned SQL files",
+    "idempotency": "IF NOT EXISTS / IF EXISTS checks",
+    "uuid_type": "PostgreSQL native UUID"
   }
 }

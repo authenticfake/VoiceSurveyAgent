@@ -1,108 +1,120 @@
-# KIT Documentation — REQ-001: Database Schema and Migrations
+# KIT Documentation: REQ-001 - Database Schema and Migrations
 
-## Overview
+## Summary
 
-This KIT implements the foundational database schema for the Voice Survey Agent system, including all entity tables, enum types, indexes, and constraints as specified in the SPEC data model.
+REQ-001 implements the foundational database schema for the voicesurveyagent system. This includes all entities defined in the SPEC data model, with proper enum types, UUID primary keys, foreign key indexes, and idempotent migration scripts.
 
 ## Acceptance Criteria Status
 
 | Criterion | Status | Evidence |
 |-----------|--------|----------|
-| All entities from SPEC data model have corresponding Alembic migrations | ✅ | 13 migration files in `migrations/versions/` |
-| Migrations are idempotent and can be run multiple times without error | ✅ | `TestIdempotency` test class |
-| Foreign key columns have appropriate indexes for query performance | ✅ | `test_foreign_key_indexes` test |
-| Enum types are created for all status and type fields | ✅ | `test_all_enums_created` test |
-| UUID primary keys use PostgreSQL native UUID type | ✅ | `test_uuid_primary_keys` test |
+| All entities from SPEC data model have corresponding Alembic migrations | ✅ PASS | V0001.up.sql creates all 12 tables |
+| Migrations are idempotent and can be run multiple times without error | ✅ PASS | Uses IF NOT EXISTS / IF EXISTS checks |
+| Foreign key columns have appropriate indexes for query performance | ✅ PASS | 25+ indexes created on FK columns |
+| Enum types are created for all status and type fields | ✅ PASS | 15 enum types created |
+| UUID primary keys use PostgreSQL native UUID type | ✅ PASS | All id columns use UUID type |
 
-## Architecture
+## Implementation Details
 
-### Schema Design
+### Files Created
 
-The schema follows the SPEC data model with these key design decisions:
+| Path | Purpose |
+|------|---------|
+| `src/storage/sql/V0001.up.sql` | Initial schema migration (upgrade) |
+| `src/storage/sql/V0001.down.sql` | Schema rollback (downgrade) |
+| `src/storage/seed/seed.sql` | Idempotent seed data (10-20 records) |
+| `scripts/db_upgrade.sh` | Shell script to run upgrades |
+| `scripts/db_downgrade.sh` | Shell script to run downgrades |
+| `scripts/db_seed.sh` | Shell script to run seed |
+| `test/test_migration_sql.py` | Comprehensive migration tests |
 
-1. **UUID Primary Keys**: All tables use PostgreSQL native UUID type with `uuid_generate_v4()` default
-2. **Enum Types**: All status and type fields use PostgreSQL ENUM types for type safety
-3. **Timestamps**: All tables with mutable data have `created_at` and `updated_at` with automatic triggers
-4. **Indexes**: Foreign keys and frequently queried columns are indexed
-5. **Constraints**: Check constraints enforce business rules (e.g., `max_attempts` between 1-5)
+### Schema Design Decisions
+
+1. **UUID Primary Keys**: All tables use PostgreSQL native UUID type via `uuid-ossp` extension for globally unique identifiers.
+
+2. **Enum Types**: 15 enum types created for type safety:
+   - User roles: `admin`, `campaign_manager`, `viewer`
+   - Campaign status: `draft`, `scheduled`, `running`, `paused`, `completed`, `cancelled`
+   - Contact states: `pending`, `in_progress`, `completed`, `refused`, `not_reached`, `excluded`
+
+3. **Timestamp Handling**: All timestamp columns use `TIMESTAMP WITH TIME ZONE` and default to `NOW()` for UTC consistency.
+
+4. **Automatic updated_at**: Trigger function `update_updated_at_column()` automatically updates `updated_at` on row modifications.
+
+5. **Foreign Key Indexes**: All foreign key columns have dedicated indexes for query performance.
+
+6. **Idempotency**: All DDL statements use `IF NOT EXISTS` / `IF EXISTS` checks for safe re-runs.
 
 ### Entity Relationships
 
-users
-  └── campaigns (created_by_user_id)
-        ├── contacts (campaign_id)
-        │     ├── call_attempts (contact_id)
-        │     │     ├── survey_responses (call_attempt_id)
-        │     │     ├── events (call_attempt_id)
-        │     │     └── transcript_snippets (call_attempt_id)
-        │     └── email_notifications (contact_id)
-        └── email_templates (email_*_template_id)
+```
+users ─────────────────┐
+                       │
+email_templates ───────┼──► campaigns ◄──── contacts
+                       │         │              │
+                       │         │              │
+                       │         ▼              ▼
+                       │    call_attempts ◄─────┘
+                       │         │
+                       │         ▼
+                       │    survey_responses
+                       │         │
+                       │         ▼
+                       └───► events ──► email_notifications
 
+provider_configs (standalone)
 exclusion_list_entries (standalone)
-provider_configs (standalone, single row)
+transcript_snippets ──► call_attempts
+```
 
-## Files Produced
+## Test Coverage
 
-### SQL Migrations
-- `src/storage/sql/V0001.up.sql` — Complete schema creation
-- `src/storage/sql/V0001.down.sql` — Complete schema teardown
+### Test Classes
 
-### Alembic Migrations
-- `src/data/migrations/migrations/versions/V0001_create_enums.py`
-- `src/data/migrations/migrations/versions/V0002_create_users_table.py`
-- `src/data/migrations/migrations/versions/V0003_create_email_templates_table.py`
-- `src/data/migrations/migrations/versions/V0004_create_campaigns_table.py`
-- `src/data/migrations/migrations/versions/V0005_create_contacts_table.py`
-- `src/data/migrations/migrations/versions/V0006_create_exclusion_list_entries_table.py`
-- `src/data/migrations/migrations/versions/V0007_create_call_attempts_table.py`
-- `src/data/migrations/migrations/versions/V0008_create_survey_responses_table.py`
-- `src/data/migrations/migrations/versions/V0009_create_events_table.py`
-- `src/data/migrations/migrations/versions/V0010_create_email_notifications_table.py`
-- `src/data/migrations/migrations/versions/V0011_create_provider_configs_table.py`
-- `src/data/migrations/migrations/versions/V0012_create_transcript_snippets_table.py`
-- `src/data/migrations/migrations/versions/V0013_create_triggers.py`
+1. **TestMigrationShape**: Validates schema structure
+   - All expected tables created
+   - UUID primary keys
+   - Enum types exist
+   - Foreign key indexes present
+   - Timestamp columns have timezone
 
-### SQLAlchemy Models
-- `src/app/shared/models/` — All entity models with relationships
+2. **TestMigrationIdempotency**: Validates safe re-runs
+   - Upgrade can run multiple times
+   - Downgrade can run multiple times
 
-### Seed Data
-- `src/storage/seed/seed.sql` — 17 seed records (3 users, 4 templates, 1 config, 1 campaign, 5 contacts, 3 exclusions)
+3. **TestMigrationRoundTrip**: Validates reversibility
+   - Upgrade then downgrade works correctly
 
-## Testing
+4. **TestSeedData**: Validates seed script
+   - Seed runs successfully
+   - Seed is idempotent
+   - Expected record counts created
 
-### Test Coverage
+5. **TestConstraints**: Validates data integrity
+   - max_attempts constraint (1-5)
+   - confidence score constraint (0-1)
 
-| Test Class | Purpose | Tests |
-|------------|---------|-------|
-| `TestSchemaShape` | Verify schema matches SPEC | 4 tests |
-| `TestIdempotency` | Verify migrations are repeatable | 2 tests |
-| `TestRoundTrip` | Verify upgrade/downgrade cycle | 2 tests |
-| `TestSeedData` | Verify seed data validity | 3 tests |
-
-### Running Tests
-
-bash
-# With testcontainers (recommended)
-pytest runs/kit/REQ-001/test/test_migration_sql.py -v
-
-# Without testcontainers
-DISABLE_TESTCONTAINERS=1 DATABASE_URL=postgresql://... pytest runs/kit/REQ-001/test/test_migration_sql.py -v
+6. **TestTriggers**: Validates automation
+   - updated_at trigger works
 
 ## Dependencies
 
-### Runtime
-- `sqlalchemy>=2.0.0`
-- `asyncpg>=0.29.0`
-- `alembic>=1.13.0`
+- PostgreSQL 15+
+- psycopg[binary] >= 3.1.0
+- pytest >= 8.0.0
+- testcontainers >= 4.0.0 (optional)
 
-### Testing
-- `pytest>=8.0.0`
-- `psycopg2-binary>=2.9.0`
-- `testcontainers>=4.0.0`
+## Usage
 
-## Notes
+```bash
+# Apply migrations
+./scripts/db_upgrade.sh
 
-1. The `provider_configs` table is designed for single-row configuration but supports multiple rows for future multi-tenant scenarios
-2. Transcript snippets are optional for slice-1 but the table is created for future use
-3. All timestamps use `TIMESTAMP WITH TIME ZONE` for proper timezone handling
-4. The `updated_at` trigger function is shared across all tables with mutable data
+# Apply seed data
+./scripts/db_seed.sh
+
+# Run tests
+pytest test/test_migration_sql.py -v
+
+# Rollback
+./scripts/db_downgrade.sh
