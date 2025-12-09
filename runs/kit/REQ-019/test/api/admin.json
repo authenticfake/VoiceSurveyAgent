@@ -1,0 +1,162 @@
+{
+  "info": {
+    "name": "REQ-019 Admin Configuration API",
+    "description": "API tests for admin configuration endpoints",
+    "version": "1.0.0"
+  },
+  "requests": [
+    {
+      "name": "Get Admin Config",
+      "method": "GET",
+      "url": "{{base_url}}/api/admin/config",
+      "headers": {
+        "X-User-ID": "{{admin_user_id}}",
+        "X-User-Role": "admin"
+      },
+      "tests": [
+        "response.status === 200",
+        "response.body.telephony !== undefined",
+        "response.body.llm !== undefined",
+        "response.body.email !== undefined",
+        "response.body.retention !== undefined"
+      ]
+    },
+    {
+      "name": "Update Telephony Config",
+      "method": "PUT",
+      "url": "{{base_url}}/api/admin/config",
+      "headers": {
+        "X-User-ID": "{{admin_user_id}}",
+        "X-User-Role": "admin",
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "telephony": {
+          "provider_name": "twilio",
+          "max_concurrent_calls": 15
+        }
+      },
+      "tests": [
+        "response.status === 200",
+        "response.body.telephony.max_concurrent_calls === 15"
+      ]
+    },
+    {
+      "name": "Update LLM Config",
+      "method": "PUT",
+      "url": "{{base_url}}/api/admin/config",
+      "headers": {
+        "X-User-ID": "{{admin_user_id}}",
+        "X-User-Role": "admin",
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "llm": {
+          "llm_provider": "anthropic",
+          "llm_model": "claude-4.5-sonnet"
+        }
+      },
+      "tests": [
+        "response.status === 200",
+        "response.body.llm.llm_provider === 'anthropic'"
+      ]
+    },
+    {
+      "name": "Update Email Config",
+      "method": "PUT",
+      "url": "{{base_url}}/api/admin/config",
+      "headers": {
+        "X-User-ID": "{{admin_user_id}}",
+        "X-User-Role": "admin",
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "email": {
+          "smtp_host": "smtp.example.com",
+          "smtp_port": 587,
+          "from_email": "noreply@example.com"
+        }
+      },
+      "tests": [
+        "response.status === 200",
+        "response.body.email.smtp_host === 'smtp.example.com'"
+      ]
+    },
+    {
+      "name": "Update Retention Config",
+      "method": "PUT",
+      "url": "{{base_url}}/api/admin/config",
+      "headers": {
+        "X-User-ID": "{{admin_user_id}}",
+        "X-User-Role": "admin",
+        "Content-Type": "application/json"
+      },
+      "body": {
+        "retention": {
+          "recording_retention_days": 365,
+          "transcript_retention_days": 180
+        }
+      },
+      "tests": [
+        "response.status === 200",
+        "response.body.retention.recording_retention_days === 365"
+      ]
+    },
+    {
+      "name": "Get Audit Logs",
+      "method": "GET",
+      "url": "{{base_url}}/api/admin/audit-logs",
+      "headers": {
+        "X-User-ID": "{{admin_user_id}}",
+        "X-User-Role": "admin"
+      },
+      "tests": [
+        "response.status === 200",
+        "response.body.items !== undefined",
+        "response.body.total !== undefined"
+      ]
+    },
+    {
+      "name": "Get Audit Logs with Pagination",
+      "method": "GET",
+      "url": "{{base_url}}/api/admin/audit-logs?page=1&page_size=10",
+      "headers": {
+        "X-User-ID": "{{admin_user_id}}",
+        "X-User-Role": "admin"
+      },
+      "tests": [
+        "response.status === 200",
+        "response.body.page === 1",
+        "response.body.page_size === 10"
+      ]
+    },
+    {
+      "name": "Unauthorized Access - Viewer Role",
+      "method": "GET",
+      "url": "{{base_url}}/api/admin/config",
+      "headers": {
+        "X-User-ID": "{{viewer_user_id}}",
+        "X-User-Role": "viewer"
+      },
+      "tests": [
+        "response.status === 403"
+      ]
+    },
+    {
+      "name": "Unauthorized Access - No User ID",
+      "method": "GET",
+      "url": "{{base_url}}/api/admin/config",
+      "headers": {
+        "X-User-Role": "admin"
+      },
+      "tests": [
+        "response.status === 403"
+      ]
+    }
+  ],
+  "variables": {
+    "base_url": "http://localhost:8000",
+    "admin_user_id": "11111111-1111-1111-1111-111111111111",
+    "viewer_user_id": "44444444-4444-4444-4444-444444444444"
+  }
+}

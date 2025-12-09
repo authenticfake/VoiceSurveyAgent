@@ -2,7 +2,7 @@
 
 ## Plan Snapshot
 
-- **Counts:** total=24 / open=7 / in_progress=17 / done=0 / deferred=0
+- **Counts:** total=24 / open=6 / in_progress=18 / done=0 / deferred=0
 - **Progress:** 0% complete
 - **Checklist:**
   - [x] SPEC aligned
@@ -81,7 +81,7 @@
 | REQ-015 | Event publisher service | EventPublisher interface defines publish method<br/>SQS adapter implements publish to configured queue<br/>Event schema includes event_type, campaign_id, contact_id, call_id<br/>Message deduplication via call_id<br/>Failed publishes retried with exponential backoff | REQ-014 | App | in_progress |
 | REQ-016 | Email worker service | Email worker polls SQS queue continuously<br/>survey.completed triggers completed email if template configured<br/>Template variables substituted from event payload<br/>EmailNotification record created with status<br/>Failed sends retried up to 3 times with backoff | REQ-015 | App | in_progress |
 | REQ-017 | Campaign dashboard stats API | GET /api/campaigns/{id}/stats returns aggregate metrics<br/>Metrics include total, completed, refused, not_reached counts<br/>Time-series data for calls per hour/day<br/>Stats cached with 60-second TTL<br/>Response time under 500ms for campaigns with 10k contacts | REQ-014 | App | in_progress |
-| REQ-018 | Campaign CSV export | GET /api/campaigns/{id}/export initiates export job<br/>Export includes campaign_id, contact_id, external_contact_id<br/>Async job stores CSV in S3 with signed URL<br/>Download URL returned with expiration<br/>Export respects RBAC (campaign_manager or admin only) | REQ-017 | App | open |
+| REQ-018 | Campaign CSV export | GET /api/campaigns/{id}/export initiates export job<br/>Export includes campaign_id, contact_id, external_contact_id<br/>Async job stores CSV in S3 with signed URL<br/>Download URL returned with expiration<br/>Export respects RBAC (campaign_manager or admin only) | REQ-017 | App | in_progress |
 | REQ-019 | Admin configuration API | GET /api/admin/config returns current configuration<br/>PUT /api/admin/config updates provider settings<br/>Telephony provider credentials stored in Secrets Manager<br/>Config changes logged in audit trail<br/>Admin role required for all config endpoints | REQ-003 | App | open |
 | REQ-020 | Call detail view API | GET /api/calls/{call_id} returns call details<br/>Response includes outcome, attempt_number, timestamps<br/>Transcript snippet included if stored<br/>Access restricted to campaign_manager and admin<br/>404 returned for non-existent call_id | REQ-014 | App | open |
 | REQ-021 | Observability instrumentation | All log entries in structured JSON format<br/>Correlation ID propagated across HTTP, telephony, LLM calls<br/>Prometheus metrics endpoint at /metrics<br/>OpenTelemetry traces for API requests<br/>Log level configurable via environment variable | REQ-001 | Infra | open |

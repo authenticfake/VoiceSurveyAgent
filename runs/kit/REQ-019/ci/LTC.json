@@ -1,0 +1,86 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-019",
+  "lane": "python",
+  "env": {
+    "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/voicesurvey_test",
+    "APP_ENV": "test",
+    "PYTHONPATH": "runs/kit/REQ-019/src"
+  },
+  "cases": [
+    {
+      "name": "install_deps",
+      "run": "pip install -r requirements.txt",
+      "cwd": "runs/kit/REQ-019",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "lint",
+      "run": "python -m ruff check src/ test/",
+      "cwd": "runs/kit/REQ-019",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "types",
+      "run": "python -m mypy src/ --ignore-missing-imports",
+      "cwd": "runs/kit/REQ-019",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "tests",
+      "run": "python -m pytest test/ -v --tb=short --junitxml=reports/junit.xml --cov=src --cov-report=xml:reports/coverage.xml",
+      "cwd": "runs/kit/REQ-019",
+      "expect": 0,
+      "timeout": 300
+    },
+    {
+      "name": "security",
+      "run": "python -m bandit -r src/ -ll",
+      "cwd": "runs/kit/REQ-019",
+      "expect": 0,
+      "timeout": 60
+    }
+  ],
+  "tools": {
+    "tests": "pytest",
+    "lint": "ruff",
+    "types": "mypy",
+    "security": "bandit",
+    "build": "pip"
+  },
+  "commands": {
+    "install": "pip install -r requirements.txt",
+    "lint": "ruff check src/ test/",
+    "types": "mypy src/ --ignore-missing-imports",
+    "tests": "pytest test/ -v",
+    "security": "bandit -r src/ -ll"
+  },
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "runs/kit/REQ-019/reports/junit.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "runs/kit/REQ-019/reports/coverage.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 80,
+    "security": {
+      "bandit_high": 0
+    }
+  },
+  "constraints_applied": {
+    "lane": "python",
+    "runtime": "python@3.12",
+    "framework": "FastAPI",
+    "coverage_min": 80
+  }
+}
