@@ -1,0 +1,13 @@
+# REQ-012: Dialogue orchestrator consent flow
+# Runtime dependencies
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+
+# Type checking
+mypy>=1.8.0
+
+# Linting
+ruff>=0.2.0

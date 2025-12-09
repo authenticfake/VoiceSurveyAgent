@@ -1,0 +1,80 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-012",
+  "lane": "python",
+  "env": {
+    "LOG_LEVEL": "DEBUG",
+    "PYTHONPATH": "runs/kit/REQ-012/src"
+  },
+  "cases": [
+    {
+      "name": "install_deps",
+      "run": "pip install -r requirements.txt",
+      "cwd": "runs/kit/REQ-012",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "lint",
+      "run": "ruff check src/ test/",
+      "cwd": "runs/kit/REQ-012",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "types",
+      "run": "mypy src/ --ignore-missing-imports",
+      "cwd": "runs/kit/REQ-012",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "tests",
+      "run": "PYTHONPATH=src pytest -v test/ --tb=short --junitxml=reports/junit.xml --cov=app --cov-report=xml:reports/coverage.xml",
+      "cwd": "runs/kit/REQ-012",
+      "expect": 0,
+      "timeout": 300
+    }
+  ],
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "runs/kit/REQ-012/reports/junit.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "runs/kit/REQ-012/reports/coverage.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 80,
+    "security": {
+      "bandit_high": 0
+    }
+  },
+  "tools": {
+    "tests": "pytest",
+    "lint": "ruff",
+    "types": "mypy",
+    "security": "bandit",
+    "build": "pip"
+  },
+  "commands": {
+    "install": "pip install -r requirements.txt",
+    "lint": "ruff check src/ test/",
+    "types": "mypy src/ --ignore-missing-imports",
+    "tests": "PYTHONPATH=src pytest -v test/"
+  },
+  "normalize": {
+    "junit_path": "reports/junit.xml",
+    "coverage_path": "reports/coverage.xml"
+  },
+  "constraints_applied": [
+    "python@3.12",
+    "fastapi",
+    "pytest>=8.0.0"
+  ]
+}
