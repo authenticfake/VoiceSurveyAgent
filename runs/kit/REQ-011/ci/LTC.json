@@ -1,0 +1,108 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-011",
+  "lane": "python",
+  "env": {
+    "OPENAI_API_KEY": "test-key-for-unit-tests",
+    "ANTHROPIC_API_KEY": "test-key-for-unit-tests",
+    "LOG_LEVEL": "WARNING",
+    "PYTHONPATH": "runs/kit/REQ-011/src:runs/kit/REQ-001/src:runs/kit/REQ-002/src"
+  },
+  "cases": [
+    {
+      "name": "install_deps",
+      "run": "pip install -r runs/kit/REQ-011/requirements.txt -q",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "test_models",
+      "run": "PYTHONPATH=runs/kit/REQ-011/src:runs/kit/REQ-001/src:runs/kit/REQ-002/src pytest runs/kit/REQ-011/test/test_llm_models.py -v --tb=short",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "test_prompts",
+      "run": "PYTHONPATH=runs/kit/REQ-011/src:runs/kit/REQ-001/src:runs/kit/REQ-002/src pytest runs/kit/REQ-011/test/test_llm_prompts.py -v --tb=short",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "test_response_parser",
+      "run": "PYTHONPATH=runs/kit/REQ-011/src:runs/kit/REQ-001/src:runs/kit/REQ-002/src pytest runs/kit/REQ-011/test/test_llm_response_parser.py -v --tb=short",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "test_gateway",
+      "run": "PYTHONPATH=runs/kit/REQ-011/src:runs/kit/REQ-001/src:runs/kit/REQ-002/src pytest runs/kit/REQ-011/test/test_llm_gateway.py -v --tb=short",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "test_openai_adapter",
+      "run": "PYTHONPATH=runs/kit/REQ-011/src:runs/kit/REQ-001/src:runs/kit/REQ-002/src pytest runs/kit/REQ-011/test/test_llm_openai_adapter.py -v --tb=short",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "test_anthropic_adapter",
+      "run": "PYTHONPATH=runs/kit/REQ-011/src:runs/kit/REQ-001/src:runs/kit/REQ-002/src pytest runs/kit/REQ-011/test/test_llm_anthropic_adapter.py -v --tb=short",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "test_factory",
+      "run": "PYTHONPATH=runs/kit/REQ-011/src:runs/kit/REQ-001/src:runs/kit/REQ-002/src pytest runs/kit/REQ-011/test/test_llm_factory.py -v --tb=short",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "all_tests",
+      "run": "PYTHONPATH=runs/kit/REQ-011/src:runs/kit/REQ-001/src:runs/kit/REQ-002/src pytest runs/kit/REQ-011/test/ -v --tb=short",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 180
+    }
+  ],
+  "tools": {
+    "tests": "pytest",
+    "lint": "ruff",
+    "types": "mypy",
+    "security": "bandit",
+    "build": "pip"
+  },
+  "commands": {
+    "install": "pip install -r runs/kit/REQ-011/requirements.txt",
+    "tests": "pytest runs/kit/REQ-011/test/ -v",
+    "lint": "ruff check runs/kit/REQ-011/src",
+    "types": "mypy runs/kit/REQ-011/src"
+  },
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "reports/junit-req011.xml",
+      "format": "junit-xml"
+    }
+  ],
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 0.0,
+    "security": {
+      "bandit_high": 0
+    }
+  },
+  "constraints_applied": [
+    "python@3.12",
+    "httpx for async HTTP",
+    "pydantic for models"
+  ]
+}
