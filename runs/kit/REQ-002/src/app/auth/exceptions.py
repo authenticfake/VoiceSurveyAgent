@@ -1,57 +1,87 @@
-"""
-Authentication exceptions.
+"""Authentication exceptions."""
+from typing import Optional
 
-Custom exceptions for authentication and authorization errors.
-"""
-
-from fastapi import HTTPException, status
-
-
-class AuthenticationError(HTTPException):
+class AuthenticationError(Exception):
     """Base authentication error."""
-
+    
     def __init__(
         self,
-        detail: str = "Authentication failed",
-        headers: dict[str, str] | None = None,
+        error: str,
+        description: str,
+        status_code: int = 401
     ) -> None:
-        super().__init__(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=detail,
-            headers=headers or {"WWW-Authenticate": "Bearer"},
-        )
-
+        """Initialize authentication error."""
+        self.error = error
+        self.description = description
+        self.status_code = status_code
+        super().__init__(description)
 
 class InvalidTokenError(AuthenticationError):
-    """Raised when JWT token is invalid."""
-
-    def __init__(self, detail: str = "Invalid or malformed token") -> None:
-        super().__init__(detail=detail)
-
+    """Invalid or malformed token error."""
+    
+    def __init__(
+        self,
+        description: str = "Invalid or malformed token"
+    ) -> None:
+        """Initialize invalid token error."""
+        super().__init__(
+            error="invalid_token",
+            description=description,
+            status_code=401
+        )
 
 class ExpiredTokenError(AuthenticationError):
-    """Raised when JWT token has expired."""
+    """Expired token error."""
+    
+    def __init__(
+        self,
+        description: str = "Token has expired"
+    ) -> None:
+        """Initialize expired token error."""
+        super().__init__(
+            error="token_expired",
+            description=description,
+            status_code=401
+        )
 
-    def __init__(self, detail: str = "Token has expired") -> None:
-        super().__init__(detail=detail)
+class InsufficientScopeError(AuthenticationError):
+    """Insufficient scope/permissions error."""
+    
+    def __init__(
+        self,
+        description: str = "Insufficient permissions"
+    ) -> None:
+        """Initialize insufficient scope error."""
+        super().__init__(
+            error="insufficient_scope",
+            description=description,
+            status_code=403
+        )
 
-
-class MissingTokenError(AuthenticationError):
-    """Raised when no token is provided."""
-
-    def __init__(self, detail: str = "Authentication token required") -> None:
-        super().__init__(detail=detail)
-
-
-class OIDCError(AuthenticationError):
-    """Raised when OIDC flow fails."""
-
-    def __init__(self, detail: str = "OIDC authentication failed") -> None:
-        super().__init__(detail=detail)
-
+class OIDCProviderError(AuthenticationError):
+    """OIDC provider communication error."""
+    
+    def __init__(
+        self,
+        description: str = "OIDC provider error"
+    ) -> None:
+        """Initialize OIDC provider error."""
+        super().__init__(
+            error="provider_error",
+            description=description,
+            status_code=502
+        )
 
 class InvalidStateError(AuthenticationError):
-    """Raised when CSRF state validation fails."""
-
-    def __init__(self, detail: str = "Invalid state parameter") -> None:
-        super().__init__(detail=detail)
+    """Invalid CSRF state error."""
+    
+    def __init__(
+        self,
+        description: str = "Invalid state parameter"
+    ) -> None:
+        """Initialize invalid state error."""
+        super().__init__(
+            error="invalid_state",
+            description=description,
+            status_code=400
+        )

@@ -1,73 +1,184 @@
-from __future__ import annotations
-
-from dataclasses import dataclass
-from typing import Callable, Optional
+"""OIDC client for authorization code flow."""
+import secrets
+from typing import Optional
+from urllib.parse import urlencode
 
 import httpx
-from pydantic import BaseModel, EmailStr
 
-from app.config import OIDCSettings
-
-
-class OIDCError(RuntimeError):
-    pass
-
-
-@dataclass
-class TokenSet:
-    access_token: str
-    refresh_token: str
-    id_token: str | None
-    expires_in: int
-
-
-class UserInfo(BaseModel):
-    sub: str
-    email: EmailStr
-    name: str
-    role: str | None = None
-
+from app.auth.config import AuthConfig
+from app.auth.exceptions import OIDCProviderError
+from app.auth.models import TokenResponse, UserInfo
 
 class OIDCClient:
+    """Client for OIDC authorization code flow."""
+    
     def __init__(
         self,
-        settings: OIDCSettings,
-        http_client_factory: Optional[Callable[[], httpx.AsyncClient]] = None,
-    ):
-        self.settings = settings
-        self.http_client_factory = http_client_factory or (
-            lambda: httpx.AsyncClient(timeout=10)
-        )
-
-    async def exchange_code(self, code: str, redirect_uri: str) -> TokenSet:
-        async with self.http_client_factory() as client:
-            response = await client.post(
-                str(self.settings.token_endpoint),
-                data={
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "redirect_uri": redirect_uri,
-                    "client_id": self.settings.client_id,
-                    "client_secret": self.settings.client_secret,
-                },
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-            )
-            if response.status_code >= 400:
-                raise OIDCError("token_exchange_failed")
-            payload = response.json()
-            return TokenSet(
-                access_token=payload["access_token"],
-                refresh_token=payload.get("refresh_token", ""),
-                id_token=payload.get("id_token"),
-                expires_in=payload.get("expires_in", 3600),
-            )
-
-    async def fetch_userinfo(self, access_token: str) -> UserInfo:
-        async with self.http_client_factory() as client:
-            response = await client.get(
-                str(self.settings.userinfo_endpoint),
-                headers={"Authorization": f"Bearer {access_token}"},
-            )
-            if response.status_code >= 400:
-                raise OIDCError("userinfo_failed")
-            return UserInfo(**response.json())
+        config: AuthConfig,
+        http_timeout: float = 10.0
+    ) -> None:
+        """Initialize OIDC client.
+        
+        Args:
+            config: Authentication configuration
+            http_timeout: HTTP request timeout
+        """
+        self._config = config
+        self._http_timeout = http_timeout
+    
+    def generate_state(self) -> str:
+        """Generate a cryptographically secure state parameter.
+        
+        Returns:
+            Random state string
+        """
+        return secrets.token_urlsafe(32)
+    
+    def get_authorization_url(
+        self,
+        state: str,
+        redirect_uri: Optional[str] = None,
+        nonce: Optional[str] = None
+    ) -> str:
+        """Build authorization URL for OIDC flow.
+        
+        Args:
+            state: CSRF state parameter
+            redirect_uri: Optional custom redirect URI
+            nonce: Optional nonce for ID token validation
+            
+        Returns:
+            Authorization URL
+        """
+        params = {
+            "response_type": "code",
+            "client_id": self._config.client_id,
+            "redirect_uri": redirect_uri or self._config.redirect_uri,
+            "scope": " ".join(self._config.scopes),
+            "state": state,
+        }
+        
+        if nonce:
+            params["nonce"] = nonce
+        
+        return f"{self._config.authorization_endpoint}?{urlencode(params)}"
+    
+    async def exchange_code(
+        self,
+        code: str,
+        redirect_uri: Optional[str] = None
+    ) -> TokenResponse:
+        """Exchange authorization code for tokens.
+        
+        Args:
+            code: Authorization code from callback
+            redirect_uri: Redirect URI used in authorization request
+            
+        Returns:
+            Token response with access token and optional refresh token
+            
+        Raises:
+            OIDCProviderError: If token exchange fails
+        """
+        data = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri or self._config.redirect_uri,
+            "client_id": self._config.client_id,
+            "client_secret": self._config.client_secret,
+        }
+        
+        try:
+            async with httpx.AsyncClient(
+                timeout=self._http_timeout
+            ) as client:
+                response = await client.post(
+                    self._config.token_endpoint,
+                    data=data,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"}
+                )
+                
+                if response.status_code != 200:
+                    error_data = response.json()
+                    raise OIDCProviderError(
+                        f"Token exchange failed: {error_data.get('error_description', error_data.get('error', 'Unknown error'))}"
+                    )
+                
+                return TokenResponse(**response.json())
+        except httpx.HTTPError as e:
+            raise OIDCProviderError(f"HTTP error during token exchange: {e}")
+    
+    async def refresh_tokens(
+        self,
+        refresh_token: str
+    ) -> TokenResponse:
+        """Refresh access token using refresh token.
+        
+        Args:
+            refresh_token: Refresh token
+            
+        Returns:
+            New token response
+            
+        Raises:
+            OIDCProviderError: If refresh fails
+        """
+        data = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "client_id": self._config.client_id,
+            "client_secret": self._config.client_secret,
+        }
+        
+        try:
+            async with httpx.AsyncClient(
+                timeout=self._http_timeout
+            ) as client:
+                response = await client.post(
+                    self._config.token_endpoint,
+                    data=data,
+                    headers={"Content-Type": "application/x-www-form-urlencoded"}
+                )
+                
+                if response.status_code != 200:
+                    error_data = response.json()
+                    raise OIDCProviderError(
+                        f"Token refresh failed: {error_data.get('error_description', error_data.get('error', 'Unknown error'))}"
+                    )
+                
+                return TokenResponse(**response.json())
+        except httpx.HTTPError as e:
+            raise OIDCProviderError(f"HTTP error during token refresh: {e}")
+    
+    async def get_userinfo(
+        self,
+        access_token: str
+    ) -> UserInfo:
+        """Fetch user info from OIDC provider.
+        
+        Args:
+            access_token: Valid access token
+            
+        Returns:
+            User information
+            
+        Raises:
+            OIDCProviderError: If userinfo request fails
+        """
+        try:
+            async with httpx.AsyncClient(
+                timeout=self._http_timeout
+            ) as client:
+                response = await client.get(
+                    self._config.userinfo_endpoint,
+                    headers={"Authorization": f"Bearer {access_token}"}
+                )
+                
+                if response.status_code != 200:
+                    raise OIDCProviderError(
+                        f"Userinfo request failed with status {response.status_code}"
+                    )
+                
+                return UserInfo(**response.json())
+        except httpx.HTTPError as e:
+            raise OIDCProviderError(f"HTTP error during userinfo request: {e}")

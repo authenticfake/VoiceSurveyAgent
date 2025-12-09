@@ -1,75 +1,221 @@
-# HOWTO — Execute REQ-002 Auth Suite
+# REQ-002: OIDC Authentication Integration - Execution Guide
+
+## Overview
+
+This KIT implements OIDC authentication integration for the Voice Survey Agent platform, including:
+- OIDC authorization code flow with configurable IdP endpoints
+- JWT token validation middleware
+- User record creation/update on first login
+- Session tokens with configurable expiration and refresh capability
 
 ## Prerequisites
+
+### System Requirements
 - Python 3.12+
-- Virtualenv or pyenv recommended
-- Internet access to fetch PyPI packages (FastAPI, SQLAlchemy, httpx, PyJWT)
+- PostgreSQL 14+ (for user storage)
+- Access to an OIDC-compliant Identity Provider (e.g., Keycloak, Auth0, Okta)
 
-## Setup
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
+### Environment Variables
 
-pip install -r runs/kit/REQ-002/src/requirements.txt
-```
+bash
+# Database
+export DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/voicesurvey"
 
-## Environment
-Export the following (adapt for your IdP/prod env):
+# OIDC Configuration
+export OIDC_ISSUER_URL="https://your-idp.example.com"
+export OIDC_AUTHORIZATION_ENDPOINT="https://your-idp.example.com/authorize"
+export OIDC_TOKEN_ENDPOINT="https://your-idp.example.com/token"
+export OIDC_USERINFO_ENDPOINT="https://your-idp.example.com/userinfo"
+export OIDC_JWKS_URI="https://your-idp.example.com/.well-known/jwks.json"
+export OIDC_CLIENT_ID="your-client-id"
+export OIDC_CLIENT_SECRET="your-client-secret"
+export OIDC_REDIRECT_URI="http://localhost:8000/api/auth/callback"
 
-```bash
-export DATABASE_URL="postgresql+psycopg://user:pass@host:5432/voicesurvey"
-export OIDC_ISSUER="https://idp.example.com"
-export OIDC_CLIENT_ID="voicesurvey-client"
-export OIDC_CLIENT_SECRET="super-secret"
-export OIDC_AUTHORIZATION_ENDPOINT="${OIDC_ISSUER}/authorize"
-export OIDC_TOKEN_ENDPOINT="${OIDC_ISSUER}/token"
-export OIDC_USERINFO_ENDPOINT="${OIDC_ISSUER}/userinfo"
-export OIDC_REDIRECT_URI="https://console.example.com/oidc/callback"
-export AUTH_TOKEN_SECRET="64+ character secret for HS256"
-export ACCESS_TOKEN_TTL_SECONDS="900"
-export REFRESH_TOKEN_TTL_SECONDS="86400"
-```
+# Token Settings (optional)
+export ACCESS_TOKEN_EXPIRE_MINUTES="30"
+export REFRESH_TOKEN_EXPIRE_DAYS="7"
+export JWT_ALGORITHM="RS256"
+export OIDC_SCOPES="openid profile email"
 
-## Run Locally
-```bash
-uvicorn app.main:app --reload --port 8080 --app-dir runs/kit/REQ-002/src
-```
+## Local Development Setup
 
-Interact with:
-- `GET http://localhost:8080/api/auth/login`
-- `POST http://localhost:8080/api/auth/callback`
-- `POST http://localhost:8080/api/auth/refresh`
-- `GET http://localhost:8080/api/protected` (requires Bearer token)
+### 1. Install Dependencies
 
-## Tests
-Run via LTC command or manually:
+bash
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # Linux/macOS
+# or
+.venv\Scripts\activate  # Windows
 
-```bash
-pytest -q runs/kit/REQ-002/test
-```
+# Install dependencies
+pip install -r runs/kit/REQ-002/requirements.txt
 
-## Enterprise CI (Jenkins/GitHub)
-- Install deps using requirements file.
-- Inject env vars via credential store/secrets manager.
-- Execute the LTC `tests` command.
-- Collect pytest results from stdout (no extra report files in this kit).
+### 2. Set PYTHONPATH
+
+bash
+# Include both REQ-001 (database models) and REQ-002 source
+export PYTHONPATH="runs/kit/REQ-002/src:runs/kit/REQ-001/src:$PYTHONPATH"
+
+### 3. Run Database Migrations
+
+Ensure REQ-001 migrations have been applied:
+
+bash
+cd runs/kit/REQ-001
+./scripts/db_upgrade.sh
+
+### 4. Run Tests
+
+bash
+# Run all tests
+pytest runs/kit/REQ-002/test -v
+
+# Run with coverage
+pytest runs/kit/REQ-002/test -v --cov=runs/kit/REQ-002/src --cov-report=html
+
+# Run specific test file
+pytest runs/kit/REQ-002/test/test_auth_middleware.py -v
+
+## Running the Application
+
+### Integration with FastAPI App
+
+python
+from fastapi import FastAPI
+from app.auth.config import AuthConfig
+from app.auth.middleware import JWTAuthMiddleware
+from app.auth.router import router as auth_router
+
+app = FastAPI()
+
+# Load auth config
+auth_config = AuthConfig.from_env()
+
+# Add authentication middleware
+app.add_middleware(JWTAuthMiddleware, config=auth_config)
+
+# Include auth routes
+app.include_router(auth_router)
+
+### Testing Authentication Flow
+
+1. **Initiate Login:**
+   bash
+   curl -v http://localhost:8000/api/auth/login
+   # Follow redirect to IdP
+   
+
+2. **After IdP Authentication:**
+   The callback endpoint receives the authorization code and returns tokens:
+   json
+   {
+     "access_token": "eyJ...",
+     "token_type": "Bearer",
+     "expires_in": 1800,
+     "refresh_token": "...",
+     "user": {
+       "id": "...",
+       "email": "user@example.com",
+       "name": "User Name",
+       "role": "viewer"
+     }
+   }
+   
+
+3. **Access Protected Endpoints:**
+   bash
+   curl -H "Authorization: Bearer <access_token>" \
+        http://localhost:8000/api/protected
+   
+
+4. **Refresh Token:**
+   bash
+   curl -X POST http://localhost:8000/api/auth/refresh \
+        -H "Content-Type: application/json" \
+        -d '{"refresh_token": "<refresh_token>"}'
+   
+
+## CI/CD Integration
+
+### GitHub Actions
+
+The LTC.json file defines the test contract. Run in CI:
+
+yaml
+- name: Run REQ-002 Tests
+  run: |
+    pip install -r runs/kit/REQ-002/requirements.txt
+    PYTHONPATH=runs/kit/REQ-002/src:runs/kit/REQ-001/src \
+    pytest runs/kit/REQ-002/test -v --junitxml=reports/junit-req002.xml
+
+### Jenkins Pipeline
+
+groovy
+stage('REQ-002 Tests') {
+    steps {
+        sh '''
+            pip install -r runs/kit/REQ-002/requirements.txt
+            export PYTHONPATH=runs/kit/REQ-002/src:runs/kit/REQ-001/src
+            pytest runs/kit/REQ-002/test -v --junitxml=reports/junit-req002.xml
+        '''
+    }
+    post {
+        always {
+            junit 'reports/junit-req002.xml'
+        }
+    }
+}
 
 ## Troubleshooting
-- **Missing tables**: ensure DATABASE_URL reachable; FastAPI lifespan auto-creates schema. For Postgres run migrations from REQ-001 before launching.
-- **Token errors**: verify `AUTH_TOKEN_SECRET` consistent across app pods.
-- **OIDC failures**: confirm client credentials + redirect URI match IdP config. Use `HTTP_TIMEOUT_SECONDS` env to tune network behavior.
-- **SQLite memory in tests**: uses StaticPool for concurrency; no action needed unless overriding DATABASE_URL.
 
-## Notes
-- `get_current_user` dependency guards downstream APIs; RBAC layers (REQ-003) should stack on top.
-- Replace mock transport overrides with actual IdP connectivity in non-test environments.
+### Common Issues
 
-KIT Iteration Log
------------------
-- **Targeted REQ-ID(s)**: REQ-002 (next open dependency after REQ-001). Implemented OIDC auth stack per SPEC/PLAN.
-- **In/Out of scope**: In scope—OIDC flow, JWT issuance, user persistence, middleware, tests, docs, CI artifacts. Out of scope—RBAC policies (REQ-003), campaign APIs, real IdP secrets storage.
-- **How to run tests**: `pytest -q runs/kit/REQ-002/test`
-- **Prerequisites**: Python 3.12+, ability to install requirements. Env vars for DB + OIDC endpoints; Postgres recommended outside tests.
-- **Dependencies and mocks**: OIDC provider HTTP calls mocked via httpx `MockTransport` in tests to ensure determinism. Database uses SQLite in-memory for tests; schema compatible with Postgres per REQ-001.
-- **Product Owner Notes**: Token + OIDC configuration fully environment-driven; ready for RBAC extension in REQ-003.
-- **RAG citations**: REQ-001 schema/enums ensured user model alignment (docs/harper/plan.md, SPEC.md).
+1. **Import Errors:**
+   - Ensure PYTHONPATH includes both REQ-001 and REQ-002 src directories
+   - Verify all dependencies are installed
+
+2. **OIDC Configuration Errors:**
+   - Verify all OIDC environment variables are set
+   - Check IdP endpoints are accessible
+   - Ensure client credentials are correct
+
+3. **Token Validation Failures:**
+   - Verify JWKS URI is accessible
+   - Check token algorithm matches IdP configuration
+   - Ensure issuer and audience claims match configuration
+
+4. **Database Connection Errors:**
+   - Verify DATABASE_URL is correct
+   - Ensure PostgreSQL is running
+   - Check REQ-001 migrations have been applied
+
+### Debug Mode
+
+Enable SQL logging for debugging:
+bash
+export SQL_ECHO=true
+
+## Architecture Notes
+
+### Module Structure
+
+runs/kit/REQ-002/src/app/auth/
+├── __init__.py          # Module exports
+├── config.py            # Configuration from environment
+├── models.py            # Pydantic models for auth DTOs
+├── exceptions.py        # Custom auth exceptions
+├── jwks.py              # JWKS client for key management
+├── oidc_client.py       # OIDC authorization code flow
+├── jwt_validator.py     # JWT token validation
+├── service.py           # Auth service (user management)
+├── middleware.py        # FastAPI JWT middleware
+├── dependencies.py      # FastAPI dependencies
+└── router.py            # API routes
+
+### Key Design Decisions
+
+1. **Composition over Inheritance:** All dependencies are injected
+2. **Interface-based Design:** Services depend on abstractions
+3. **Async-first:** All I/O operations are async
+4. **Testability:** Mock-friendly design with dependency injection

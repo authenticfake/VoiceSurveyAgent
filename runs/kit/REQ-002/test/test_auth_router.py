@@ -1,254 +1,157 @@
-"""
-Integration tests for authentication router.
-
-Tests REST endpoints for OIDC authentication flow.
-"""
-
-from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
+"""Tests for authentication API routes."""
+from datetime import datetime, timedelta, timezone
+from unittest import mock
+import uuid
 
 import pytest
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
-from pydantic import HttpUrl
 
-from app.auth.schemas import AuthenticatedResponse, UserContext, UserRole
-from app.main import app
-
-
-@pytest.fixture
-def mock_settings():
-    """Create mock settings."""
-    settings = MagicMock()
-    settings.app_name = "voicesurveyagent"
-    settings.app_env = "test"
-    settings.debug = False
-    settings.log_level = "INFO"
-    settings.database_url = "postgresql://test:test@localhost/test"
-    settings.redis_url = "redis://localhost:6379/0"
-    settings.oidc_issuer = "https://idp.example.com"
-    settings.oidc_authorization_endpoint = "https://idp.example.com/authorize"
-    settings.oidc_token_endpoint = "https://idp.example.com/token"
-    settings.oidc_userinfo_endpoint = "https://idp.example.com/userinfo"
-    settings.oidc_jwks_uri = "https://idp.example.com/.well-known/jwks.json"
-    settings.oidc_client_id = "test-client-id"
-    settings.oidc_client_secret = "test-client-secret"
-    settings.oidc_redirect_uri = "http://localhost:8000/api/auth/callback"
-    settings.oidc_scopes = ["openid", "profile", "email"]
-    return settings
-
+from app.auth.config import AuthConfig
+from app.auth.models import LoginResponse, TokenResponse, UserProfileResponse
+from app.auth.router import router as auth_router
+from app.shared.models.enums import UserRole
 
 @pytest.fixture
-async def client(mock_settings):
-    """Create test client."""
-    with patch("app.config.get_settings", return_value=mock_settings):
-        with patch("app.auth.router.get_settings", return_value=mock_settings):
-            async with AsyncClient(
-                transport=ASGITransport(app=app),
-                base_url="http://test",
-            ) as client:
-                yield client
+def auth_config():
+    """Create test auth config."""
+    return AuthConfig(
+        issuer_url="https://idp.example.com",
+        authorization_endpoint="https://idp.example.com/authorize",
+        token_endpoint="https://idp.example.com/token",
+        userinfo_endpoint="https://idp.example.com/userinfo",
+        jwks_uri="https://idp.example.com/.well-known/jwks.json",
+        client_id="test-client",
+        client_secret="test-secret",
+        redirect_uri="http://localhost:8000/api/auth/callback",
+        post_logout_redirect_uri="http://localhost:8000",
+        access_token_expire_minutes=30,
+        refresh_token_expire_days=7,
+        algorithm="RS256",
+        scopes=["openid", "profile", "email"]
+    )
 
+@pytest.fixture
+def app(auth_config):
+    """Create FastAPI app with auth router."""
+    app = FastAPI()
+    app.include_router(auth_router)
+    
+    # Override dependencies
+    from app.auth.dependencies import get_auth_config
+    app.dependency_overrides[get_auth_config] = lambda: auth_config
+    
+    return app
 
-class TestLoginEndpoint:
-    """Tests for /api/auth/login endpoint."""
-
+class TestAuthRouter:
+    """Tests for auth router endpoints."""
+    
     @pytest.mark.asyncio
-    async def test_login_returns_authorization_url(self, client, mock_settings):
-        """Test that login returns authorization URL."""
-        with patch("app.auth.router.get_auth_service") as mock_get_service:
-            mock_service = AsyncMock()
-            mock_service.generate_authorization_url.return_value = (
-                "https://idp.example.com/authorize?client_id=test&state=abc123",
-                "abc123",
-            )
-            mock_get_service.return_value = mock_service
-
+    async def test_login_redirects_to_provider(self, app, auth_config):
+        """Test that login redirects to OIDC provider."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            follow_redirects=False
+        ) as client:
             response = await client.get("/api/auth/login")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "authorization_url" in data
-        assert "state" in data
-
+            
+            assert response.status_code == 302
+            location = response.headers["location"]
+            assert "https://idp.example.com/authorize" in location
+            assert "client_id=test-client" in location
+    
     @pytest.mark.asyncio
-    async def test_login_with_custom_redirect(self, client, mock_settings):
-        """Test login with custom redirect URL."""
-        with patch("app.auth.router.get_auth_service") as mock_get_service:
-            mock_service = AsyncMock()
-            mock_service.generate_authorization_url.return_value = (
-                "https://idp.example.com/authorize?redirect_uri=http://custom.com",
-                "abc123",
-            )
-            mock_get_service.return_value = mock_service
-
-            response = await client.get(
-                "/api/auth/login",
-                params={"redirect_url": "http://custom.example.com/callback"},
-            )
-
-        assert response.status_code == 200
-
-
-class TestCallbackEndpoint:
-    """Tests for /api/auth/callback endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_callback_success(self, client, mock_settings):
-        """Test successful callback handling."""
-        user_id = uuid4()
-        mock_response = AuthenticatedResponse(
-            access_token="test-access-token",
-            token_type="Bearer",
-            expires_in=3600,
-            refresh_token="test-refresh-token",
-            user=UserContext(
-                id=user_id,
-                oidc_sub="test-sub",
-                email="test@example.com",
-                name="Test User",
-                role=UserRole.VIEWER,
-            ),
+    async def test_login_not_configured(self, app):
+        """Test login when OIDC not configured."""
+        # Override with unconfigured config
+        from app.auth.dependencies import get_auth_config
+        app.dependency_overrides[get_auth_config] = lambda: AuthConfig(
+            issuer_url="",
+            authorization_endpoint="",
+            token_endpoint="",
+            userinfo_endpoint="",
+            jwks_uri="",
+            client_id="",
+            client_secret="",
+            redirect_uri="",
+            post_logout_redirect_uri="",
+            access_token_expire_minutes=30,
+            refresh_token_expire_days=7,
+            algorithm="RS256",
+            scopes=[]
         )
-
-        with patch("app.auth.router.get_auth_service") as mock_get_service:
-            mock_service = AsyncMock()
-            mock_service.authenticate.return_value = mock_response
-            mock_get_service.return_value = mock_service
-
+        
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test"
+        ) as client:
+            response = await client.get("/api/auth/login")
+            
+            assert response.status_code == 503
+    
+    @pytest.mark.asyncio
+    async def test_callback_with_error(self, app):
+        """Test callback with error from provider."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test"
+        ) as client:
             response = await client.get(
                 "/api/auth/callback",
-                params={"code": "test-code", "state": "test-state"},
+                params={
+                    "code": "test-code",
+                    "state": "test-state",
+                    "error": "access_denied",
+                    "error_description": "User denied access"
+                }
             )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["access_token"] == "test-access-token"
-        assert data["user"]["email"] == "test@example.com"
-
+            
+            assert response.status_code == 400
+            assert "User denied access" in response.json()["detail"]
+    
     @pytest.mark.asyncio
-    async def test_callback_missing_params(self, client):
-        """Test callback with missing parameters."""
-        response = await client.get("/api/auth/callback")
-
-        assert response.status_code == 422  # Validation error
-
-
-class TestRefreshEndpoint:
-    """Tests for /api/auth/refresh endpoint."""
-
+    async def test_callback_with_invalid_state(self, app):
+        """Test callback with invalid state."""
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test"
+        ) as client:
+            response = await client.get(
+                "/api/auth/callback",
+                params={
+                    "code": "test-code",
+                    "state": "invalid-state"
+                }
+            )
+            
+            assert response.status_code == 400
+            assert "Invalid state" in response.json()["detail"]
+    
     @pytest.mark.asyncio
-    async def test_refresh_success(self, client, mock_settings):
-        """Test successful token refresh."""
-        user_id = uuid4()
-        mock_response = AuthenticatedResponse(
-            access_token="new-access-token",
-            token_type="Bearer",
-            expires_in=3600,
-            refresh_token="new-refresh-token",
-            user=UserContext(
-                id=user_id,
-                oidc_sub="test-sub",
-                email="test@example.com",
-                name="Test User",
-                role=UserRole.VIEWER,
-            ),
+    async def test_refresh_endpoint(self, app):
+        """Test refresh token endpoint."""
+        # Mock the auth service
+        from app.auth.dependencies import get_auth_service
+        
+        mock_service = mock.AsyncMock()
+        mock_service.refresh_tokens.return_value = (
+            "new-access-token",
+            "new-refresh-token"
         )
-
-        with patch("app.auth.router.get_auth_service") as mock_get_service:
-            mock_service = AsyncMock()
-            mock_service.refresh_tokens.return_value = mock_response
-            mock_get_service.return_value = mock_service
-
+        
+        app.dependency_overrides[get_auth_service] = lambda: mock_service
+        
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test"
+        ) as client:
             response = await client.post(
                 "/api/auth/refresh",
-                json={"refresh_token": "old-refresh-token"},
+                json={"refresh_token": "old-refresh-token"}
             )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["access_token"] == "new-access-token"
-
-
-class TestMeEndpoint:
-    """Tests for /api/auth/me endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_me_requires_authentication(self, client):
-        """Test that /me endpoint requires authentication."""
-        response = await client.get("/api/auth/me")
-
-        assert response.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_me_returns_user_profile(self, client, mock_settings):
-        """Test that /me returns user profile."""
-        user_id = uuid4()
-        mock_user = MagicMock()
-        mock_user.id = user_id
-        mock_user.oidc_sub = "test-sub"
-        mock_user.email = "test@example.com"
-        mock_user.name = "Test User"
-        mock_user.role = "viewer"
-        mock_user.created_at = "2024-01-01T00:00:00Z"
-
-        mock_token_payload = MagicMock()
-        mock_token_payload.sub = "test-sub"
-        mock_token_payload.email = "test@example.com"
-        mock_token_payload.name = "Test User"
-
-        with patch("app.auth.middleware.AuthService") as MockAuthService:
-            mock_service = AsyncMock()
-            mock_service.validate_token.return_value = mock_token_payload
-            mock_service.get_or_create_user.return_value = mock_user
-            mock_service.get_user_by_id.return_value = mock_user
-            MockAuthService.return_value = mock_service
-
-            with patch("app.auth.router.AuthService", MockAuthService):
-                response = await client.get(
-                    "/api/auth/me",
-                    headers={"Authorization": "Bearer test-token"},
-                )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["email"] == "test@example.com"
-
-
-class TestLogoutEndpoint:
-    """Tests for /api/auth/logout endpoint."""
-
-    @pytest.mark.asyncio
-    async def test_logout_requires_authentication(self, client):
-        """Test that logout requires authentication."""
-        response = await client.post("/api/auth/logout")
-
-        assert response.status_code == 401
-
-    @pytest.mark.asyncio
-    async def test_logout_success(self, client, mock_settings):
-        """Test successful logout."""
-        user_id = uuid4()
-        mock_user = MagicMock()
-        mock_user.id = user_id
-        mock_user.oidc_sub = "test-sub"
-        mock_user.email = "test@example.com"
-        mock_user.name = "Test User"
-        mock_user.role = "viewer"
-
-        mock_token_payload = MagicMock()
-        mock_token_payload.sub = "test-sub"
-        mock_token_payload.email = "test@example.com"
-        mock_token_payload.name = "Test User"
-
-        with patch("app.auth.middleware.AuthService") as MockAuthService:
-            mock_service = AsyncMock()
-            mock_service.validate_token.return_value = mock_token_payload
-            mock_service.get_or_create_user.return_value = mock_user
-            MockAuthService.return_value = mock_service
-
-            response = await client.post(
-                "/api/auth/logout",
-                headers={"Authorization": "Bearer test-token"},
-            )
-
-        assert response.status_code == 204
+            
+            assert response.status_code == 200
+            data = response.json()
+            assert data["access_token"] == "new-access-token"
+            assert data["refresh_token"] == "new-refresh-token"
