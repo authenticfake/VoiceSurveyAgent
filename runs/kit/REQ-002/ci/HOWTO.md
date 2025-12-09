@@ -1,200 +1,75 @@
-# REQ-002: OIDC Authentication Integration - Execution Guide
+# HOWTO — Execute REQ-002 Auth Suite
 
 ## Prerequisites
-
-### System Requirements
 - Python 3.12+
-- PostgreSQL 15+ (for user storage)
-- Redis 7+ (optional, for production state storage)
+- Virtualenv or pyenv recommended
+- Internet access to fetch PyPI packages (FastAPI, SQLAlchemy, httpx, PyJWT)
 
-### Environment Setup
-
-1. **Create virtual environment:**
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # Linux/macOS
-   # or
-   .venv\Scripts\activate  # Windows
-   ```
-
-2. **Install dependencies:**
-   ```bash
-   pip install -r runs/kit/REQ-002/requirements.txt
-   ```
-
-3. **Configure environment variables:**
-   Create a `.env` file or export variables:
-   ```bash
-   export DATABASE_URL="postgresql://user:password@localhost:5432/voicesurvey"
-   export REDIS_URL="redis://localhost:6379/0"
-   export OIDC_ISSUER="https://your-idp.example.com"
-   export OIDC_AUTHORIZATION_ENDPOINT="https://your-idp.example.com/authorize"
-   export OIDC_TOKEN_ENDPOINT="https://your-idp.example.com/token"
-   export OIDC_USERINFO_ENDPOINT="https://your-idp.example.com/userinfo"
-   export OIDC_JWKS_URI="https://your-idp.example.com/.well-known/jwks.json"
-   export OIDC_CLIENT_ID="your-client-id"
-   export OIDC_CLIENT_SECRET="your-client-secret"
-   export OIDC_REDIRECT_URI="http://localhost:8000/api/auth/callback"
-   ```
-
-### PYTHONPATH Configuration
-
-Set PYTHONPATH to include the source directory:
+## Setup
 ```bash
-export PYTHONPATH="${PYTHONPATH}:$(pwd)/runs/kit/REQ-002/src:$(pwd)/runs/kit/REQ-001/src"
+python3 -m venv .venv
+source .venv/bin/activate
+
+pip install -r runs/kit/REQ-002/src/requirements.txt
 ```
 
-## Running Tests
+## Environment
+Export the following (adapt for your IdP/prod env):
 
-### Unit Tests
 ```bash
-pytest runs/kit/REQ-002/test/ -v --tb=short
+export DATABASE_URL="postgresql+psycopg://user:pass@host:5432/voicesurvey"
+export OIDC_ISSUER="https://idp.example.com"
+export OIDC_CLIENT_ID="voicesurvey-client"
+export OIDC_CLIENT_SECRET="super-secret"
+export OIDC_AUTHORIZATION_ENDPOINT="${OIDC_ISSUER}/authorize"
+export OIDC_TOKEN_ENDPOINT="${OIDC_ISSUER}/token"
+export OIDC_USERINFO_ENDPOINT="${OIDC_ISSUER}/userinfo"
+export OIDC_REDIRECT_URI="https://console.example.com/oidc/callback"
+export AUTH_TOKEN_SECRET="64+ character secret for HS256"
+export ACCESS_TOKEN_TTL_SECONDS="900"
+export REFRESH_TOKEN_TTL_SECONDS="86400"
 ```
 
-### With Coverage
+## Run Locally
 ```bash
-pytest runs/kit/REQ-002/test/ \
-  --cov=runs/kit/REQ-002/src/app/auth \
-  --cov-report=term-missing \
-  --cov-report=xml:runs/kit/REQ-002/reports/coverage.xml
+uvicorn app.main:app --reload --port 8080 --app-dir runs/kit/REQ-002/src
 ```
 
-### Generate JUnit Report
+Interact with:
+- `GET http://localhost:8080/api/auth/login`
+- `POST http://localhost:8080/api/auth/callback`
+- `POST http://localhost:8080/api/auth/refresh`
+- `GET http://localhost:8080/api/protected` (requires Bearer token)
+
+## Tests
+Run via LTC command or manually:
+
 ```bash
-pytest runs/kit/REQ-002/test/ \
-  --junitxml=runs/kit/REQ-002/reports/junit.xml
+pytest -q runs/kit/REQ-002/test
 ```
 
-## Running the Application
-
-### Development Server
-```bash
-cd runs/kit/REQ-002/src
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### API Documentation
-Once running, access:
-- Swagger UI: http://localhost:8000/docs
-- ReDoc: http://localhost:8000/redoc
-
-## Authentication Flow
-
-### 1. Initiate Login
-```bash
-curl http://localhost:8000/api/auth/login
-```
-Response contains `authorization_url` - redirect user to this URL.
-
-### 2. Handle Callback
-After user authenticates with IdP, they're redirected to callback:
-```bash
-curl "http://localhost:8000/api/auth/callback?code=AUTH_CODE&state=STATE"
-```
-
-### 3. Use Access Token
-Include token in subsequent requests:
-```bash
-curl -H "Authorization: Bearer ACCESS_TOKEN" http://localhost:8000/api/auth/me
-```
-
-### 4. Refresh Token
-```bash
-curl -X POST http://localhost:8000/api/auth/refresh \
-  -H "Content-Type: application/json" \
-  -d '{"refresh_token": "REFRESH_TOKEN"}'
-```
+## Enterprise CI (Jenkins/GitHub)
+- Install deps using requirements file.
+- Inject env vars via credential store/secrets manager.
+- Execute the LTC `tests` command.
+- Collect pytest results from stdout (no extra report files in this kit).
 
 ## Troubleshooting
+- **Missing tables**: ensure DATABASE_URL reachable; FastAPI lifespan auto-creates schema. For Postgres run migrations from REQ-001 before launching.
+- **Token errors**: verify `AUTH_TOKEN_SECRET` consistent across app pods.
+- **OIDC failures**: confirm client credentials + redirect URI match IdP config. Use `HTTP_TIMEOUT_SECONDS` env to tune network behavior.
+- **SQLite memory in tests**: uses StaticPool for concurrency; no action needed unless overriding DATABASE_URL.
 
-### Common Issues
+## Notes
+- `get_current_user` dependency guards downstream APIs; RBAC layers (REQ-003) should stack on top.
+- Replace mock transport overrides with actual IdP connectivity in non-test environments.
 
-1. **Import errors:**
-   - Ensure PYTHONPATH includes both REQ-001 and REQ-002 src directories
-   - Verify all dependencies are installed
-
-2. **Database connection errors:**
-   - Verify PostgreSQL is running
-   - Check DATABASE_URL format: `postgresql://user:pass@host:port/dbname`
-
-3. **OIDC errors:**
-   - Verify all OIDC endpoints are accessible
-   - Check client_id and client_secret are correct
-   - Ensure redirect_uri matches IdP configuration
-
-4. **Token validation failures:**
-   - Check JWKS endpoint is accessible
-   - Verify token hasn't expired
-   - Ensure audience matches client_id
-
-### Debug Mode
-Enable debug logging:
-```bash
-export LOG_LEVEL=DEBUG
-```
-
-## Enterprise Runner Configuration
-
-### Jenkins Pipeline
-```groovy
-pipeline {
-    agent { label 'python-3.12' }
-    environment {
-        PYTHONPATH = "${WORKSPACE}/runs/kit/REQ-002/src:${WORKSPACE}/runs/kit/REQ-001/src"
-    }
-    stages {
-        stage('Install') {
-            steps {
-                sh 'pip install -r runs/kit/REQ-002/requirements.txt'
-            }
-        }
-        stage('Test') {
-            steps {
-                sh '''
-                    pytest runs/kit/REQ-002/test/ \
-                      --junitxml=runs/kit/REQ-002/reports/junit.xml \
-                      --cov=runs/kit/REQ-002/src/app/auth \
-                      --cov-report=xml:runs/kit/REQ-002/reports/coverage.xml
-                '''
-            }
-            post {
-                always {
-                    junit 'runs/kit/REQ-002/reports/junit.xml'
-                    publishCoverage adapters: [coberturaAdapter('runs/kit/REQ-002/reports/coverage.xml')]
-                }
-            }
-        }
-    }
-}
-```
-
-### GitHub Actions
-```yaml
-name: REQ-002 Tests
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Install dependencies
-        run: pip install -r runs/kit/REQ-002/requirements.txt
-      - name: Run tests
-        env:
-          PYTHONPATH: ${{ github.workspace }}/runs/kit/REQ-002/src:${{ github.workspace }}/runs/kit/REQ-001/src
-          DATABASE_URL: postgresql://test:test@localhost:5432/test
-        run: pytest runs/kit/REQ-002/test/ -v
-```
-
-## Artifacts Location
-
-| Artifact | Path |
-|----------|------|
-| Source code | `runs/kit/REQ-002/src/app/auth/` |
-| Tests | `runs/kit/REQ-002/test/` |
-| JUnit report | `runs/kit/REQ-002/reports/junit.xml` |
-| Coverage report | `runs/kit/REQ-002/reports/coverage.xml` |
-| LTC config | `runs/kit/REQ-002/ci/LTC.json` |
+KIT Iteration Log
+-----------------
+- **Targeted REQ-ID(s)**: REQ-002 (next open dependency after REQ-001). Implemented OIDC auth stack per SPEC/PLAN.
+- **In/Out of scope**: In scope—OIDC flow, JWT issuance, user persistence, middleware, tests, docs, CI artifacts. Out of scope—RBAC policies (REQ-003), campaign APIs, real IdP secrets storage.
+- **How to run tests**: `pytest -q runs/kit/REQ-002/test`
+- **Prerequisites**: Python 3.12+, ability to install requirements. Env vars for DB + OIDC endpoints; Postgres recommended outside tests.
+- **Dependencies and mocks**: OIDC provider HTTP calls mocked via httpx `MockTransport` in tests to ensure determinism. Database uses SQLite in-memory for tests; schema compatible with Postgres per REQ-001.
+- **Product Owner Notes**: Token + OIDC configuration fully environment-driven; ready for RBAC extension in REQ-003.
+- **RAG citations**: REQ-001 schema/enums ensured user model alignment (docs/harper/plan.md, SPEC.md).

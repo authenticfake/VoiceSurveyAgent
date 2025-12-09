@@ -1,52 +1,68 @@
-"""
-Database session management.
+from __future__ import annotations
 
-Provides async SQLAlchemy session factory and dependency.
-"""
+import threading
+from contextlib import contextmanager
+from typing import Generator, Optional
 
-from typing import Annotated, AsyncGenerator
+from sqlalchemy import create_engine
+from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from fastapi import Depends
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import DeclarativeBase
-
-from app.config import get_settings
-
-settings = get_settings()
-
-# Create async engine
-engine = create_async_engine(
-    str(settings.database_url).replace("postgresql://", "postgresql+asyncpg://"),
-    echo=settings.debug,
-    pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
-)
-
-# Create session factory
-async_session_factory = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
-    expire_on_commit=False,
-    autocommit=False,
-    autoflush=False,
-)
+from app.config import AppSettings, get_settings
 
 
 class Base(DeclarativeBase):
-    """Base class for SQLAlchemy models."""
-
     pass
 
 
-async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
-    """Dependency to get database session."""
-    async with async_session_factory() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+_engine = None
+_SessionLocal: Optional[sessionmaker] = None
+_LOCK = threading.Lock()
 
 
-# Type alias for dependency injection
-DbSession = Annotated[AsyncSession, Depends(get_db_session)]
+def _create_engine(settings: AppSettings):
+    connect_args = {}
+    pool = None
+    if settings.database_url.startswith("sqlite"):
+        connect_args["check_same_thread"] = False
+        if settings.database_url.endswith(":memory:") or settings.database_url.endswith(
+            "=memory:"
+        ):
+            pool = StaticPool
+    engine = create_engine(
+        settings.database_url,
+        echo=False,
+        future=True,
+        connect_args=connect_args,
+        poolclass=pool,
+    )
+    return engine
+
+
+def init_engine(settings: Optional[AppSettings] = None) -> None:
+    global _engine, _SessionLocal
+    settings = settings or get_settings()
+    if _engine:
+        return
+    with _LOCK:
+        if _engine:
+            return
+        _engine = _create_engine(settings)
+        _SessionLocal = sessionmaker(bind=_engine, class_=Session, expire_on_commit=False)
+        Base.metadata.create_all(bind=_engine)
+
+
+def get_session(settings: AppSettings = None) -> Generator[Session, None, None]:
+    if _SessionLocal is None:
+        init_engine(settings)
+    session = _SessionLocal()  # type: ignore[misc]
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+def session_factory() -> sessionmaker:
+    if _SessionLocal is None:
+        init_engine()
+    return _SessionLocal  # type: ignore[return-value]

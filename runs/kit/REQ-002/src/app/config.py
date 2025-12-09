@@ -1,94 +1,75 @@
-"""
-Application configuration.
+from __future__ import annotations
 
-Centralized settings management using Pydantic Settings.
-"""
+import functools
+import os
+from typing import Optional
 
-from functools import lru_cache
-
-from pydantic import Field, PostgresDsn, RedisDsn
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import BaseModel, Field, HttpUrl
 
 
-class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
+class OIDCSettings(BaseModel):
+    issuer: str = Field(..., description="OIDC issuer base URL")
+    client_id: str
+    client_secret: str
+    authorization_endpoint: HttpUrl
+    token_endpoint: HttpUrl
+    userinfo_endpoint: HttpUrl
+    default_redirect_uri: HttpUrl
+    scope: str = "openid profile email"
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
 
-    # Application
-    app_name: str = Field(default="voicesurveyagent", description="Application name")
-    app_env: str = Field(default="development", description="Environment name")
-    debug: bool = Field(default=False, description="Debug mode")
-    log_level: str = Field(default="INFO", description="Logging level")
+class TokenSettings(BaseModel):
+    secret_key: str = Field(..., min_length=32)
+    issuer: str = "voicesurveyagent"
+    access_token_ttl_seconds: int = Field(300, ge=60, le=3600)
+    refresh_token_ttl_seconds: int = Field(3600 * 24, ge=600, le=3600 * 24 * 30)
 
-    # Database
-    database_url: PostgresDsn = Field(
-        ...,
-        description="PostgreSQL connection URL",
-    )
 
-    # Redis
-    redis_url: RedisDsn = Field(
-        default="redis://localhost:6379/0",
-        description="Redis connection URL",
-    )
+class AppSettings(BaseModel):
+    environment: str = Field("dev", alias="ENVIRONMENT")
+    database_url: str = Field(..., alias="DATABASE_URL")
+    oidc: OIDCSettings
+    tokens: TokenSettings
+    http_timeout_seconds: float = Field(10, ge=1, le=60)
 
-    # OIDC Configuration
-    oidc_issuer: str = Field(
-        ...,
-        description="OIDC issuer URL",
-    )
-    oidc_authorization_endpoint: str = Field(
-        ...,
-        description="OIDC authorization endpoint",
-    )
-    oidc_token_endpoint: str = Field(
-        ...,
-        description="OIDC token endpoint",
-    )
-    oidc_userinfo_endpoint: str = Field(
-        ...,
-        description="OIDC userinfo endpoint",
-    )
-    oidc_jwks_uri: str = Field(
-        ...,
-        description="OIDC JWKS URI",
-    )
-    oidc_client_id: str = Field(
-        ...,
-        description="OIDC client ID",
-    )
-    oidc_client_secret: str = Field(
-        ...,
-        description="OIDC client secret",
-    )
-    oidc_redirect_uri: str = Field(
-        ...,
-        description="OIDC redirect URI",
-    )
-    oidc_scopes: list[str] = Field(
-        default=["openid", "profile", "email"],
-        description="OIDC scopes",
-    )
+    class Config:
+        populate_by_name = True
 
-    # JWT Configuration
-    jwt_algorithm: str = Field(default="RS256", description="JWT algorithm")
-    jwt_access_token_expire_minutes: int = Field(
-        default=60,
-        description="Access token expiration in minutes",
-    )
-    jwt_refresh_token_expire_days: int = Field(
-        default=7,
-        description="Refresh token expiration in days",
+
+def build_settings() -> AppSettings:
+    return AppSettings(
+        database_url=os.environ["DATABASE_URL"],
+        oidc=OIDCSettings(
+            issuer=os.environ["OIDC_ISSUER"],
+            client_id=os.environ["OIDC_CLIENT_ID"],
+            client_secret=os.environ["OIDC_CLIENT_SECRET"],
+            authorization_endpoint=os.environ["OIDC_AUTHORIZATION_ENDPOINT"],
+            token_endpoint=os.environ["OIDC_TOKEN_ENDPOINT"],
+            userinfo_endpoint=os.environ["OIDC_USERINFO_ENDPOINT"],
+            default_redirect_uri=os.environ["OIDC_REDIRECT_URI"],
+        ),
+        tokens=TokenSettings(
+            secret_key=os.environ["AUTH_TOKEN_SECRET"],
+            issuer=os.environ.get("AUTH_TOKEN_ISSUER", "voicesurveyagent"),
+            access_token_ttl_seconds=int(
+                os.environ.get("ACCESS_TOKEN_TTL_SECONDS", "600")
+            ),
+            refresh_token_ttl_seconds=int(
+                os.environ.get("REFRESH_TOKEN_TTL_SECONDS", str(3600 * 24))
+            ),
+        ),
+        http_timeout_seconds=float(os.environ.get("HTTP_TIMEOUT_SECONDS", "10")),
     )
 
 
-@lru_cache
-def get_settings() -> Settings:
-    """Get cached settings instance."""
-    return Settings()
+@functools.lru_cache(maxsize=1)
+def get_settings() -> AppSettings:
+    return build_settings()
+
+
+def override_settings(settings: Optional[AppSettings]) -> None:
+    get_settings.cache_clear()
+    if settings is None:
+        return
+    get_settings.cache_clear()
+    get_settings.cache_overrides = {(): settings}  # type: ignore[attr-defined]

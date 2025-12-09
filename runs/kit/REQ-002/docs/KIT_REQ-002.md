@@ -1,88 +1,27 @@
-# KIT Documentation: REQ-002 - OIDC Authentication Integration
+# KIT Summary — REQ-002 (OIDC Authentication Integration)
 
-## Overview
+## Scope
+Implements the backend OIDC authentication flow for the Voice Survey Agent platform per SPEC.md and PLAN.md. Work includes:
 
-This KIT implements OIDC (OpenID Connect) authentication integration for the Voice Survey Agent application. It provides secure user authentication via an external Identity Provider (IdP) using the authorization code flow.
+- OIDC client abstraction with configurable endpoints.
+- Auth service orchestrating code exchange, user upsert, and session token issuance.
+- JWT token service with configurable TTL and refresh handling.
+- FastAPI router providing `/api/auth/login`, `/api/auth/callback`, `/api/auth/refresh`, `/api/auth/me`, and sample protected route.
+- SQLAlchemy user model + repository aligned with REQ-001 schema.
+- Test suite covering redirect, callback, refresh, and protected access checks.
+- Operational artifacts (requirements, LTC, HOWTO).
 
-## Acceptance Criteria Status
-
-| Criterion | Status | Implementation |
-|-----------|--------|----------------|
-| OIDC authorization code flow implemented with configurable IdP endpoints | ✅ | `AuthService.generate_authorization_url()`, `AuthService.exchange_code_for_tokens()` |
-| JWT tokens validated on every API request via middleware | ✅ | `AuthMiddleware`, `get_current_user` dependency |
-| User record created or updated on first login with OIDC subject mapping | ✅ | `AuthService.get_or_create_user()` |
-| Session tokens have configurable expiration with refresh capability | ✅ | `AuthService.refresh_tokens()`, settings-based expiration |
-| Invalid or expired tokens return 401 with appropriate error message | ✅ | `InvalidTokenError`, `ExpiredTokenError` exceptions |
-
-## Architecture
-
-### Components
-
-```
-app/auth/
-├── __init__.py          # Module exports
-├── schemas.py           # Pydantic models for auth data
-├── exceptions.py        # Custom authentication exceptions
-├── service.py           # Core authentication logic
-├── middleware.py        # JWT validation middleware
-└── router.py            # REST API endpoints
-```
-
-### Flow Diagram
-
-```
-┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐
-│ Client  │────▶│ /login  │────▶│  IdP    │────▶│/callback│
-└─────────┘     └─────────┘     └─────────┘     └─────────┘
-                                                     │
-                                                     ▼
-                                              ┌─────────────┐
-                                              │ JWT Token   │
-                                              │ + User Ctx  │
-                                              └─────────────┘
-```
-
-## API Endpoints
-
-| Method | Path | Description | Auth Required |
-|--------|------|-------------|---------------|
-| GET | `/api/auth/login` | Initiate OIDC login | No |
-| GET | `/api/auth/callback` | Handle OIDC callback | No |
-| POST | `/api/auth/refresh` | Refresh access token | No |
-| GET | `/api/auth/me` | Get current user profile | Yes |
-| POST | `/api/auth/logout` | Logout (client-side) | Yes |
-
-## Configuration
-
-Required environment variables:
-
-```bash
-OIDC_ISSUER=https://idp.example.com
-OIDC_AUTHORIZATION_ENDPOINT=https://idp.example.com/authorize
-OIDC_TOKEN_ENDPOINT=https://idp.example.com/token
-OIDC_USERINFO_ENDPOINT=https://idp.example.com/userinfo
-OIDC_JWKS_URI=https://idp.example.com/.well-known/jwks.json
-OIDC_CLIENT_ID=your-client-id
-OIDC_CLIENT_SECRET=your-client-secret
-OIDC_REDIRECT_URI=http://localhost:8000/api/auth/callback
-```
-
-## Dependencies
-
-- REQ-001: Database schema (User model)
-
-## Security Considerations
-
-1. **CSRF Protection**: State parameter validated on callback
-2. **Token Validation**: RS256 signature verification via JWKS
-3. **Secure Storage**: Client secrets via environment variables
-4. **Token Expiration**: Configurable expiration with refresh capability
+## Key Decisions
+- **Config-first**: All OIDC and token settings pulled from environment, allowing deployment flexibility.
+- **Provider abstraction**: `OIDCClient` cleanly handles token exchange and userinfo with pluggable HTTP clients for tests.
+- **Session tokens**: PyJWT based access/refresh tokens (HS256) meeting configurable lifetimes and revocation-by-user semantics.
+- **Database**: SQLAlchemy sync engine with compatibility for Postgres (prod) and SQLite (tests), matching REQ-001 enums/columns.
+- **Security**: HTTP Bearer dependency enforces JWT validation on protected routes, emitting 401 on missing, invalid, or orphaned users.
 
 ## Testing
+`pytest -q runs/kit/REQ-002/test` (see LTC.json). Tests mock the IdP endpoints via httpx `MockTransport`, ensuring deterministic runs.
 
-```bash
-# Run all auth tests
-pytest runs/kit/REQ-002/test/ -v
-
-# Run with coverage
-pytest runs/kit/REQ-002/test/ --cov=runs/kit/REQ-002/src/app/auth
+## Follow-ups
+- Integrate with future RBAC middleware (REQ-003) by reusing `get_current_user`.
+- Extend to persist IdP-provided roles/claims mapping table if required by compliance.
+- Wire to actual Postgres URL + Secrets Manager when deploying.
