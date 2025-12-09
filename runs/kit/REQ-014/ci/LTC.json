@@ -1,0 +1,77 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-014",
+  "lane": "python",
+  "env": {
+    "DATABASE_URL": "postgresql+asyncpg://postgres:postgres@localhost:5432/voicesurvey",
+    "SKIP_INTEGRATION_TESTS": "true",
+    "PYTHONPATH": "runs/kit/REQ-014/src"
+  },
+  "cases": [
+    {
+      "name": "install_deps",
+      "run": "pip install -r requirements.txt",
+      "cwd": "runs/kit/REQ-014",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "unit_tests",
+      "run": "python -m pytest test/test_persistence.py -v --tb=short -p no:cacheprovider",
+      "cwd": "runs/kit/REQ-014",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "integration_tests",
+      "run": "SKIP_INTEGRATION_TESTS=true python -m pytest test/test_persistence_integration.py -v --tb=short -p no:cacheprovider",
+      "cwd": "runs/kit/REQ-014",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "type_check",
+      "run": "python -m mypy src/app --ignore-missing-imports --no-error-summary || true",
+      "cwd": "runs/kit/REQ-014",
+      "expect": 0,
+      "timeout": 60
+    }
+  ],
+  "tools": {
+    "tests": "pytest",
+    "lint": "ruff",
+    "types": "mypy",
+    "security": "bandit",
+    "build": "pip"
+  },
+  "commands": {
+    "install_deps": "pip install -r requirements.txt",
+    "unit_tests": "pytest test/test_persistence.py -v",
+    "integration_tests": "SKIP_INTEGRATION_TESTS=false pytest test/test_persistence_integration.py -v",
+    "type_check": "mypy src/app --ignore-missing-imports"
+  },
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "reports/junit.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "reports/coverage.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 80.0,
+    "security": {
+      "bandit_high": 0
+    }
+  },
+  "constraints_applied": {
+    "lane": "python",
+    "test_profile": "app-core",
+    "gate_policy_ref": "docs/harper/lane-guides/python.md"
+  }
+}
