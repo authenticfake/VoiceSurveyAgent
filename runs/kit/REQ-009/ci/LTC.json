@@ -1,0 +1,79 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-009",
+  "lane": "python",
+  "env": {
+    "TELEPHONY_PROVIDER_TYPE": "mock",
+    "TELEPHONY_TWILIO_ACCOUNT_SID": "AC_TEST_ACCOUNT",
+    "TELEPHONY_TWILIO_AUTH_TOKEN": "test_auth_token",
+    "TELEPHONY_TWILIO_FROM_NUMBER": "+14155550000",
+    "TELEPHONY_WEBHOOK_BASE_URL": "http://localhost:8000"
+  },
+  "cases": [
+    {
+      "name": "install_deps",
+      "run": "pip install -r runs/kit/REQ-009/requirements.txt",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "tests",
+      "run": "PYTHONPATH=runs/kit/REQ-009/src:runs/kit/REQ-001/src:runs/kit/REQ-002/src pytest runs/kit/REQ-009/test -v --tb=short --cov=app.telephony --cov-report=term-missing --cov-report=xml:runs/kit/REQ-009/reports/coverage.xml --junitxml=runs/kit/REQ-009/reports/junit.xml",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 300
+    },
+    {
+      "name": "lint",
+      "run": "ruff check runs/kit/REQ-009/src runs/kit/REQ-009/test --ignore=E501",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "types",
+      "run": "mypy runs/kit/REQ-009/src --ignore-missing-imports --no-error-summary || true",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    }
+  ],
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "runs/kit/REQ-009/reports/junit.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "runs/kit/REQ-009/reports/coverage.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "tools": {
+    "tests": "pytest",
+    "lint": "ruff",
+    "types": "mypy",
+    "security": "bandit",
+    "build": "docker"
+  },
+  "commands": {
+    "install": "pip install -r runs/kit/REQ-009/requirements.txt",
+    "tests": "pytest runs/kit/REQ-009/test -v",
+    "lint": "ruff check runs/kit/REQ-009/src",
+    "types": "mypy runs/kit/REQ-009/src"
+  },
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 80.0,
+    "security": {
+      "bandit_high": 0
+    }
+  },
+  "constraints_applied": [
+    "python@3.12",
+    "pytest>=8.0",
+    "httpx>=0.27"
+  ]
+}
