@@ -1,0 +1,156 @@
+{
+  "info": {
+    "name": "Campaign CRUD API",
+    "description": "API collection for REQ-004 Campaign CRUD operations",
+    "version": "1.0.0"
+  },
+  "requests": [
+    {
+      "name": "Create Campaign",
+      "method": "POST",
+      "url": "{{base_url}}/api/campaigns",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer {{access_token}}"
+      },
+      "body": {
+        "name": "Customer Satisfaction Survey Q1",
+        "description": "Quarterly customer satisfaction survey",
+        "language": "en",
+        "intro_script": "Hello, I'm calling from Example Corp. We're conducting a brief 3-question survey about your recent experience. It will take about 2 minutes. Do you consent to participate?",
+        "question_1_text": "On a scale of 1 to 10, how satisfied are you with our service?",
+        "question_1_type": "scale",
+        "question_2_text": "What is one thing we could improve?",
+        "question_2_type": "free_text",
+        "question_3_text": "How likely are you to recommend us to a friend, from 1 to 10?",
+        "question_3_type": "numeric",
+        "max_attempts": 3,
+        "retry_interval_minutes": 60,
+        "allowed_call_start_local": "09:00:00",
+        "allowed_call_end_local": "18:00:00"
+      },
+      "expected_status": 201
+    },
+    {
+      "name": "List Campaigns",
+      "method": "GET",
+      "url": "{{base_url}}/api/campaigns",
+      "headers": {
+        "Authorization": "Bearer {{access_token}}"
+      },
+      "query_params": {
+        "page": 1,
+        "page_size": 20
+      },
+      "expected_status": 200
+    },
+    {
+      "name": "List Campaigns with Status Filter",
+      "method": "GET",
+      "url": "{{base_url}}/api/campaigns",
+      "headers": {
+        "Authorization": "Bearer {{access_token}}"
+      },
+      "query_params": {
+        "status": "draft",
+        "page": 1,
+        "page_size": 20
+      },
+      "expected_status": 200
+    },
+    {
+      "name": "Get Campaign by ID",
+      "method": "GET",
+      "url": "{{base_url}}/api/campaigns/{{campaign_id}}",
+      "headers": {
+        "Authorization": "Bearer {{access_token}}"
+      },
+      "expected_status": 200
+    },
+    {
+      "name": "Update Campaign",
+      "method": "PUT",
+      "url": "{{base_url}}/api/campaigns/{{campaign_id}}",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer {{access_token}}"
+      },
+      "body": {
+        "name": "Updated Campaign Name",
+        "description": "Updated description"
+      },
+      "expected_status": 200
+    },
+    {
+      "name": "Transition to Running",
+      "method": "POST",
+      "url": "{{base_url}}/api/campaigns/{{campaign_id}}/status",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer {{access_token}}"
+      },
+      "body": {
+        "status": "running"
+      },
+      "expected_status": 200
+    },
+    {
+      "name": "Transition to Paused",
+      "method": "POST",
+      "url": "{{base_url}}/api/campaigns/{{campaign_id}}/status",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer {{access_token}}"
+      },
+      "body": {
+        "status": "paused"
+      },
+      "expected_status": 200
+    },
+    {
+      "name": "Delete Campaign",
+      "method": "DELETE",
+      "url": "{{base_url}}/api/campaigns/{{campaign_id}}",
+      "headers": {
+        "Authorization": "Bearer {{access_token}}"
+      },
+      "expected_status": 204
+    },
+    {
+      "name": "Get Non-existent Campaign",
+      "method": "GET",
+      "url": "{{base_url}}/api/campaigns/00000000-0000-0000-0000-000000000000",
+      "headers": {
+        "Authorization": "Bearer {{access_token}}"
+      },
+      "expected_status": 404
+    },
+    {
+      "name": "Create Campaign - Invalid Time Window",
+      "method": "POST",
+      "url": "{{base_url}}/api/campaigns",
+      "headers": {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer {{access_token}}"
+      },
+      "body": {
+        "name": "Invalid Campaign",
+        "intro_script": "Hello...",
+        "question_1_text": "Q1?",
+        "question_1_type": "scale",
+        "question_2_text": "Q2?",
+        "question_2_type": "free_text",
+        "question_3_text": "Q3?",
+        "question_3_type": "numeric",
+        "allowed_call_start_local": "18:00:00",
+        "allowed_call_end_local": "09:00:00"
+      },
+      "expected_status": 422
+    }
+  ],
+  "variables": {
+    "base_url": "http://localhost:8000",
+    "access_token": "<your-jwt-token>",
+    "campaign_id": "<campaign-uuid>"
+  }
+}
