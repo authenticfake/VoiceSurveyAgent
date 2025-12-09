@@ -1,0 +1,219 @@
+{
+  "version": "1.0.0",
+  "name": "voicesurveyagent-core",
+  "engine": "postgresql",
+  "description": "Canonical logical schema for the Voice Survey Agent backend per SPEC.md.",
+  "enums": {
+    "user_role": ["admin", "campaign_manager", "viewer"],
+    "campaign_status": ["draft", "scheduled", "running", "paused", "completed", "cancelled"],
+    "language_code": ["en", "it"],
+    "preferred_language": ["en", "it", "auto"],
+    "question_type": ["free_text", "numeric", "scale"],
+    "contact_state": ["pending", "in_progress", "completed", "refused", "not_reached", "excluded"],
+    "call_outcome": ["completed", "refused", "no_answer", "busy", "failed"],
+    "event_type": ["survey.completed", "survey.refused", "survey.not_reached"],
+    "email_template_type": ["completed", "refused", "not_reached"],
+    "provider_type": ["telephony_api", "voice_ai_platform"],
+    "llm_provider": ["openai", "anthropic", "azure-openai", "google"],
+    "email_notification_status": ["pending", "sent", "failed"],
+    "exclusion_source": ["import", "api", "manual"]
+  },
+  "tables": [
+    {
+      "name": "users",
+      "description": "OIDC-sourced operator accounts with RBAC role information.",
+      "columns": [
+        {"name": "id", "type": "uuid", "default": "gen_random_uuid()", "constraints": ["primary_key"]},
+        {"name": "oidc_sub", "type": "text", "constraints": ["not_null", "unique"]},
+        {"name": "email", "type": "text", "constraints": ["not_null", "unique"]},
+        {"name": "name", "type": "text", "constraints": ["not_null"]},
+        {"name": "role", "type": "user_role", "default": "'viewer'", "constraints": ["not_null"]},
+        {"name": "created_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]},
+        {"name": "updated_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]}
+      ],
+      "indexes": ["idx_users_oidc_sub", "idx_users_email"]
+    },
+    {
+      "name": "email_templates",
+      "description": "Transactional templates for post-call email flows.",
+      "columns": [
+        {"name": "id", "type": "uuid", "default": "gen_random_uuid()", "constraints": ["primary_key"]},
+        {"name": "name", "type": "text", "constraints": ["not_null"]},
+        {"name": "type", "type": "email_template_type", "constraints": ["not_null"]},
+        {"name": "subject", "type": "text", "constraints": ["not_null"]},
+        {"name": "body_html", "type": "text", "constraints": ["not_null"]},
+        {"name": "body_text", "type": "text"},
+        {"name": "locale", "type": "language_code", "default": "'en'", "constraints": ["not_null"]},
+        {"name": "created_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]},
+        {"name": "updated_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]}
+      ],
+      "indexes": ["idx_email_templates_type_locale"]
+    },
+    {
+      "name": "provider_configs",
+      "description": "Administrative configuration for telephony/LLM providers.",
+      "columns": [
+        {"name": "id", "type": "uuid", "default": "gen_random_uuid()", "constraints": ["primary_key"]},
+        {"name": "provider_type", "type": "provider_type", "constraints": ["not_null", "unique"]},
+        {"name": "provider_name", "type": "text", "constraints": ["not_null"]},
+        {"name": "outbound_number", "type": "text", "constraints": ["not_null"]},
+        {"name": "max_concurrent_calls", "type": "integer", "constraints": ["not_null", "check:max_concurrent_calls > 0"]},
+        {"name": "llm_provider", "type": "llm_provider", "constraints": ["not_null"]},
+        {"name": "llm_model", "type": "text", "constraints": ["not_null"]},
+        {"name": "recording_retention_days", "type": "integer", "constraints": ["not_null", "check:recording_retention_days >= 0"]},
+        {"name": "transcript_retention_days", "type": "integer", "constraints": ["not_null", "check:transcript_retention_days >= 0"]},
+        {"name": "created_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]},
+        {"name": "updated_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]}
+      ],
+      "indexes": ["idx_provider_configs_provider_type"]
+    },
+    {
+      "name": "campaigns",
+      "description": "Survey campaign definitions including script, retries, and email tie-ins.",
+      "columns": [
+        {"name": "id", "type": "uuid", "default": "gen_random_uuid()", "constraints": ["primary_key"]},
+        {"name": "name", "type": "text", "constraints": ["not_null"]},
+        {"name": "description", "type": "text"},
+        {"name": "status", "type": "campaign_status", "default": "'draft'", "constraints": ["not_null"]},
+        {"name": "language", "type": "language_code", "default": "'en'", "constraints": ["not_null"]},
+        {"name": "intro_script", "type": "text", "constraints": ["not_null"]},
+        {"name": "question_1_text", "type": "text", "constraints": ["not_null"]},
+        {"name": "question_1_type", "type": "question_type", "constraints": ["not_null"]},
+        {"name": "question_2_text", "type": "text", "constraints": ["not_null"]},
+        {"name": "question_2_type", "type": "question_type", "constraints": ["not_null"]},
+        {"name": "question_3_text", "type": "text", "constraints": ["not_null"]},
+        {"name": "question_3_type", "type": "question_type", "constraints": ["not_null"]},
+        {"name": "max_attempts", "type": "smallint", "constraints": ["not_null", "check:max_attempts BETWEEN 1 AND 5"]},
+        {"name": "retry_interval_minutes", "type": "integer", "constraints": ["not_null", "check:retry_interval_minutes >= 0"]},
+        {"name": "allowed_call_start_local", "type": "time", "constraints": ["not_null"]},
+        {"name": "allowed_call_end_local", "type": "time", "constraints": ["not_null", "check:allowed_call_start_local < allowed_call_end_local"]},
+        {"name": "email_completed_template_id", "type": "uuid", "references": "email_templates.id"},
+        {"name": "email_refused_template_id", "type": "uuid", "references": "email_templates.id"},
+        {"name": "email_not_reached_template_id", "type": "uuid", "references": "email_templates.id"},
+        {"name": "created_by_user_id", "type": "uuid", "references": "users.id", "constraints": ["not_null"]},
+        {"name": "created_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]},
+        {"name": "updated_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]}
+      ],
+      "indexes": ["idx_campaigns_status", "idx_campaigns_created_by"]
+    },
+    {
+      "name": "contacts",
+      "description": "Campaign-specific contact records and dialing state.",
+      "columns": [
+        {"name": "id", "type": "uuid", "default": "gen_random_uuid()", "constraints": ["primary_key"]},
+        {"name": "campaign_id", "type": "uuid", "references": "campaigns.id", "constraints": ["not_null"]},
+        {"name": "external_contact_id", "type": "text"},
+        {"name": "phone_number", "type": "text", "constraints": ["not_null"]},
+        {"name": "email", "type": "text"},
+        {"name": "preferred_language", "type": "preferred_language", "default": "'auto'", "constraints": ["not_null"]},
+        {"name": "has_prior_consent", "type": "boolean", "default": "false", "constraints": ["not_null"]},
+        {"name": "do_not_call", "type": "boolean", "default": "false", "constraints": ["not_null"]},
+        {"name": "state", "type": "contact_state", "default": "'pending'", "constraints": ["not_null"]},
+        {"name": "attempts_count", "type": "integer", "default": "0", "constraints": ["not_null", "check:attempts_count >= 0"]},
+        {"name": "last_attempt_at", "type": "timestamptz"},
+        {"name": "last_outcome", "type": "call_outcome"},
+        {"name": "created_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]},
+        {"name": "updated_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]}
+      ],
+      "constraints": ["unique(campaign_id, phone_number)"],
+      "indexes": ["idx_contacts_campaign_state", "idx_contacts_phone_number", "idx_contacts_state"]
+    },
+    {
+      "name": "exclusion_list_entries",
+      "description": "Global and campaign-level Do-Not-Call entries.",
+      "columns": [
+        {"name": "id", "type": "uuid", "default": "gen_random_uuid()", "constraints": ["primary_key"]},
+        {"name": "phone_number", "type": "text", "constraints": ["not_null", "unique"]},
+        {"name": "reason", "type": "text"},
+        {"name": "source", "type": "exclusion_source", "constraints": ["not_null"]},
+        {"name": "created_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]}
+      ],
+      "indexes": ["idx_exclusion_phone_number"]
+    },
+    {
+      "name": "call_attempts",
+      "description": "Per-contact dialing attempts with provider metadata.",
+      "columns": [
+        {"name": "id", "type": "uuid", "default": "gen_random_uuid()", "constraints": ["primary_key"]},
+        {"name": "contact_id", "type": "uuid", "references": "contacts.id", "constraints": ["not_null"]},
+        {"name": "campaign_id", "type": "uuid", "references": "campaigns.id", "constraints": ["not_null"]},
+        {"name": "attempt_number", "type": "integer", "constraints": ["not_null", "check:attempt_number >= 1"]},
+        {"name": "call_id", "type": "text", "constraints": ["not_null", "unique"]},
+        {"name": "provider_call_id", "type": "text"},
+        {"name": "started_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]},
+        {"name": "answered_at", "type": "timestamptz"},
+        {"name": "ended_at", "type": "timestamptz"},
+        {"name": "outcome", "type": "call_outcome"},
+        {"name": "provider_raw_status", "type": "text"},
+        {"name": "error_code", "type": "text"},
+        {"name": "metadata", "type": "jsonb", "default": "'{}'::jsonb", "constraints": ["not_null"]}
+      ],
+      "constraints": ["unique(contact_id, attempt_number)"],
+      "indexes": ["idx_call_attempts_contact", "idx_call_attempts_campaign"]
+    },
+    {
+      "name": "survey_responses",
+      "description": "Structured answers for completed surveys.",
+      "columns": [
+        {"name": "id", "type": "uuid", "default": "gen_random_uuid()", "constraints": ["primary_key"]},
+        {"name": "contact_id", "type": "uuid", "references": "contacts.id", "constraints": ["not_null"]},
+        {"name": "campaign_id", "type": "uuid", "references": "campaigns.id", "constraints": ["not_null"]},
+        {"name": "call_attempt_id", "type": "uuid", "references": "call_attempts.id", "constraints": ["not_null"]},
+        {"name": "q1_answer", "type": "text", "constraints": ["not_null"]},
+        {"name": "q2_answer", "type": "text", "constraints": ["not_null"]},
+        {"name": "q3_answer", "type": "text", "constraints": ["not_null"]},
+        {"name": "q1_confidence", "type": "numeric(4,3)", "constraints": ["check:q1_confidence BETWEEN 0 AND 1"]},
+        {"name": "q2_confidence", "type": "numeric(4,3)", "constraints": ["check:q2_confidence BETWEEN 0 AND 1"]},
+        {"name": "q3_confidence", "type": "numeric(4,3)", "constraints": ["check:q3_confidence BETWEEN 0 AND 1"]},
+        {"name": "completed_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]},
+        {"name": "created_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]}
+      ],
+      "constraints": ["unique(contact_id)", "unique(call_attempt_id)"],
+      "indexes": ["idx_survey_responses_campaign"]
+    },
+    {
+      "name": "events",
+      "description": "Domain events emitted for survey outcomes.",
+      "columns": [
+        {"name": "id", "type": "uuid", "default": "gen_random_uuid()", "constraints": ["primary_key"]},
+        {"name": "event_type", "type": "event_type", "constraints": ["not_null"]},
+        {"name": "campaign_id", "type": "uuid", "references": "campaigns.id", "constraints": ["not_null"]},
+        {"name": "contact_id", "type": "uuid", "references": "contacts.id", "constraints": ["not_null"]},
+        {"name": "call_attempt_id", "type": "uuid", "references": "call_attempts.id"},
+        {"name": "payload", "type": "jsonb", "default": "'{}'::jsonb", "constraints": ["not_null"]},
+        {"name": "created_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]}
+      ],
+      "indexes": ["idx_events_type", "idx_events_campaign"]
+    },
+    {
+      "name": "email_notifications",
+      "description": "Outbound email delivery log linked to survey events.",
+      "columns": [
+        {"name": "id", "type": "uuid", "default": "gen_random_uuid()", "constraints": ["primary_key"]},
+        {"name": "event_id", "type": "uuid", "references": "events.id", "constraints": ["not_null", "unique"]},
+        {"name": "contact_id", "type": "uuid", "references": "contacts.id", "constraints": ["not_null"]},
+        {"name": "campaign_id", "type": "uuid", "references": "campaigns.id", "constraints": ["not_null"]},
+        {"name": "template_id", "type": "uuid", "references": "email_templates.id", "constraints": ["not_null"]},
+        {"name": "to_email", "type": "text", "constraints": ["not_null"]},
+        {"name": "status", "type": "email_notification_status", "default": "'pending'", "constraints": ["not_null"]},
+        {"name": "provider_message_id", "type": "text"},
+        {"name": "error_message", "type": "text"],
+        {"name": "created_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]},
+        {"name": "updated_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]}
+      ],
+      "indexes": ["idx_email_notifications_status"]
+    },
+    {
+      "name": "transcript_snippets",
+      "description": "Optional short transcript summaries per successful call attempt.",
+      "columns": [
+        {"name": "id", "type": "uuid", "default": "gen_random_uuid()", "constraints": ["primary_key"]},
+        {"name": "call_attempt_id", "type": "uuid", "references": "call_attempts.id", "constraints": ["not_null", "unique"]},
+        {"name": "transcript_text", "type": "text", "constraints": ["not_null"]},
+        {"name": "language", "type": "language_code", "constraints": ["not_null"]},
+        {"name": "created_at", "type": "timestamptz", "default": "CURRENT_TIMESTAMP", "constraints": ["not_null"]}
+      ],
+      "indexes": ["idx_transcript_snippets_call_attempt_id"]
+    }
+  ]
+}
