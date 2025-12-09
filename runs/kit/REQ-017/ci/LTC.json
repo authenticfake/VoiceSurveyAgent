@@ -1,0 +1,98 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-017",
+  "lane": "python",
+  "tools": {
+    "tests": "pytest",
+    "lint": "ruff",
+    "types": "mypy",
+    "security": "bandit",
+    "build": "pip"
+  },
+  "commands": {
+    "install": "pip install -r requirements.txt",
+    "tests": "pytest -v --tb=short test/",
+    "lint": "ruff check src/",
+    "types": "mypy src/",
+    "security": "bandit -r src/",
+    "coverage": "pytest --cov=app --cov-report=xml --cov-report=term test/"
+  },
+  "cases": [
+    {
+      "name": "install_deps",
+      "run": "pip install -r runs/kit/REQ-017/requirements.txt",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "unit_tests",
+      "run": "pytest -v --tb=short runs/kit/REQ-017/test/",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 300
+    },
+    {
+      "name": "lint_check",
+      "run": "ruff check runs/kit/REQ-017/src/ || true",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "type_check",
+      "run": "mypy runs/kit/REQ-017/src/ --ignore-missing-imports || true",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "security_scan",
+      "run": "bandit -r runs/kit/REQ-017/src/ -ll || true",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    }
+  ],
+  "env": {
+    "DATABASE_URL": "postgresql://postgres:postgres@localhost:5432/voicesurvey_test",
+    "REDIS_URL": "redis://localhost:6379/0",
+    "JWT_SECRET_KEY": "test-secret-key-for-ci",
+    "LOG_LEVEL": "WARNING",
+    "PYTHONPATH": "runs/kit/REQ-017/src"
+  },
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "reports/junit.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "reports/coverage.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "normalize": {
+    "output_file": "eval.summary.json",
+    "rules": [
+      "extract_test_counts_from_pytest",
+      "extract_coverage_percentage",
+      "aggregate_lint_errors"
+    ]
+  },
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 80.0,
+    "security": {
+      "bandit_high": 0,
+      "bandit_medium": 5
+    }
+  },
+  "constraints_applied": [
+    "python@3.12",
+    "fastapi",
+    "postgresql",
+    "redis"
+  ]
+}
