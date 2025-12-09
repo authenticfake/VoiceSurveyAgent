@@ -1,0 +1,68 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-015",
+  "lane": "python",
+  "env": {
+    "AWS_ACCESS_KEY_ID": "testing",
+    "AWS_SECRET_ACCESS_KEY": "testing",
+    "AWS_DEFAULT_REGION": "eu-central-1",
+    "PYTHONPATH": "runs/kit/REQ-015/src"
+  },
+  "cases": [
+    {
+      "name": "install_deps",
+      "run": "pip install -r runs/kit/REQ-015/requirements.txt",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "unit_tests",
+      "run": "pytest runs/kit/REQ-015/test/test_event_schemas.py runs/kit/REQ-015/test/test_event_publisher.py runs/kit/REQ-015/test/test_event_service.py -v --tb=short",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "integration_tests",
+      "run": "pytest runs/kit/REQ-015/test/test_integration_events.py -v --tb=short",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "all_tests",
+      "run": "pytest runs/kit/REQ-015/test/ -v --tb=short --junitxml=reports/junit-req015.xml",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 180
+    }
+  ],
+  "tools": {
+    "tests": "pytest",
+    "lint": "ruff",
+    "types": "mypy",
+    "security": "bandit",
+    "build": "pip"
+  },
+  "commands": {
+    "install": "pip install -r runs/kit/REQ-015/requirements.txt",
+    "test": "pytest runs/kit/REQ-015/test/ -v",
+    "lint": "ruff check runs/kit/REQ-015/src/",
+    "types": "mypy runs/kit/REQ-015/src/"
+  },
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "reports/junit-req015.xml",
+      "format": "junit-xml"
+    }
+  ],
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 0.0,
+    "security": {
+      "bandit_high": 0
+    }
+  }
+}
