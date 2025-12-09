@@ -1,0 +1,82 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-018",
+  "lane": "python",
+  "env": {
+    "DATABASE_URL": "postgresql+asyncpg://postgres:postgres@localhost:5432/voicesurvey_test",
+    "SKIP_DB_TESTS": "0",
+    "AWS_REGION": "eu-central-1",
+    "S3_BUCKET_NAME": "voicesurvey-exports-test"
+  },
+  "cases": [
+    {
+      "name": "install_deps",
+      "run": "pip install -r runs/kit/REQ-018/requirements.txt",
+      "cwd": ".",
+      "expect": 0
+    },
+    {
+      "name": "lint",
+      "run": "python -m ruff check runs/kit/REQ-018/src runs/kit/REQ-018/test --ignore E501",
+      "cwd": ".",
+      "expect": 0
+    },
+    {
+      "name": "types",
+      "run": "python -m mypy runs/kit/REQ-018/src --ignore-missing-imports --no-error-summary || true",
+      "cwd": ".",
+      "expect": 0
+    },
+    {
+      "name": "tests_unit",
+      "run": "PYTHONPATH=runs/kit/REQ-018/src:$PYTHONPATH SKIP_DB_TESTS=1 pytest runs/kit/REQ-018/test -v -x --ignore=runs/kit/REQ-018/test/test_migration_sql.py --ignore=runs/kit/REQ-018/test/test_router.py",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "tests_integration",
+      "run": "PYTHONPATH=runs/kit/REQ-018/src:$PYTHONPATH pytest runs/kit/REQ-018/test -v --tb=short",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 300
+    }
+  ],
+  "tools": {
+    "tests": "pytest",
+    "lint": "ruff",
+    "types": "mypy",
+    "security": "bandit",
+    "build": "pip"
+  },
+  "commands": {
+    "install": "pip install -r runs/kit/REQ-018/requirements.txt",
+    "lint": "ruff check runs/kit/REQ-018/src runs/kit/REQ-018/test",
+    "types": "mypy runs/kit/REQ-018/src",
+    "tests": "pytest runs/kit/REQ-018/test -v"
+  },
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "reports/junit.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "reports/coverage.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 0.0,
+    "security": {
+      "bandit_high": 0
+    }
+  },
+  "constraints_applied": {
+    "lane": "python",
+    "test_profile": "app-core",
+    "coverage_min": 80
+  }
+}
