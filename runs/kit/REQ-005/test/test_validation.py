@@ -1,360 +1,227 @@
 """Tests for campaign validation service."""
 
-import pytest
 from datetime import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 from uuid import uuid4
 
-from app.campaigns.validation import CampaignValidationService, ValidationResult
-from app.campaigns.repository import CampaignRepository
-from app.shared.exceptions import NotFoundError, ValidationError
-from app.shared.models.campaign import Campaign
-from app.shared.models.enums import CampaignStatus, LanguageCode, QuestionType
+import pytest
+
+from app.campaigns.validation import (
+    CampaignValidationService,
+    CampaignDataProvider,
+    ValidationResult,
+)
+from app.shared.models.enums import CampaignStatus
+
+class MockDataProvider:
+    """Mock implementation of CampaignDataProvider for testing."""
+    
+    def __init__(
+        self,
+        contact_count: int = 10,
+        questions: tuple[str, str, str] = ("Q1?", "Q2?", "Q3?"),
+        retry_policy: tuple[int, int] = (3, 60),
+        time_window: tuple[time, time] = (time(9, 0), time(20, 0)),
+        status: CampaignStatus = CampaignStatus.DRAFT,
+    ):
+        self.contact_count = contact_count
+        self.questions = questions
+        self.retry_policy = retry_policy
+        self.time_window = time_window
+        self.status = status
+    
+    async def get_contact_count(self, campaign_id) -> int:
+        return self.contact_count
+    
+    async def get_campaign_questions(self, campaign_id) -> tuple[str, str, str]:
+        return self.questions
+    
+    async def get_retry_policy(self, campaign_id) -> tuple[int, int]:
+        return self.retry_policy
+    
+    async def get_time_window(self, campaign_id) -> tuple[time, time]:
+        return self.time_window
+    
+    async def get_campaign_status(self, campaign_id) -> CampaignStatus:
+        return self.status
 
 @pytest.fixture
-def mock_repository() -> AsyncMock:
-    """Create mock repository."""
-    return AsyncMock(spec=CampaignRepository)
+def campaign_id():
+    """Generate a test campaign ID."""
+    return uuid4()
 
-@pytest.fixture
-def validation_service(mock_repository: AsyncMock) -> CampaignValidationService:
-    """Create validation service with mock repository."""
-    return CampaignValidationService(mock_repository)
+@pytest.mark.asyncio
+async def test_validation_passes_with_valid_campaign(campaign_id):
+    """Test that validation passes for a valid campaign."""
+    provider = MockDataProvider()
+    service = CampaignValidationService(provider)
+    
+    result = await service.validate_for_activation(campaign_id)
+    
+    assert result.is_valid is True
+    assert len(result.errors) == 0
 
-@pytest.fixture
-def valid_campaign() -> Campaign:
-    """Create a valid campaign for testing."""
-    campaign = MagicMock(spec=Campaign)
-    campaign.id = uuid4()
-    campaign.status = CampaignStatus.DRAFT
-    campaign.question_1_text = "What is your satisfaction level?"
-    campaign.question_2_text = "Would you recommend us?"
-    campaign.question_3_text = "Any additional feedback?"
-    campaign.max_attempts = 3
-    campaign.allowed_call_start_local = time(9, 0)
-    campaign.allowed_call_end_local = time(20, 0)
-    return campaign
+@pytest.mark.asyncio
+async def test_validation_fails_with_zero_contacts(campaign_id):
+    """Test that validation fails when campaign has no contacts."""
+    provider = MockDataProvider(contact_count=0)
+    service = CampaignValidationService(provider)
+    
+    result = await service.validate_for_activation(campaign_id)
+    
+    assert result.is_valid is False
+    assert any(e.code == "NO_CONTACTS" for e in result.errors)
+    assert any(e.field == "contacts" for e in result.errors)
 
-class TestValidationResult:
-    """Tests for ValidationResult dataclass."""
+@pytest.mark.asyncio
+async def test_validation_fails_with_empty_question_1(campaign_id):
+    """Test that validation fails when question 1 is empty."""
+    provider = MockDataProvider(questions=("", "Q2?", "Q3?"))
+    service = CampaignValidationService(provider)
     
-    def test_success_creates_valid_result(self) -> None:
-        """Test success factory method."""
-        result = ValidationResult.success()
-        assert result.is_valid is True
-        assert result.errors == []
+    result = await service.validate_for_activation(campaign_id)
     
-    def test_failure_creates_invalid_result(self) -> None:
-        """Test failure factory method."""
-        errors = ["Error 1", "Error 2"]
-        result = ValidationResult.failure(errors)
-        assert result.is_valid is False
-        assert result.errors == errors
+    assert result.is_valid is False
+    assert any(e.field == "question_1_text" for e in result.errors)
+    assert any(e.code == "EMPTY_QUESTION" for e in result.errors)
 
-class TestCampaignValidationService:
-    """Tests for CampaignValidationService."""
+@pytest.mark.asyncio
+async def test_validation_fails_with_empty_question_2(campaign_id):
+    """Test that validation fails when question 2 is empty."""
+    provider = MockDataProvider(questions=("Q1?", "", "Q3?"))
+    service = CampaignValidationService(provider)
     
-    @pytest.mark.asyncio
-    async def test_validate_campaign_not_found(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-    ) -> None:
-        """Test validation raises NotFoundError for missing campaign."""
-        campaign_id = uuid4()
-        mock_repository.get_by_id.return_value = None
-        
-        with pytest.raises(NotFoundError):
-            await validation_service.validate_for_activation(campaign_id)
+    result = await service.validate_for_activation(campaign_id)
     
-    @pytest.mark.asyncio
-    async def test_validate_campaign_not_in_draft_status(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test validation fails if campaign is not in draft status."""
-        valid_campaign.status = CampaignStatus.RUNNING
-        mock_repository.get_by_id.return_value = valid_campaign
-        mock_repository.get_contact_count.return_value = 10
-        
-        result = await validation_service.validate_for_activation(valid_campaign.id)
-        
-        assert result.is_valid is False
-        assert any("draft status" in error for error in result.errors)
-    
-    @pytest.mark.asyncio
-    async def test_validate_campaign_zero_contacts(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test validation fails if campaign has zero contacts."""
-        mock_repository.get_by_id.return_value = valid_campaign
-        mock_repository.get_contact_count.return_value = 0
-        
-        result = await validation_service.validate_for_activation(valid_campaign.id)
-        
-        assert result.is_valid is False
-        assert any("at least one contact" in error for error in result.errors)
-    
-    @pytest.mark.asyncio
-    async def test_validate_campaign_empty_question_1(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test validation fails if question 1 is empty."""
-        valid_campaign.question_1_text = ""
-        mock_repository.get_by_id.return_value = valid_campaign
-        mock_repository.get_contact_count.return_value = 10
-        
-        result = await validation_service.validate_for_activation(valid_campaign.id)
-        
-        assert result.is_valid is False
-        assert any("Question 1" in error for error in result.errors)
-    
-    @pytest.mark.asyncio
-    async def test_validate_campaign_empty_question_2(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test validation fails if question 2 is empty."""
-        valid_campaign.question_2_text = "   "  # Whitespace only
-        mock_repository.get_by_id.return_value = valid_campaign
-        mock_repository.get_contact_count.return_value = 10
-        
-        result = await validation_service.validate_for_activation(valid_campaign.id)
-        
-        assert result.is_valid is False
-        assert any("Question 2" in error for error in result.errors)
-    
-    @pytest.mark.asyncio
-    async def test_validate_campaign_empty_question_3(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test validation fails if question 3 is empty."""
-        valid_campaign.question_3_text = None
-        mock_repository.get_by_id.return_value = valid_campaign
-        mock_repository.get_contact_count.return_value = 10
-        
-        result = await validation_service.validate_for_activation(valid_campaign.id)
-        
-        assert result.is_valid is False
-        assert any("Question 3" in error for error in result.errors)
-    
-    @pytest.mark.asyncio
-    async def test_validate_campaign_invalid_max_attempts_too_low(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test validation fails if max_attempts is less than 1."""
-        valid_campaign.max_attempts = 0
-        mock_repository.get_by_id.return_value = valid_campaign
-        mock_repository.get_contact_count.return_value = 10
-        
-        result = await validation_service.validate_for_activation(valid_campaign.id)
-        
-        assert result.is_valid is False
-        assert any("between 1 and 5" in error for error in result.errors)
-    
-    @pytest.mark.asyncio
-    async def test_validate_campaign_invalid_max_attempts_too_high(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test validation fails if max_attempts is greater than 5."""
-        valid_campaign.max_attempts = 6
-        mock_repository.get_by_id.return_value = valid_campaign
-        mock_repository.get_contact_count.return_value = 10
-        
-        result = await validation_service.validate_for_activation(valid_campaign.id)
-        
-        assert result.is_valid is False
-        assert any("between 1 and 5" in error for error in result.errors)
-    
-    @pytest.mark.asyncio
-    async def test_validate_campaign_invalid_time_window_equal(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test validation fails if start time equals end time."""
-        valid_campaign.allowed_call_start_local = time(10, 0)
-        valid_campaign.allowed_call_end_local = time(10, 0)
-        mock_repository.get_by_id.return_value = valid_campaign
-        mock_repository.get_contact_count.return_value = 10
-        
-        result = await validation_service.validate_for_activation(valid_campaign.id)
-        
-        assert result.is_valid is False
-        assert any("before end time" in error for error in result.errors)
-    
-    @pytest.mark.asyncio
-    async def test_validate_campaign_invalid_time_window_reversed(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test validation fails if start time is after end time."""
-        valid_campaign.allowed_call_start_local = time(20, 0)
-        valid_campaign.allowed_call_end_local = time(9, 0)
-        mock_repository.get_by_id.return_value = valid_campaign
-        mock_repository.get_contact_count.return_value = 10
-        
-        result = await validation_service.validate_for_activation(valid_campaign.id)
-        
-        assert result.is_valid is False
-        assert any("before end time" in error for error in result.errors)
-    
-    @pytest.mark.asyncio
-    async def test_validate_campaign_multiple_errors(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test validation collects all errors."""
-        valid_campaign.question_1_text = ""
-        valid_campaign.question_2_text = ""
-        valid_campaign.max_attempts = 10
-        mock_repository.get_by_id.return_value = valid_campaign
-        mock_repository.get_contact_count.return_value = 0
-        
-        result = await validation_service.validate_for_activation(valid_campaign.id)
-        
-        assert result.is_valid is False
-        assert len(result.errors) >= 4  # At least 4 errors
-    
-    @pytest.mark.asyncio
-    async def test_validate_campaign_success(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test validation passes for valid campaign."""
-        mock_repository.get_by_id.return_value = valid_campaign
-        mock_repository.get_contact_count.return_value = 10
-        
-        result = await validation_service.validate_for_activation(valid_campaign.id)
-        
-        assert result.is_valid is True
-        assert result.errors == []
-    
-    @pytest.mark.asyncio
-    async def test_activate_campaign_validation_fails(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test activation raises ValidationError when validation fails."""
-        valid_campaign.question_1_text = ""
-        mock_repository.get_by_id.return_value = valid_campaign
-        mock_repository.get_contact_count.return_value = 10
-        
-        with pytest.raises(ValidationError) as exc_info:
-            await validation_service.activate_campaign(valid_campaign.id)
-        
-        assert "validation failed" in exc_info.value.message.lower()
-        assert "errors" in exc_info.value.details
-    
-    @pytest.mark.asyncio
-    async def test_activate_campaign_success(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test successful campaign activation."""
-        mock_repository.get_by_id.return_value = valid_campaign
-        mock_repository.get_contact_count.return_value = 10
-        
-        await validation_service.activate_campaign(valid_campaign.id)
-        
-        mock_repository.update_status.assert_called_once_with(
-            valid_campaign.id,
-            CampaignStatus.RUNNING,
-        )
+    assert result.is_valid is False
+    assert any(e.field == "question_2_text" for e in result.errors)
 
-class TestValidationEdgeCases:
-    """Edge case tests for validation."""
+@pytest.mark.asyncio
+async def test_validation_fails_with_empty_question_3(campaign_id):
+    """Test that validation fails when question 3 is empty."""
+    provider = MockDataProvider(questions=("Q1?", "Q2?", ""))
+    service = CampaignValidationService(provider)
     
-    @pytest.mark.asyncio
-    async def test_validate_campaign_with_min_valid_attempts(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test validation passes with minimum valid attempts (1)."""
-        valid_campaign.max_attempts = 1
-        mock_repository.get_by_id.return_value = valid_campaign
-        mock_repository.get_contact_count.return_value = 10
-        
-        result = await validation_service.validate_for_activation(valid_campaign.id)
-        
-        assert result.is_valid is True
+    result = await service.validate_for_activation(campaign_id)
     
-    @pytest.mark.asyncio
-    async def test_validate_campaign_with_max_valid_attempts(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test validation passes with maximum valid attempts (5)."""
-        valid_campaign.max_attempts = 5
-        mock_repository.get_by_id.return_value = valid_campaign
-        mock_repository.get_contact_count.return_value = 10
-        
-        result = await validation_service.validate_for_activation(valid_campaign.id)
-        
-        assert result.is_valid is True
+    assert result.is_valid is False
+    assert any(e.field == "question_3_text" for e in result.errors)
+
+@pytest.mark.asyncio
+async def test_validation_fails_with_whitespace_only_question(campaign_id):
+    """Test that validation fails when question is whitespace only."""
+    provider = MockDataProvider(questions=("   ", "Q2?", "Q3?"))
+    service = CampaignValidationService(provider)
     
-    @pytest.mark.asyncio
-    async def test_validate_campaign_with_single_contact(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test validation passes with exactly one contact."""
-        mock_repository.get_by_id.return_value = valid_campaign
-        mock_repository.get_contact_count.return_value = 1
-        
-        result = await validation_service.validate_for_activation(valid_campaign.id)
-        
-        assert result.is_valid is True
+    result = await service.validate_for_activation(campaign_id)
     
-    @pytest.mark.asyncio
-    async def test_validate_campaign_time_window_one_minute_apart(
-        self,
-        validation_service: CampaignValidationService,
-        mock_repository: AsyncMock,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test validation passes with time window one minute apart."""
-        valid_campaign.allowed_call_start_local = time(9, 0)
-        valid_campaign.allowed_call_end_local = time(9, 1)
-        mock_repository.get_by_id.return_value = valid_campaign
-        mock_repository.get_contact_count.return_value = 10
-        
-        result = await validation_service.validate_for_activation(valid_campaign.id)
-        
-        assert result.is_valid is True
+    assert result.is_valid is False
+    assert any(e.field == "question_1_text" for e in result.errors)
+
+@pytest.mark.asyncio
+async def test_validation_fails_with_max_attempts_zero(campaign_id):
+    """Test that validation fails when max_attempts is 0."""
+    provider = MockDataProvider(retry_policy=(0, 60))
+    service = CampaignValidationService(provider)
+    
+    result = await service.validate_for_activation(campaign_id)
+    
+    assert result.is_valid is False
+    assert any(e.code == "INVALID_RETRY_POLICY" for e in result.errors)
+    assert any(e.field == "max_attempts" for e in result.errors)
+
+@pytest.mark.asyncio
+async def test_validation_fails_with_max_attempts_over_five(campaign_id):
+    """Test that validation fails when max_attempts exceeds 5."""
+    provider = MockDataProvider(retry_policy=(6, 60))
+    service = CampaignValidationService(provider)
+    
+    result = await service.validate_for_activation(campaign_id)
+    
+    assert result.is_valid is False
+    assert any(e.code == "INVALID_RETRY_POLICY" for e in result.errors)
+
+@pytest.mark.asyncio
+async def test_validation_passes_with_max_attempts_one(campaign_id):
+    """Test that validation passes with max_attempts = 1."""
+    provider = MockDataProvider(retry_policy=(1, 60))
+    service = CampaignValidationService(provider)
+    
+    result = await service.validate_for_activation(campaign_id)
+    
+    assert result.is_valid is True
+
+@pytest.mark.asyncio
+async def test_validation_passes_with_max_attempts_five(campaign_id):
+    """Test that validation passes with max_attempts = 5."""
+    provider = MockDataProvider(retry_policy=(5, 60))
+    service = CampaignValidationService(provider)
+    
+    result = await service.validate_for_activation(campaign_id)
+    
+    assert result.is_valid is True
+
+@pytest.mark.asyncio
+async def test_validation_fails_with_invalid_time_window(campaign_id):
+    """Test that validation fails when start time >= end time."""
+    provider = MockDataProvider(time_window=(time(20, 0), time(9, 0)))
+    service = CampaignValidationService(provider)
+    
+    result = await service.validate_for_activation(campaign_id)
+    
+    assert result.is_valid is False
+    assert any(e.code == "INVALID_TIME_WINDOW" for e in result.errors)
+
+@pytest.mark.asyncio
+async def test_validation_fails_with_equal_time_window(campaign_id):
+    """Test that validation fails when start time equals end time."""
+    provider = MockDataProvider(time_window=(time(12, 0), time(12, 0)))
+    service = CampaignValidationService(provider)
+    
+    result = await service.validate_for_activation(campaign_id)
+    
+    assert result.is_valid is False
+    assert any(e.code == "INVALID_TIME_WINDOW" for e in result.errors)
+
+@pytest.mark.asyncio
+async def test_validation_fails_with_non_draft_status(campaign_id):
+    """Test that validation fails when campaign is not in draft status."""
+    provider = MockDataProvider(status=CampaignStatus.RUNNING)
+    service = CampaignValidationService(provider)
+    
+    result = await service.validate_for_activation(campaign_id)
+    
+    assert result.is_valid is False
+    assert any(e.code == "INVALID_STATUS" for e in result.errors)
+    # Should return early with only status error
+    assert len(result.errors) == 1
+
+@pytest.mark.asyncio
+async def test_validation_collects_multiple_errors(campaign_id):
+    """Test that validation collects all errors when multiple issues exist."""
+    provider = MockDataProvider(
+        contact_count=0,
+        questions=("", "", ""),
+        retry_policy=(10, 60),
+        time_window=(time(20, 0), time(9, 0)),
+    )
+    service = CampaignValidationService(provider)
+    
+    result = await service.validate_for_activation(campaign_id)
+    
+    assert result.is_valid is False
+    # Should have errors for: contacts, q1, q2, q3, retry policy, time window
+    assert len(result.errors) >= 5
+
+@pytest.mark.asyncio
+async def test_validation_result_add_error():
+    """Test ValidationResult.add_error method."""
+    result = ValidationResult(is_valid=True)
+    
+    result.add_error("test_field", "Test message", "TEST_CODE")
+    
+    assert result.is_valid is False
+    assert len(result.errors) == 1
+    assert result.errors[0].field == "test_field"
+    assert result.errors[0].message == "Test message"
+    assert result.errors[0].code == "TEST_CODE"

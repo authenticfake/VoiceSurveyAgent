@@ -1,54 +1,56 @@
-"""Integration tests for campaign validation API endpoints."""
+"""Tests for campaign router validation and activation endpoints."""
 
-import pytest
 from datetime import time
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
+import pytest
 from httpx import AsyncClient, ASGITransport
+from fastapi import FastAPI
 
 from app.campaigns.router import router
-from app.campaigns.validation import CampaignValidationService, ValidationResult
-from app.campaigns.repository import CampaignRepository
-from app.auth.middleware import CurrentUser
-from app.auth.schemas import UserRole
+from app.campaigns.service import CampaignService
+from app.campaigns.validation import ValidationResult
+from app.shared.exceptions import NotFoundError, ValidationError, StateTransitionError
 from app.shared.models.campaign import Campaign
-from app.shared.models.enums import CampaignStatus
-from app.shared.exceptions import NotFoundError, ValidationError
+from app.shared.models.enums import CampaignStatus, LanguageCode, QuestionType
 
 @pytest.fixture
-def app() -> FastAPI:
-    """Create test FastAPI application."""
+def app():
+    """Create test FastAPI app."""
     app = FastAPI()
     app.include_router(router)
     return app
 
 @pytest.fixture
-def mock_user() -> CurrentUser:
+def mock_service():
+    """Create mock campaign service."""
+    return AsyncMock(spec=CampaignService)
+
+@pytest.fixture
+def mock_user():
     """Create mock authenticated user."""
-    user = MagicMock(spec=CurrentUser)
+    user = MagicMock()
     user.id = uuid4()
-    user.role = UserRole.CAMPAIGN_MANAGER
+    user.role = "campaign_manager"
     return user
 
 @pytest.fixture
-def valid_campaign() -> Campaign:
-    """Create a valid campaign for testing."""
+def sample_campaign():
+    """Create sample campaign for testing."""
     campaign = MagicMock(spec=Campaign)
     campaign.id = uuid4()
     campaign.name = "Test Campaign"
     campaign.description = "Test description"
     campaign.status = CampaignStatus.DRAFT
-    campaign.language = "en"
+    campaign.language = LanguageCode.EN
     campaign.intro_script = "Hello, this is a test survey."
-    campaign.question_1_text = "What is your satisfaction level?"
-    campaign.question_1_type = "scale"
-    campaign.question_2_text = "Would you recommend us?"
-    campaign.question_2_type = "free_text"
-    campaign.question_3_text = "Any additional feedback?"
-    campaign.question_3_type = "free_text"
+    campaign.question_1_text = "Question 1?"
+    campaign.question_1_type = QuestionType.FREE_TEXT
+    campaign.question_2_text = "Question 2?"
+    campaign.question_2_type = QuestionType.NUMERIC
+    campaign.question_3_text = "Question 3?"
+    campaign.question_3_type = QuestionType.SCALE
     campaign.max_attempts = 3
     campaign.retry_interval_minutes = 60
     campaign.allowed_call_start_local = time(9, 0)
@@ -61,140 +63,135 @@ def valid_campaign() -> Campaign:
     campaign.updated_at = "2024-01-01T00:00:00Z"
     return campaign
 
-class TestValidateEndpoint:
-    """Tests for GET /api/campaigns/{campaign_id}/validate endpoint."""
+@pytest.mark.asyncio
+async def test_validate_campaign_success(app, mock_service, mock_user, sample_campaign):
+    """Test successful campaign validation endpoint."""
+    validation_result = ValidationResult(is_valid=True)
+    mock_service.validate_for_activation.return_value = validation_result
     
-    @pytest.mark.asyncio
-    async def test_validate_campaign_success(
-        self,
-        app: FastAPI,
-        mock_user: CurrentUser,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test successful campaign validation."""
-        campaign_id = valid_campaign.id
-        
-        with patch("app.campaigns.router.get_validation_service") as mock_get_service:
-            mock_service = AsyncMock(spec=CampaignValidationService)
-            mock_service.validate_for_activation.return_value = ValidationResult.success()
-            mock_get_service.return_value = mock_service
-            
-            with patch("app.campaigns.router.CurrentUser", return_value=mock_user):
-                with patch("app.campaigns.router.require_role"):
-                    async with AsyncClient(
-                        transport=ASGITransport(app=app),
-                        base_url="http://test"
-                    ) as client:
-                        # Override dependency
-                        app.dependency_overrides[CurrentUser] = lambda: mock_user
-                        
-                        response = await client.get(f"/api/campaigns/{campaign_id}/validate")
-        
-        # Note: This test structure shows the pattern; actual implementation
-        # would need proper dependency injection setup
+    with patch("app.campaigns.router.get_campaign_service", return_value=mock_service):
+        with patch("app.auth.middleware.get_current_user", return_value=mock_user):
+            with patch("app.auth.middleware.require_role", return_value=lambda: None):
+                async with AsyncClient(
+                    transport=ASGITransport(app=app),
+                    base_url="http://test"
+                ) as client:
+                    response = await client.get(f"/api/campaigns/{sample_campaign.id}/validate")
     
-    @pytest.mark.asyncio
-    async def test_validate_campaign_not_found(
-        self,
-        app: FastAPI,
-        mock_user: CurrentUser,
-    ) -> None:
-        """Test validation returns 404 for non-existent campaign."""
-        campaign_id = uuid4()
-        
-        # Test pattern for 404 response
-        # Actual implementation would mock the service to raise NotFoundError
-    
-    @pytest.mark.asyncio
-    async def test_validate_campaign_with_errors(
-        self,
-        app: FastAPI,
-        mock_user: CurrentUser,
-    ) -> None:
-        """Test validation returns errors for invalid campaign."""
-        campaign_id = uuid4()
-        errors = ["Question 1 is required", "Campaign must have contacts"]
-        
-        # Test pattern for validation errors
-        # Actual implementation would mock the service to return ValidationResult.failure(errors)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["is_valid"] is True
+    assert data["errors"] == []
 
-class TestActivateEndpoint:
-    """Tests for POST /api/campaigns/{campaign_id}/activate endpoint."""
+@pytest.mark.asyncio
+async def test_validate_campaign_with_errors(app, mock_service, mock_user, sample_campaign):
+    """Test campaign validation endpoint with validation errors."""
+    validation_result = ValidationResult(is_valid=False)
+    validation_result.add_error("contacts", "No contacts", "NO_CONTACTS")
+    validation_result.add_error("question_1_text", "Question 1 is empty", "EMPTY_QUESTION")
+    mock_service.validate_for_activation.return_value = validation_result
     
-    @pytest.mark.asyncio
-    async def test_activate_campaign_success(
-        self,
-        app: FastAPI,
-        mock_user: CurrentUser,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test successful campaign activation."""
-        campaign_id = valid_campaign.id
-        
-        # Test pattern for successful activation
-        # Actual implementation would mock the service and verify status change
+    with patch("app.campaigns.router.get_campaign_service", return_value=mock_service):
+        with patch("app.auth.middleware.get_current_user", return_value=mock_user):
+            with patch("app.auth.middleware.require_role", return_value=lambda: None):
+                async with AsyncClient(
+                    transport=ASGITransport(app=app),
+                    base_url="http://test"
+                ) as client:
+                    response = await client.get(f"/api/campaigns/{sample_campaign.id}/validate")
     
-    @pytest.mark.asyncio
-    async def test_activate_campaign_validation_fails(
-        self,
-        app: FastAPI,
-        mock_user: CurrentUser,
-    ) -> None:
-        """Test activation returns 400 when validation fails."""
-        campaign_id = uuid4()
-        
-        # Test pattern for validation failure during activation
-        # Actual implementation would mock the service to raise ValidationError
-    
-    @pytest.mark.asyncio
-    async def test_activate_campaign_not_found(
-        self,
-        app: FastAPI,
-        mock_user: CurrentUser,
-    ) -> None:
-        """Test activation returns 404 for non-existent campaign."""
-        campaign_id = uuid4()
-        
-        # Test pattern for 404 response
-        # Actual implementation would mock the service to raise NotFoundError
-    
-    @pytest.mark.asyncio
-    async def test_activate_campaign_requires_role(
-        self,
-        app: FastAPI,
-    ) -> None:
-        """Test activation requires campaign_manager or admin role."""
-        campaign_id = uuid4()
-        
-        # Test pattern for role requirement
-        # Actual implementation would test with viewer role and expect 403
+    assert response.status_code == 200
+    data = response.json()
+    assert data["is_valid"] is False
+    assert len(data["errors"]) == 2
 
-class TestPauseEndpoint:
-    """Tests for POST /api/campaigns/{campaign_id}/pause endpoint."""
+@pytest.mark.asyncio
+async def test_validate_campaign_not_found(app, mock_service, mock_user):
+    """Test campaign validation endpoint when campaign not found."""
+    mock_service.validate_for_activation.side_effect = NotFoundError("Campaign not found")
     
-    @pytest.mark.asyncio
-    async def test_pause_running_campaign(
-        self,
-        app: FastAPI,
-        mock_user: CurrentUser,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test pausing a running campaign."""
-        valid_campaign.status = CampaignStatus.RUNNING
-        campaign_id = valid_campaign.id
-        
-        # Test pattern for successful pause
-        # Actual implementation would mock the service and verify status change
+    campaign_id = uuid4()
     
-    @pytest.mark.asyncio
-    async def test_pause_draft_campaign_fails(
-        self,
-        app: FastAPI,
-        mock_user: CurrentUser,
-        valid_campaign: Campaign,
-    ) -> None:
-        """Test pausing a draft campaign fails."""
-        campaign_id = valid_campaign.id
-        
-        # Test pattern for invalid state transition
-        # Actual implementation would mock the service to raise StateTransitionError
+    with patch("app.campaigns.router.get_campaign_service", return_value=mock_service):
+        with patch("app.auth.middleware.get_current_user", return_value=mock_user):
+            with patch("app.auth.middleware.require_role", return_value=lambda: None):
+                async with AsyncClient(
+                    transport=ASGITransport(app=app),
+                    base_url="http://test"
+                ) as client:
+                    response = await client.get(f"/api/campaigns/{campaign_id}/validate")
+    
+    assert response.status_code == 404
+
+@pytest.mark.asyncio
+async def test_activate_campaign_success(app, mock_service, mock_user, sample_campaign):
+    """Test successful campaign activation endpoint."""
+    sample_campaign.status = CampaignStatus.RUNNING
+    mock_service.activate_campaign.return_value = sample_campaign
+    
+    with patch("app.campaigns.router.get_campaign_service", return_value=mock_service):
+        with patch("app.auth.middleware.get_current_user", return_value=mock_user):
+            with patch("app.auth.middleware.require_role", return_value=lambda: None):
+                async with AsyncClient(
+                    transport=ASGITransport(app=app),
+                    base_url="http://test"
+                ) as client:
+                    response = await client.post(f"/api/campaigns/{sample_campaign.id}/activate")
+    
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "running"
+    assert data["message"] == "Campaign activated successfully"
+
+@pytest.mark.asyncio
+async def test_activate_campaign_validation_failure(app, mock_service, mock_user, sample_campaign):
+    """Test campaign activation endpoint when validation fails."""
+    mock_service.activate_campaign.side_effect = ValidationError("contacts: No contacts")
+    
+    with patch("app.campaigns.router.get_campaign_service", return_value=mock_service):
+        with patch("app.auth.middleware.get_current_user", return_value=mock_user):
+            with patch("app.auth.middleware.require_role", return_value=lambda: None):
+                async with AsyncClient(
+                    transport=ASGITransport(app=app),
+                    base_url="http://test"
+                ) as client:
+                    response = await client.post(f"/api/campaigns/{sample_campaign.id}/activate")
+    
+    assert response.status_code == 400
+    assert "contacts: No contacts" in response.json()["detail"]
+
+@pytest.mark.asyncio
+async def test_activate_campaign_not_found(app, mock_service, mock_user):
+    """Test campaign activation endpoint when campaign not found."""
+    mock_service.activate_campaign.side_effect = NotFoundError("Campaign not found")
+    
+    campaign_id = uuid4()
+    
+    with patch("app.campaigns.router.get_campaign_service", return_value=mock_service):
+        with patch("app.auth.middleware.get_current_user", return_value=mock_user):
+            with patch("app.auth.middleware.require_role", return_value=lambda: None):
+                async with AsyncClient(
+                    transport=ASGITransport(app=app),
+                    base_url="http://test"
+                ) as client:
+                    response = await client.post(f"/api/campaigns/{campaign_id}/activate")
+    
+    assert response.status_code == 404
+
+@pytest.mark.asyncio
+async def test_activate_campaign_state_transition_error(app, mock_service, mock_user, sample_campaign):
+    """Test campaign activation endpoint when state transition is invalid."""
+    mock_service.activate_campaign.side_effect = StateTransitionError(
+        "Cannot transition from running to running"
+    )
+    
+    with patch("app.campaigns.router.get_campaign_service", return_value=mock_service):
+        with patch("app.auth.middleware.get_current_user", return_value=mock_user):
+            with patch("app.auth.middleware.require_role", return_value=lambda: None):
+                async with AsyncClient(
+                    transport=ASGITransport(app=app),
+                    base_url="http://test"
+                ) as client:
+                    response = await client.post(f"/api/campaigns/{sample_campaign.id}/activate")
+    
+    assert response.status_code == 400

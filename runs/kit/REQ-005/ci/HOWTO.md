@@ -2,134 +2,132 @@
 
 ## Overview
 
-This KIT implements the campaign validation service that validates campaign configuration before activation. It ensures campaigns meet all requirements (contacts, questions, retry policy, time windows) before transitioning to running status.
+This REQ implements the campaign validation service that checks if a campaign meets all requirements for activation:
+- Campaign has at least one contact
+- All three questions are non-empty
+- Retry policy is valid (1-5 attempts)
+- Time window is valid (start < end)
+- Campaign is in draft status
 
 ## Prerequisites
 
-### Required Software
+### System Requirements
 - Python 3.12+
+- PostgreSQL 15+ (for integration tests)
 - pip or poetry for dependency management
-- PostgreSQL 15+ (for integration tests with real database)
 
-### Environment Setup
-
-1. **Create and activate virtual environment:**
+### Dependencies
+Install from the requirements.txt:
 bash
-python -m venv .venv
-source .venv/bin/activate  # Linux/macOS
-# or
-.venv\Scripts\activate  # Windows
+cd runs/kit/REQ-005
+pip install -r requirements.txt
 
-2. **Set PYTHONPATH:**
-bash
-export PYTHONPATH="runs/kit/REQ-005/src:runs/kit/REQ-004/src:runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src:$PYTHONPATH"
+## Environment Setup
 
-3. **Install dependencies:**
+### Required Environment Variables
 bash
-pip install -r runs/kit/REQ-005/requirements.txt
+export DATABASE_URL="postgresql://user:password@localhost:5432/voicesurvey_test"
+export PYTHONPATH="runs/kit/REQ-005/src:runs/kit/REQ-004/src:runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src"
+
+### Alternative: Using .env file
+Create a `.env` file in the project root:
+
+DATABASE_URL=postgresql://user:password@localhost:5432/voicesurvey_test
 
 ## Running Tests
 
-### Unit Tests Only
+### All Tests
 bash
-pytest runs/kit/REQ-005/test/test_validation.py -v
+cd runs/kit/REQ-005
+pytest test -v
 
-### Integration Tests Only
+### Specific Test Files
 bash
-pytest runs/kit/REQ-005/test/test_router_validation.py -v
+# Validation service unit tests
+pytest test/test_validation.py -v
 
-### All Tests with Coverage
-bash
-pytest runs/kit/REQ-005/test/ \
-  --cov=runs/kit/REQ-005/src \
-  --cov-report=term-missing \
-  --cov-report=xml:runs/kit/REQ-005/reports/coverage.xml \
-  --junitxml=runs/kit/REQ-005/reports/junit.xml \
-  -v
+# Service activation tests
+pytest test/test_service_activation.py -v
 
-### Type Checking
+# Router endpoint tests
+pytest test/test_router_validation.py -v
+
+### With Coverage
 bash
-mypy runs/kit/REQ-005/src/app/campaigns/validation.py --ignore-missing-imports
+pytest test --cov=src --cov-report=term-missing --cov-report=xml:reports/coverage.xml
+
+## Code Quality Checks
 
 ### Linting
 bash
-ruff check runs/kit/REQ-005/src runs/kit/REQ-005/test
-ruff format runs/kit/REQ-005/src runs/kit/REQ-005/test --check
+ruff check src test
 
-## CI/CD Integration
+### Type Checking
+bash
+mypy src --ignore-missing-imports
 
-### GitHub Actions
-The LTC.json file defines all test cases that should be run in CI. Use the following workflow snippet:
+### Security Scan
+bash
+bandit -r src -ll
 
-yaml
-- name: Run REQ-005 Tests
-  run: |
-    export PYTHONPATH="runs/kit/REQ-005/src:runs/kit/REQ-004/src:runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src"
-    pip install -r runs/kit/REQ-005/requirements.txt
-    pytest runs/kit/REQ-005/test/ --cov --junitxml=reports/junit.xml
+## API Endpoints
 
-### Jenkins Pipeline
-groovy
-stage('REQ-005 Validation') {
-    steps {
-        sh '''
-            export PYTHONPATH="runs/kit/REQ-005/src:runs/kit/REQ-004/src:runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src"
-            pip install -r runs/kit/REQ-005/requirements.txt
-            pytest runs/kit/REQ-005/test/ --junitxml=reports/junit.xml
-        '''
-    }
-    post {
-        always {
-            junit 'reports/junit.xml'
-        }
-    }
+### Validate Campaign
+bash
+GET /api/campaigns/{campaign_id}/validate
+
+Returns validation result with any errors:
+json
+{
+  "is_valid": false,
+  "errors": [
+    {"field": "contacts", "message": "Campaign must have at least one contact", "code": "NO_CONTACTS"}
+  ]
 }
 
-## Artifacts
+### Activate Campaign
+bash
+POST /api/campaigns/{campaign_id}/activate
 
-### Reports Location
-- JUnit XML: `runs/kit/REQ-005/reports/junit.xml`
-- Coverage XML: `runs/kit/REQ-005/reports/coverage.xml`
-
-### Source Files
-- Validation Service: `runs/kit/REQ-005/src/app/campaigns/validation.py`
-- Updated Router: `runs/kit/REQ-005/src/app/campaigns/router.py`
-- Updated Schemas: `runs/kit/REQ-005/src/app/campaigns/schemas.py`
-- Repository: `runs/kit/REQ-005/src/app/campaigns/repository.py`
-- Service: `runs/kit/REQ-005/src/app/campaigns/service.py`
-- Exceptions: `runs/kit/REQ-005/src/app/shared/exceptions.py`
+Validates and activates the campaign:
+json
+{
+  "campaign_id": "uuid",
+  "status": "running",
+  "message": "Campaign activated successfully"
+}
 
 ## Troubleshooting
 
 ### Import Errors
-If you encounter import errors, ensure PYTHONPATH includes all dependent REQ paths:
+Ensure PYTHONPATH includes all dependent REQ source directories:
 bash
 export PYTHONPATH="runs/kit/REQ-005/src:runs/kit/REQ-004/src:runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src"
 
 ### Database Connection Issues
-For tests that require database access, set:
-bash
-export DATABASE_URL="postgresql://user:password@localhost:5432/voicesurvey_test"
-export DISABLE_TESTCONTAINERS="1"  # If not using testcontainers
+1. Verify PostgreSQL is running
+2. Check DATABASE_URL format
+3. Ensure database exists and user has permissions
 
-### Missing Dependencies
-Install all dependencies from requirements.txt:
-bash
-pip install -r runs/kit/REQ-005/requirements.txt
+### Test Failures
+1. Run with verbose output: `pytest -v --tb=long`
+2. Check for missing dependencies
+3. Verify mock configurations match expected interfaces
 
-## API Endpoints Added
+## CI/CD Integration
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/campaigns/{id}/validate` | Validate campaign for activation |
-| POST | `/api/campaigns/{id}/activate` | Validate and activate campaign |
-| POST | `/api/campaigns/{id}/pause` | Pause a running campaign |
+### GitHub Actions
+The LTC.json defines the test cases for CI:
+- install_deps: Install Python dependencies
+- lint: Run ruff linter
+- types: Run mypy type checker
+- tests: Run pytest suite
 
-## Validation Rules
-
-The validation service checks:
-1. Campaign must be in `draft` status
-2. Campaign must have at least one contact
-3. All 3 questions must be non-empty
-4. `max_attempts` must be between 1 and 5
-5. `allowed_call_start_local` must be before `allowed_call_end_local`
+### Jenkins Pipeline
+groovy
+stage('REQ-005 Tests') {
+    steps {
+        sh 'cd runs/kit/REQ-005 && pip install -r requirements.txt'
+        sh 'cd runs/kit/REQ-005 && pytest test -v --junitxml=reports/junit.xml'
+    }
+}

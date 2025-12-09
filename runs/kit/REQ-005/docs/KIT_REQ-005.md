@@ -2,102 +2,95 @@
 
 ## Summary
 
-REQ-005 implements the campaign validation service that validates campaign configuration before activation. This service ensures all business rules are satisfied before a campaign can transition from draft to running status.
+REQ-005 implements the campaign validation service that enforces business rules before a campaign can be activated. This ensures data integrity and prevents campaigns from running with invalid configurations.
 
-## Acceptance Criteria Coverage
+## Acceptance Criteria Status
 
-| Criterion | Implementation | Test Coverage |
-|-----------|---------------|---------------|
-| Activation blocked if campaign has zero contacts | `CampaignValidationService.validate_for_activation()` checks contact count | `test_validate_campaign_zero_contacts` |
-| Activation blocked if any of 3 questions is empty | Validates `question_1_text`, `question_2_text`, `question_3_text` | `test_validate_campaign_empty_question_*` |
-| Activation blocked if retry policy invalid (attempts < 1 or > 5) | Validates `max_attempts` range | `test_validate_campaign_invalid_max_attempts_*` |
-| Activation blocked if time window invalid (start >= end) | Validates `allowed_call_start_local` < `allowed_call_end_local` | `test_validate_campaign_invalid_time_window_*` |
-| Successful validation transitions status to running or scheduled | `activate_campaign()` calls `repository.update_status()` | `test_activate_campaign_success` |
+| Criterion | Status | Implementation |
+|-----------|--------|----------------|
+| Activation blocked if campaign has zero contacts | ✅ | `CampaignValidationService.validate_for_activation()` |
+| Activation blocked if any of 3 questions is empty | ✅ | Question validation in validation service |
+| Activation blocked if retry policy invalid (attempts < 1 or > 5) | ✅ | Retry policy validation |
+| Activation blocked if time window invalid (start >= end) | ✅ | Time window validation |
+| Successful validation transitions status to running or scheduled | ✅ | `CampaignService.activate_campaign()` |
 
 ## Architecture
 
 ### Components
 
-app/campaigns/
-├── validation.py      # CampaignValidationService - validation logic
-├── router.py          # API endpoints including /validate and /activate
-├── service.py         # CampaignService - business logic
-├── repository.py      # CampaignRepository - data access
-└── schemas.py         # Pydantic schemas for API
+1. **CampaignValidationService** (`validation.py`)
+   - Core validation logic
+   - Uses CampaignDataProvider protocol for data access
+   - Returns structured ValidationResult
 
-### Class Diagram
+2. **CampaignDataProvider Protocol** (`validation.py`)
+   - Defines interface for campaign data access
+   - Implemented by CampaignRepository
 
-┌─────────────────────────────┐
-│ CampaignValidationService   │
-├─────────────────────────────┤
-│ - _repository               │
-├─────────────────────────────┤
-│ + validate_for_activation() │
-│ + activate_campaign()       │
-└─────────────────────────────┘
-            │
-            ▼
-┌─────────────────────────────┐
-│ CampaignRepository          │
-├─────────────────────────────┤
-│ + get_by_id()               │
-│ + get_contact_count()       │
-│ + update_status()           │
-└─────────────────────────────┘
+3. **Extended CampaignService** (`service.py`)
+   - `validate_for_activation()` - Returns validation result
+   - `activate_campaign()` - Validates and transitions to running
 
-### Validation Flow
+4. **Extended Router** (`router.py`)
+   - `GET /api/campaigns/{id}/validate` - Check validation status
+   - `POST /api/campaigns/{id}/activate` - Validate and activate
 
-┌──────────┐     ┌────────────────┐     ┌────────────────┐
-│  Client  │────▶│ /api/campaigns │────▶│ Validation     │
-│          │     │ /{id}/activate │     │ Service        │
-└──────────┘     └────────────────┘     └────────────────┘
-                                               │
-                 ┌─────────────────────────────┼─────────────────────────────┐
-                 │                             │                             │
-                 ▼                             ▼                             ▼
-        ┌────────────────┐          ┌────────────────┐          ┌────────────────┐
-        │ Check Status   │          │ Check Contacts │          │ Check Questions│
-        │ (must be draft)│          │ (count > 0)    │          │ (non-empty)    │
-        └────────────────┘          └────────────────┘          └────────────────┘
-                 │                             │                             │
-                 └─────────────────────────────┼─────────────────────────────┘
-                                               │
-                 ┌─────────────────────────────┼─────────────────────────────┐
-                 │                             │                             │
-                 ▼                             ▼                             ▼
-        ┌────────────────┐          ┌────────────────┐          ┌────────────────┐
-        │ Check Retry    │          │ Check Time     │          │ Collect Errors │
-        │ Policy (1-5)   │          │ Window         │          │ or Success     │
-        └────────────────┘          └────────────────┘          └────────────────┘
+### Validation Rules
 
-## API Endpoints
+| Rule | Field | Code | Message |
+|------|-------|------|---------|
+| Status must be draft | status | INVALID_STATUS | Campaign must be in draft status |
+| Must have contacts | contacts | NO_CONTACTS | Campaign must have at least one contact |
+| Question 1 required | question_1_text | EMPTY_QUESTION | Question 1 cannot be empty |
+| Question 2 required | question_2_text | EMPTY_QUESTION | Question 2 cannot be empty |
+| Question 3 required | question_3_text | EMPTY_QUESTION | Question 3 cannot be empty |
+| Valid retry attempts | max_attempts | INVALID_RETRY_POLICY | Must be between 1 and 5 |
+| Valid time window | allowed_call_start_local | INVALID_TIME_WINDOW | Start must be before end |
 
-### GET /api/campaigns/{campaign_id}/validate
+## Dependencies
 
-Validates campaign configuration without changing status.
+- REQ-001: Database schema (Contact model for count)
+- REQ-002: Authentication (user context)
+- REQ-003: RBAC (campaign_manager role required)
+- REQ-004: Campaign CRUD (base service and repository)
 
-**Response:**
+## Testing
+
+### Test Coverage
+
+- `test_validation.py`: Unit tests for validation service
+- `test_service_activation.py`: Service layer activation tests
+- `test_router_validation.py`: API endpoint tests
+
+### Running Tests
+
+bash
+cd runs/kit/REQ-005
+export PYTHONPATH="src:../REQ-004/src:../REQ-003/src:../REQ-002/src:../REQ-001/src"
+pytest test -v
+
+## API Reference
+
+### Validate Campaign
+
+http
+GET /api/campaigns/{campaign_id}/validate
+Authorization: Bearer <token>
+
+Response:
 json
 {
   "is_valid": true,
   "errors": []
 }
 
-Or with errors:
-json
-{
-  "is_valid": false,
-  "errors": [
-    "Campaign must have at least one contact",
-    "Question 1 text is required"
-  ]
-}
+### Activate Campaign
 
-### POST /api/campaigns/{campaign_id}/activate
+http
+POST /api/campaigns/{campaign_id}/activate
+Authorization: Bearer <token>
 
-Validates and activates campaign, transitioning to running status.
-
-**Success Response:**
+Success Response:
 json
 {
   "campaign_id": "uuid",
@@ -105,45 +98,8 @@ json
   "message": "Campaign activated successfully"
 }
 
-**Error Response (400):**
+Error Response (400):
 json
 {
-  "detail": {
-    "message": "Campaign validation failed",
-    "errors": ["Campaign must have at least one contact"]
-  }
+  "detail": "Campaign validation failed: contacts: Campaign must have at least one contact"
 }
-
-## Dependencies
-
-- REQ-001: Database schema (Campaign, Contact models)
-- REQ-002: Authentication (CurrentUser)
-- REQ-003: Authorization (require_role)
-- REQ-004: Campaign CRUD (CampaignRepository, CampaignService)
-
-## Testing
-
-### Unit Tests
-- `test_validation.py`: Tests for `CampaignValidationService`
-  - Validation result creation
-  - Individual validation rules
-  - Multiple error collection
-  - Edge cases (boundary values)
-
-### Integration Tests
-- `test_router_validation.py`: Tests for API endpoints
-  - Endpoint responses
-  - Error handling
-  - Role requirements
-
-## Design Decisions
-
-1. **Composition over Inheritance**: `CampaignValidationService` uses composition with `CampaignRepository` injected via constructor.
-
-2. **Immutable Result**: `ValidationResult` is a frozen dataclass to ensure immutability.
-
-3. **Collect All Errors**: Validation collects all errors rather than failing fast, providing better UX.
-
-4. **Separation of Concerns**: Validation logic is separate from CRUD operations in `CampaignService`.
-
-5. **Idempotent Validation**: `validate_for_activation()` can be called multiple times without side effects.

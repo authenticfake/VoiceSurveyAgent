@@ -1,165 +1,175 @@
-"""
-Campaign validation service.
+"""Campaign validation service for activation checks."""
 
-Validates campaign configuration before activation, ensuring all required
-fields are properly configured and business rules are satisfied.
-"""
-
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import time
-from typing import Optional
+from typing import Protocol
 from uuid import UUID
 
-from app.campaigns.repository import CampaignRepository
-from app.shared.exceptions import ValidationError
 from app.shared.logging import get_logger
 from app.shared.models.enums import CampaignStatus
 
 logger = get_logger(__name__)
 
-@dataclass(frozen=True)
+@dataclass
+class ValidationError:
+    """Single validation error with field and message."""
+    
+    field: str
+    message: str
+    code: str
+
+@dataclass
 class ValidationResult:
     """Result of campaign validation."""
     
     is_valid: bool
-    errors: list[str]
+    errors: list[ValidationError] = field(default_factory=list)
     
-    @classmethod
-    def success(cls) -> "ValidationResult":
-        """Create a successful validation result."""
-        return cls(is_valid=True, errors=[])
+    def add_error(self, field: str, message: str, code: str) -> None:
+        """Add a validation error."""
+        self.errors.append(ValidationError(field=field, message=message, code=code))
+        self.is_valid = False
+
+class CampaignDataProvider(Protocol):
+    """Protocol for providing campaign data for validation."""
     
-    @classmethod
-    def failure(cls, errors: list[str]) -> "ValidationResult":
-        """Create a failed validation result."""
-        return cls(is_valid=False, errors=errors)
+    async def get_contact_count(self, campaign_id: UUID) -> int:
+        """Get the number of contacts for a campaign."""
+        ...
+    
+    async def get_campaign_questions(self, campaign_id: UUID) -> tuple[str, str, str]:
+        """Get the three question texts for a campaign."""
+        ...
+    
+    async def get_retry_policy(self, campaign_id: UUID) -> tuple[int, int]:
+        """Get max_attempts and retry_interval_minutes."""
+        ...
+    
+    async def get_time_window(self, campaign_id: UUID) -> tuple[time, time]:
+        """Get allowed_call_start_local and allowed_call_end_local."""
+        ...
+    
+    async def get_campaign_status(self, campaign_id: UUID) -> CampaignStatus:
+        """Get current campaign status."""
+        ...
 
 class CampaignValidationService:
-    """
-    Service for validating campaign configuration before activation.
+    """Service for validating campaign activation requirements."""
     
-    Validates:
-    - Campaign has at least one contact
-    - All 3 questions are non-empty
-    - Retry policy is valid (1-5 attempts)
-    - Time window is valid (start < end)
-    """
+    def __init__(self, data_provider: CampaignDataProvider) -> None:
+        """Initialize with a data provider."""
+        self._data_provider = data_provider
     
-    def __init__(self, repository: CampaignRepository) -> None:
+    async def validate_for_activation(self, campaign_id: UUID) -> ValidationResult:
         """
-        Initialize validation service.
+        Validate a campaign for activation.
+        
+        Checks:
+        1. Campaign has at least one contact
+        2. All three questions are non-empty
+        3. Retry policy is valid (1-5 attempts)
+        4. Time window is valid (start < end)
+        5. Campaign is in draft status
         
         Args:
-            repository: Campaign repository for data access
-        """
-        self._repository = repository
-    
-    async def validate_for_activation(
-        self,
-        campaign_id: UUID,
-    ) -> ValidationResult:
-        """
-        Validate campaign configuration for activation.
-        
-        Args:
-            campaign_id: UUID of the campaign to validate
+            campaign_id: The campaign to validate
             
         Returns:
-            ValidationResult with validation status and any errors
-            
-        Raises:
-            NotFoundError: If campaign does not exist
+            ValidationResult with is_valid flag and any errors
         """
-        campaign = await self._repository.get_by_id(campaign_id)
-        if campaign is None:
-            from app.shared.exceptions import NotFoundError
-            raise NotFoundError(f"Campaign {campaign_id} not found")
+        result = ValidationResult(is_valid=True)
         
-        errors: list[str] = []
-        
-        # Check campaign status - must be in draft to activate
-        if campaign.status != CampaignStatus.DRAFT:
-            errors.append(
-                f"Campaign must be in draft status to activate, "
-                f"current status: {campaign.status.value}"
+        # Check campaign status first
+        status = await self._data_provider.get_campaign_status(campaign_id)
+        if status != CampaignStatus.DRAFT:
+            result.add_error(
+                field="status",
+                message=f"Campaign must be in draft status to activate, current status: {status.value}",
+                code="INVALID_STATUS",
             )
+            logger.warning(
+                "Campaign activation blocked - invalid status",
+                extra={"campaign_id": str(campaign_id), "status": status.value},
+            )
+            return result  # Early return - no point checking other fields
         
-        # Validate contacts exist
-        contact_count = await self._repository.get_contact_count(campaign_id)
+        # Check contact count
+        contact_count = await self._data_provider.get_contact_count(campaign_id)
         if contact_count == 0:
-            errors.append("Campaign must have at least one contact")
-        
-        # Validate questions are non-empty
-        if not campaign.question_1_text or not campaign.question_1_text.strip():
-            errors.append("Question 1 text is required")
-        if not campaign.question_2_text or not campaign.question_2_text.strip():
-            errors.append("Question 2 text is required")
-        if not campaign.question_3_text or not campaign.question_3_text.strip():
-            errors.append("Question 3 text is required")
-        
-        # Validate retry policy
-        if campaign.max_attempts < 1 or campaign.max_attempts > 5:
-            errors.append(
-                f"Max attempts must be between 1 and 5, "
-                f"got: {campaign.max_attempts}"
+            result.add_error(
+                field="contacts",
+                message="Campaign must have at least one contact",
+                code="NO_CONTACTS",
+            )
+            logger.warning(
+                "Campaign activation blocked - no contacts",
+                extra={"campaign_id": str(campaign_id)},
             )
         
-        # Validate time window
-        if campaign.allowed_call_start_local >= campaign.allowed_call_end_local:
-            errors.append(
-                f"Call start time ({campaign.allowed_call_start_local}) "
-                f"must be before end time ({campaign.allowed_call_end_local})"
+        # Check questions
+        q1, q2, q3 = await self._data_provider.get_campaign_questions(campaign_id)
+        if not q1 or not q1.strip():
+            result.add_error(
+                field="question_1_text",
+                message="Question 1 cannot be empty",
+                code="EMPTY_QUESTION",
+            )
+        if not q2 or not q2.strip():
+            result.add_error(
+                field="question_2_text",
+                message="Question 2 cannot be empty",
+                code="EMPTY_QUESTION",
+            )
+        if not q3 or not q3.strip():
+            result.add_error(
+                field="question_3_text",
+                message="Question 3 cannot be empty",
+                code="EMPTY_QUESTION",
             )
         
-        if errors:
+        # Check retry policy
+        max_attempts, retry_interval = await self._data_provider.get_retry_policy(campaign_id)
+        if max_attempts < 1 or max_attempts > 5:
+            result.add_error(
+                field="max_attempts",
+                message=f"Max attempts must be between 1 and 5, got {max_attempts}",
+                code="INVALID_RETRY_POLICY",
+            )
+            logger.warning(
+                "Campaign activation blocked - invalid retry policy",
+                extra={"campaign_id": str(campaign_id), "max_attempts": max_attempts},
+            )
+        
+        # Check time window
+        start_time, end_time = await self._data_provider.get_time_window(campaign_id)
+        if start_time >= end_time:
+            result.add_error(
+                field="allowed_call_start_local",
+                message=f"Call start time ({start_time}) must be before end time ({end_time})",
+                code="INVALID_TIME_WINDOW",
+            )
+            logger.warning(
+                "Campaign activation blocked - invalid time window",
+                extra={
+                    "campaign_id": str(campaign_id),
+                    "start_time": str(start_time),
+                    "end_time": str(end_time),
+                },
+            )
+        
+        if result.is_valid:
+            logger.info(
+                "Campaign validation passed",
+                extra={"campaign_id": str(campaign_id), "contact_count": contact_count},
+            )
+        else:
             logger.warning(
                 "Campaign validation failed",
                 extra={
                     "campaign_id": str(campaign_id),
-                    "error_count": len(errors),
-                    "errors": errors,
+                    "error_count": len(result.errors),
+                    "error_codes": [e.code for e in result.errors],
                 },
             )
-            return ValidationResult.failure(errors)
         
-        logger.info(
-            "Campaign validation passed",
-            extra={"campaign_id": str(campaign_id)},
-        )
-        return ValidationResult.success()
-    
-    async def activate_campaign(
-        self,
-        campaign_id: UUID,
-    ) -> None:
-        """
-        Validate and activate a campaign.
-        
-        Performs validation and transitions campaign status to running
-        if validation passes.
-        
-        Args:
-            campaign_id: UUID of the campaign to activate
-            
-        Raises:
-            ValidationError: If validation fails
-            NotFoundError: If campaign does not exist
-        """
-        result = await self.validate_for_activation(campaign_id)
-        
-        if not result.is_valid:
-            raise ValidationError(
-                message="Campaign validation failed",
-                details={"errors": result.errors},
-            )
-        
-        # Transition to running status
-        await self._repository.update_status(campaign_id, CampaignStatus.RUNNING)
-        
-        logger.info(
-            "Campaign activated successfully",
-            extra={
-                "campaign_id": str(campaign_id),
-                "new_status": CampaignStatus.RUNNING.value,
-            },
-        )
+        return result

@@ -2,88 +2,82 @@
 
 ## Overview
 
-This module implements campaign validation logic that ensures campaigns meet all business requirements before activation. It validates contacts, questions, retry policy, and time windows.
+This module implements campaign validation logic that must pass before a campaign can be activated. It ensures campaigns have proper configuration including contacts, questions, retry policies, and time windows.
 
 ## Quick Start
+
+bash
+# Install dependencies
+cd runs/kit/REQ-005
+pip install -r requirements.txt
+
+# Set environment
+export PYTHONPATH="src:../REQ-004/src:../REQ-003/src:../REQ-002/src:../REQ-001/src"
+
+# Run tests
+pytest test -v
+
+## Features
+
+- **Contact Validation**: Ensures campaign has at least one contact
+- **Question Validation**: Verifies all three questions are non-empty
+- **Retry Policy Validation**: Checks max_attempts is between 1-5
+- **Time Window Validation**: Ensures call start time is before end time
+- **Status Validation**: Only draft campaigns can be activated
+
+## Usage
+
+### Validate a Campaign
 
 python
 from app.campaigns.validation import CampaignValidationService
 from app.campaigns.repository import CampaignRepository
 
-# Create service with repository
-repository = CampaignRepository(db_session)
+repository = CampaignRepository(session)
 validation_service = CampaignValidationService(repository)
 
-# Validate campaign
 result = await validation_service.validate_for_activation(campaign_id)
 if result.is_valid:
     print("Campaign is ready for activation")
 else:
-    print(f"Validation errors: {result.errors}")
+    for error in result.errors:
+        print(f"{error.field}: {error.message}")
 
-# Validate and activate
-await validation_service.activate_campaign(campaign_id)
+### Activate a Campaign
 
-## Validation Rules
+python
+from app.campaigns.service import CampaignService
 
-| Rule | Description | Error Message |
-|------|-------------|---------------|
-| Status Check | Campaign must be in draft status | "Campaign must be in draft status to activate" |
-| Contact Count | At least one contact required | "Campaign must have at least one contact" |
-| Question 1 | Non-empty text required | "Question 1 text is required" |
-| Question 2 | Non-empty text required | "Question 2 text is required" |
-| Question 3 | Non-empty text required | "Question 3 text is required" |
-| Max Attempts | Must be between 1 and 5 | "Max attempts must be between 1 and 5" |
-| Time Window | Start must be before end | "Call start time must be before end time" |
+service = CampaignService(repository)
+try:
+    campaign = await service.activate_campaign(campaign_id)
+    print(f"Campaign activated: {campaign.status}")
+except ValidationError as e:
+    print(f"Validation failed: {e}")
 
-## API Usage
+## API Endpoints
 
-### Validate Campaign
-bash
-curl -X GET "http://localhost:8000/api/campaigns/{id}/validate" \
-  -H "Authorization: Bearer $TOKEN"
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/campaigns/{id}/validate` | Check if campaign can be activated |
+| POST | `/api/campaigns/{id}/activate` | Validate and activate campaign |
 
-### Activate Campaign
-bash
-curl -X POST "http://localhost:8000/api/campaigns/{id}/activate" \
-  -H "Authorization: Bearer $TOKEN"
+## Error Codes
 
-### Pause Campaign
-bash
-curl -X POST "http://localhost:8000/api/campaigns/{id}/pause" \
-  -H "Authorization: Bearer $TOKEN"
-
-## Module Structure
-
-runs/kit/REQ-005/
-├── src/
-│   └── app/
-│       ├── campaigns/
-│       │   ├── validation.py    # Validation service
-│       │   ├── router.py        # API endpoints
-│       │   ├── service.py       # Business logic
-│       │   ├── repository.py    # Data access
-│       │   └── schemas.py       # API schemas
-│       └── shared/
-│           └── exceptions.py    # Custom exceptions
-├── test/
-│   ├── test_validation.py       # Unit tests
-│   └── test_router_validation.py # Integration tests
-├── ci/
-│   ├── LTC.json                 # Test contract
-│   └── HOWTO.md                 # Execution guide
-├── docs/
-│   ├── KIT_REQ-005.md           # Technical documentation
-│   └── README_REQ-005.md        # This file
-└── requirements.txt             # Dependencies
+| Code | Description |
+|------|-------------|
+| NO_CONTACTS | Campaign has no contacts |
+| EMPTY_QUESTION | One or more questions are empty |
+| INVALID_RETRY_POLICY | max_attempts not in range 1-5 |
+| INVALID_TIME_WINDOW | Call start time >= end time |
+| INVALID_STATUS | Campaign not in draft status |
 
 ## Dependencies
 
-This module depends on:
 - REQ-001: Database models
 - REQ-002: Authentication
 - REQ-003: Authorization
-- REQ-004: Campaign CRUD operations
+- REQ-004: Campaign CRUD
 
 ---
 
@@ -93,69 +87,48 @@ This module depends on:
 - **REQ-005**: Campaign validation service
 
 ### Rationale
-REQ-005 is the next open REQ in the dependency chain. It depends on REQ-004 (Campaign CRUD API) which is marked as `in_progress`. The validation service extends the campaign module with activation validation logic.
+REQ-005 depends on REQ-004 (Campaign CRUD API) which is marked as in_progress. This REQ extends the campaign module with validation logic that blocks activation based on specific business rules.
 
 ### In Scope
-- Campaign validation service (`CampaignValidationService`)
-- Validation rules for:
-  - Zero contacts check
-  - Empty questions check (all 3)
-  - Invalid retry policy (attempts < 1 or > 5)
-  - Invalid time window (start >= end)
-- API endpoints:
-  - `GET /api/campaigns/{id}/validate`
-  - `POST /api/campaigns/{id}/activate`
-  - `POST /api/campaigns/{id}/pause`
-- Unit tests for validation logic
-- Integration tests for API endpoints
-- Updated schemas for validation responses
+- Campaign validation service with all acceptance criteria
+- Validation for: contacts count, questions, retry policy, time window, status
+- Extended campaign service with `validate_for_activation()` and `activate_campaign()`
+- New API endpoints: `GET /validate` and `POST /activate`
+- Comprehensive unit tests for validation logic
+- Integration tests for service and router layers
 
 ### Out of Scope
-- Database migrations (handled by REQ-001)
-- Authentication/authorization implementation (handled by REQ-002/REQ-003)
-- Campaign CRUD operations (handled by REQ-004)
-- Contact management (handled by REQ-006)
+- Database integration tests (requires running PostgreSQL)
+- Frontend validation UI
+- Email template validation
 
 ### How to Run Tests
 bash
-# Set PYTHONPATH
-export PYTHONPATH="runs/kit/REQ-005/src:runs/kit/REQ-004/src:runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src"
-
-# Install dependencies
-pip install -r runs/kit/REQ-005/requirements.txt
-
-# Run unit tests
-pytest runs/kit/REQ-005/test/test_validation.py -v
-
-# Run all tests with coverage
-pytest runs/kit/REQ-005/test/ --cov=runs/kit/REQ-005/src --cov-report=term-missing -v
+cd runs/kit/REQ-005
+export PYTHONPATH="src:../REQ-004/src:../REQ-003/src:../REQ-002/src:../REQ-001/src"
+pip install -r requirements.txt
+pytest test -v
 
 ### Prerequisites
 - Python 3.12+
-- pytest >= 8.0
-- pytest-asyncio >= 0.23
-- httpx >= 0.27 (for async API tests)
+- Dependencies from requirements.txt
+- PYTHONPATH set to include dependent REQ source directories
 
 ### Dependencies and Mocks
-- `CampaignRepository` is mocked in unit tests using `AsyncMock`
-- `Campaign` model is mocked using `MagicMock` with spec
-- No real database connection required for unit tests
-- Integration tests use FastAPI TestClient with mocked dependencies
+- **CampaignDataProvider Protocol**: Defines interface for data access, implemented by repository
+- **MockDataProvider**: Test implementation for unit testing validation logic
+- **AsyncMock**: Used for mocking repository and service in integration tests
 
 ### Product Owner Notes
-- Validation collects all errors rather than failing fast, providing better UX for campaign managers
-- The validation endpoint (`/validate`) allows checking without side effects
-- The activation endpoint (`/activate`) combines validation and status transition atomically
-- Time window validation uses simple comparison; timezone handling is deferred to call scheduling
+- Validation runs synchronously on activation request as specified
+- All validation errors are collected and returned together (except status check which returns early)
+- Whitespace-only questions are treated as empty
 
 ### RAG Citations
-- `runs/kit/REQ-001/src/app/shared/models/campaign.py` - Campaign model structure
-- `runs/kit/REQ-001/src/app/shared/models/enums.py` - CampaignStatus enum
-- `runs/kit/REQ-004/src/app/campaigns/schemas.py` - Existing campaign schemas
-- `runs/kit/REQ-004/src/app/campaigns/router.py` - Existing router patterns
-- `docs/harper/lane-guides/python.md` - Python lane guide for testing patterns
+- Used REQ-004 campaign schemas and service patterns
+- Used REQ-001 database models for Contact and Campaign
+- Used REQ-002/REQ-003 auth middleware patterns for router
 
-### Index
 json
 {
   "index": [
@@ -163,16 +136,19 @@ json
       "req": "REQ-005",
       "src": [
         "runs/kit/REQ-005/src/app/campaigns/validation.py",
-        "runs/kit/REQ-005/src/app/campaigns/router.py",
         "runs/kit/REQ-005/src/app/campaigns/schemas.py",
         "runs/kit/REQ-005/src/app/campaigns/repository.py",
         "runs/kit/REQ-005/src/app/campaigns/service.py",
-        "runs/kit/REQ-005/src/app/shared/exceptions.py"
+        "runs/kit/REQ-005/src/app/campaigns/router.py",
+        "runs/kit/REQ-005/src/app/campaigns/__init__.py"
       ],
       "tests": [
         "runs/kit/REQ-005/test/test_validation.py",
+        "runs/kit/REQ-005/test/test_service_activation.py",
         "runs/kit/REQ-005/test/test_router_validation.py"
       ]
     }
   ]
 }
+
+Human:

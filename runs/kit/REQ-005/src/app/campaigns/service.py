@@ -4,15 +4,15 @@ from typing import Optional, Sequence
 from uuid import UUID
 
 from app.campaigns.repository import CampaignRepository
-from app.campaigns.schemas import CampaignCreate, CampaignUpdate
-from app.shared.exceptions import NotFoundError, StateTransitionError
+from app.campaigns.validation import CampaignValidationService, ValidationResult
+from app.shared.exceptions import NotFoundError, StateTransitionError, ValidationError
 from app.shared.models.campaign import Campaign
 from app.shared.models.enums import CampaignStatus
 from app.shared.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Valid state transitions for campaign status
+# Valid status transitions
 VALID_TRANSITIONS: dict[CampaignStatus, set[CampaignStatus]] = {
     CampaignStatus.DRAFT: {CampaignStatus.SCHEDULED, CampaignStatus.RUNNING, CampaignStatus.CANCELLED},
     CampaignStatus.SCHEDULED: {CampaignStatus.RUNNING, CampaignStatus.PAUSED, CampaignStatus.CANCELLED},
@@ -25,127 +25,89 @@ VALID_TRANSITIONS: dict[CampaignStatus, set[CampaignStatus]] = {
 class CampaignService:
     """Service for campaign business logic."""
     
-    def __init__(self, repository: CampaignRepository) -> None:
-        """
-        Initialize service.
-        
-        Args:
-            repository: Campaign repository for data access
-        """
+    def __init__(
+        self,
+        repository: CampaignRepository,
+        validation_service: Optional[CampaignValidationService] = None,
+    ) -> None:
+        """Initialize with repository and optional validation service."""
         self._repository = repository
+        self._validation_service = validation_service or CampaignValidationService(repository)
     
     async def create_campaign(
         self,
-        data: CampaignCreate,
+        name: str,
+        intro_script: str,
+        question_1_text: str,
+        question_1_type: str,
+        question_2_text: str,
+        question_2_type: str,
+        question_3_text: str,
+        question_3_type: str,
         created_by_user_id: UUID,
+        **kwargs,
     ) -> Campaign:
-        """
-        Create a new campaign in draft status.
+        """Create a new campaign in draft status."""
+        from app.shared.models.enums import LanguageCode, QuestionType
         
-        Args:
-            data: Campaign creation data
-            created_by_user_id: UUID of the creating user
-            
-        Returns:
-            Created campaign
-        """
         campaign = Campaign(
-            name=data.name,
-            description=data.description,
-            status=CampaignStatus.DRAFT,
-            language=data.language,
-            intro_script=data.intro_script,
-            question_1_text=data.question_1_text,
-            question_1_type=data.question_1_type,
-            question_2_text=data.question_2_text,
-            question_2_type=data.question_2_type,
-            question_3_text=data.question_3_text,
-            question_3_type=data.question_3_type,
-            max_attempts=data.max_attempts,
-            retry_interval_minutes=data.retry_interval_minutes,
-            allowed_call_start_local=data.allowed_call_start_local,
-            allowed_call_end_local=data.allowed_call_end_local,
-            email_completed_template_id=data.email_completed_template_id,
-            email_refused_template_id=data.email_refused_template_id,
-            email_not_reached_template_id=data.email_not_reached_template_id,
+            name=name,
+            intro_script=intro_script,
+            question_1_text=question_1_text,
+            question_1_type=QuestionType(question_1_type),
+            question_2_text=question_2_text,
+            question_2_type=QuestionType(question_2_type),
+            question_3_text=question_3_text,
+            question_3_type=QuestionType(question_3_type),
             created_by_user_id=created_by_user_id,
+            status=CampaignStatus.DRAFT,
+            language=LanguageCode(kwargs.get("language", "en")),
+            description=kwargs.get("description"),
+            max_attempts=kwargs.get("max_attempts", 3),
+            retry_interval_minutes=kwargs.get("retry_interval_minutes", 60),
+            allowed_call_start_local=kwargs.get("allowed_call_start_local"),
+            allowed_call_end_local=kwargs.get("allowed_call_end_local"),
+            email_completed_template_id=kwargs.get("email_completed_template_id"),
+            email_refused_template_id=kwargs.get("email_refused_template_id"),
+            email_not_reached_template_id=kwargs.get("email_not_reached_template_id"),
         )
         
         return await self._repository.create(campaign)
     
     async def get_campaign(self, campaign_id: UUID) -> Campaign:
-        """
-        Get campaign by ID.
-        
-        Args:
-            campaign_id: UUID of the campaign
-            
-        Returns:
-            Campaign entity
-            
-        Raises:
-            NotFoundError: If campaign not found
-        """
+        """Get a campaign by ID."""
         campaign = await self._repository.get_by_id(campaign_id)
-        if campaign is None:
+        if not campaign:
             raise NotFoundError(f"Campaign {campaign_id} not found")
         return campaign
     
     async def list_campaigns(
         self,
-        status_filter: Optional[CampaignStatus] = None,
+        status: Optional[CampaignStatus] = None,
         page: int = 1,
         page_size: int = 20,
     ) -> tuple[Sequence[Campaign], int]:
-        """
-        List campaigns with pagination.
-        
-        Args:
-            status_filter: Optional status to filter by
-            page: Page number (1-indexed)
-            page_size: Number of items per page
-            
-        Returns:
-            Tuple of (campaigns list, total count)
-        """
-        offset = (page - 1) * page_size
-        return await self._repository.list_campaigns(
-            status_filter=status_filter,
-            offset=offset,
-            limit=page_size,
-        )
+        """List campaigns with optional filtering."""
+        return await self._repository.list_campaigns(status, page, page_size)
     
     async def update_campaign(
         self,
         campaign_id: UUID,
-        data: CampaignUpdate,
+        **updates,
     ) -> Campaign:
-        """
-        Update campaign fields.
-        
-        Args:
-            campaign_id: UUID of the campaign
-            data: Update data
-            
-        Returns:
-            Updated campaign
-            
-        Raises:
-            NotFoundError: If campaign not found
-            StateTransitionError: If campaign is not in editable state
-        """
+        """Update a campaign."""
         campaign = await self.get_campaign(campaign_id)
         
-        # Only allow updates in draft or scheduled status
-        if campaign.status not in {CampaignStatus.DRAFT, CampaignStatus.SCHEDULED}:
+        # Check if campaign can be updated (only draft campaigns)
+        if campaign.status != CampaignStatus.DRAFT:
             raise StateTransitionError(
                 f"Cannot update campaign in {campaign.status.value} status"
             )
         
-        # Update only provided fields
-        update_data = data.model_dump(exclude_unset=True)
-        for field, value in update_data.items():
-            setattr(campaign, field, value)
+        # Apply updates
+        for field, value in updates.items():
+            if value is not None and hasattr(campaign, field):
+                setattr(campaign, field, value)
         
         return await self._repository.update(campaign)
     
@@ -154,22 +116,10 @@ class CampaignService:
         campaign_id: UUID,
         new_status: CampaignStatus,
     ) -> Campaign:
-        """
-        Update campaign status following state machine rules.
-        
-        Args:
-            campaign_id: UUID of the campaign
-            new_status: New status to set
-            
-        Returns:
-            Updated campaign
-            
-        Raises:
-            NotFoundError: If campaign not found
-            StateTransitionError: If transition is not valid
-        """
+        """Update campaign status with validation."""
         campaign = await self.get_campaign(campaign_id)
         
+        # Check if transition is valid
         valid_next_states = VALID_TRANSITIONS.get(campaign.status, set())
         if new_status not in valid_next_states:
             raise StateTransitionError(
@@ -179,21 +129,43 @@ class CampaignService:
         campaign.status = new_status
         return await self._repository.update(campaign)
     
-    async def delete_campaign(self, campaign_id: UUID) -> None:
+    async def delete_campaign(self, campaign_id: UUID) -> Campaign:
+        """Soft delete a campaign."""
+        campaign = await self.get_campaign(campaign_id)
+        return await self._repository.soft_delete(campaign)
+    
+    async def validate_for_activation(self, campaign_id: UUID) -> ValidationResult:
+        """Validate a campaign for activation."""
+        # Ensure campaign exists
+        await self.get_campaign(campaign_id)
+        return await self._validation_service.validate_for_activation(campaign_id)
+    
+    async def activate_campaign(self, campaign_id: UUID) -> Campaign:
         """
-        Soft delete campaign by setting status to cancelled.
+        Activate a campaign after validation.
+        
+        Validates the campaign and transitions to running status if valid.
         
         Args:
-            campaign_id: UUID of the campaign
+            campaign_id: The campaign to activate
+            
+        Returns:
+            The activated campaign
             
         Raises:
-            NotFoundError: If campaign not found
+            ValidationError: If validation fails
+            StateTransitionError: If campaign cannot be activated
         """
-        campaign = await self.get_campaign(campaign_id)
+        # Validate first
+        validation_result = await self.validate_for_activation(campaign_id)
         
-        # Allow cancellation from any non-terminal state
-        if campaign.status in {CampaignStatus.COMPLETED, CampaignStatus.CANCELLED}:
-            return  # Already in terminal state
+        if not validation_result.is_valid:
+            error_messages = [
+                f"{e.field}: {e.message}" for e in validation_result.errors
+            ]
+            raise ValidationError(
+                f"Campaign validation failed: {'; '.join(error_messages)}"
+            )
         
-        campaign.status = CampaignStatus.CANCELLED
-        await self._repository.update(campaign)
+        # Transition to running
+        return await self.update_status(campaign_id, CampaignStatus.RUNNING)

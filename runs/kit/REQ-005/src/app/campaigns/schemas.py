@@ -28,7 +28,7 @@ class CampaignBase(BaseModel):
         time(9, 0), description="Earliest local time to start calls"
     )
     allowed_call_end_local: time = Field(
-        time(20, 0), description="Latest local time to end calls"
+        time(20, 0), description="Latest local time to start calls"
     )
     
     @field_validator("allowed_call_end_local")
@@ -54,7 +54,7 @@ class CampaignCreate(CampaignBase):
     )
 
 class CampaignUpdate(BaseModel):
-    """Schema for updating an existing campaign."""
+    """Schema for updating a campaign."""
     
     model_config = ConfigDict(extra="forbid")
     
@@ -79,58 +79,55 @@ class CampaignUpdate(BaseModel):
 class CampaignStatusUpdate(BaseModel):
     """Schema for updating campaign status."""
     
-    model_config = ConfigDict(extra="forbid")
-    
     status: CampaignStatus = Field(..., description="New campaign status")
 
-class CampaignResponse(BaseModel):
+class CampaignResponse(CampaignBase):
     """Schema for campaign response."""
     
     model_config = ConfigDict(from_attributes=True)
     
     id: UUID
+    status: CampaignStatus
+    email_completed_template_id: Optional[UUID] = None
+    email_refused_template_id: Optional[UUID] = None
+    email_not_reached_template_id: Optional[UUID] = None
+    created_by_user_id: UUID
+    created_at: datetime
+    updated_at: datetime
+
+class CampaignListItem(BaseModel):
+    """Schema for campaign list item (summary view)."""
+    
+    model_config = ConfigDict(from_attributes=True)
+    
+    id: UUID
     name: str
-    description: Optional[str]
     status: CampaignStatus
     language: LanguageCode
-    intro_script: str
-    question_1_text: str
-    question_1_type: QuestionType
-    question_2_text: str
-    question_2_type: QuestionType
-    question_3_text: str
-    question_3_type: QuestionType
-    max_attempts: int
-    retry_interval_minutes: int
-    allowed_call_start_local: time
-    allowed_call_end_local: time
-    email_completed_template_id: Optional[UUID]
-    email_refused_template_id: Optional[UUID]
-    email_not_reached_template_id: Optional[UUID]
-    created_by_user_id: UUID
     created_at: datetime
     updated_at: datetime
 
 class CampaignListResponse(BaseModel):
     """Schema for paginated campaign list response."""
     
-    items: list[CampaignResponse]
+    items: list[CampaignListItem]
     total: int
     page: int
     page_size: int
     pages: int
 
 class ValidationErrorDetail(BaseModel):
-    """Schema for validation error details."""
+    """Schema for a single validation error."""
     
     field: str
     message: str
+    code: str
 
 class ValidationResultResponse(BaseModel):
     """Schema for validation result response."""
     
     is_valid: bool
-    errors: list[str]
+    errors: list[ValidationErrorDetail] = Field(default_factory=list)
 
 class ActivationResponse(BaseModel):
     """Schema for campaign activation response."""

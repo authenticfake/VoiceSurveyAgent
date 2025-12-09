@@ -37,13 +37,7 @@ async def get_campaign_service(db: DbSession) -> CampaignService:
     repository = CampaignRepository(db)
     return CampaignService(repository)
 
-async def get_validation_service(db: DbSession) -> CampaignValidationService:
-    """Dependency to get validation service instance."""
-    repository = CampaignRepository(db)
-    return CampaignValidationService(repository)
-
 CampaignServiceDep = Annotated[CampaignService, Depends(get_campaign_service)]
-ValidationServiceDep = Annotated[CampaignValidationService, Depends(get_validation_service)]
 
 @router.post(
     "",
@@ -56,30 +50,40 @@ async def create_campaign(
     campaign_data: CampaignCreate,
     service: CampaignServiceDep,
     current_user: CurrentUser,
+    _: Annotated[None, Depends(require_role(UserRole.CAMPAIGN_MANAGER))],
 ) -> CampaignResponse:
     """Create a new campaign."""
-    require_role(current_user, [UserRole.ADMIN, UserRole.CAMPAIGN_MANAGER])
-    
     campaign = await service.create_campaign(
-        data=campaign_data,
+        name=campaign_data.name,
+        intro_script=campaign_data.intro_script,
+        question_1_text=campaign_data.question_1_text,
+        question_1_type=campaign_data.question_1_type.value,
+        question_2_text=campaign_data.question_2_text,
+        question_2_type=campaign_data.question_2_type.value,
+        question_3_text=campaign_data.question_3_text,
+        question_3_type=campaign_data.question_3_type.value,
         created_by_user_id=current_user.id,
+        description=campaign_data.description,
+        language=campaign_data.language.value,
+        max_attempts=campaign_data.max_attempts,
+        retry_interval_minutes=campaign_data.retry_interval_minutes,
+        allowed_call_start_local=campaign_data.allowed_call_start_local,
+        allowed_call_end_local=campaign_data.allowed_call_end_local,
+        email_completed_template_id=campaign_data.email_completed_template_id,
+        email_refused_template_id=campaign_data.email_refused_template_id,
+        email_not_reached_template_id=campaign_data.email_not_reached_template_id,
     )
-    
     logger.info(
-        "Campaign created",
-        extra={
-            "campaign_id": str(campaign.id),
-            "user_id": str(current_user.id),
-        },
+        "Campaign created via API",
+        extra={"campaign_id": str(campaign.id), "user_id": str(current_user.id)},
     )
-    
     return CampaignResponse.model_validate(campaign)
 
 @router.get(
     "",
     response_model=CampaignListResponse,
     summary="List campaigns",
-    description="Get paginated list of campaigns with optional status filter",
+    description="List campaigns with optional status filter and pagination",
 )
 async def list_campaigns(
     service: CampaignServiceDep,
@@ -89,16 +93,21 @@ async def list_campaigns(
     page_size: int = Query(20, ge=1, le=100),
 ) -> CampaignListResponse:
     """List campaigns with pagination."""
-    campaigns, total = await service.list_campaigns(
-        status_filter=status_filter,
-        page=page,
-        page_size=page_size,
-    )
-    
-    pages = (total + page_size - 1) // page_size
+    campaigns, total = await service.list_campaigns(status_filter, page, page_size)
+    pages = (total + page_size - 1) // page_size if total > 0 else 1
     
     return CampaignListResponse(
-        items=[CampaignResponse.model_validate(c) for c in campaigns],
+        items=[
+            {
+                "id": c.id,
+                "name": c.name,
+                "status": c.status,
+                "language": c.language,
+                "created_at": c.created_at,
+                "updated_at": c.updated_at,
+            }
+            for c in campaigns
+        ],
         total=total,
         page=page,
         page_size=page_size,
@@ -130,28 +139,23 @@ async def get_campaign(
     "/{campaign_id}",
     response_model=CampaignResponse,
     summary="Update campaign",
-    description="Update campaign fields (restricted by current status)",
+    description="Update campaign fields (only allowed for draft campaigns)",
 )
 async def update_campaign(
     campaign_id: UUID,
     campaign_data: CampaignUpdate,
     service: CampaignServiceDep,
     current_user: CurrentUser,
+    _: Annotated[None, Depends(require_role(UserRole.CAMPAIGN_MANAGER))],
 ) -> CampaignResponse:
-    """Update campaign."""
-    require_role(current_user, [UserRole.ADMIN, UserRole.CAMPAIGN_MANAGER])
-    
+    """Update a campaign."""
     try:
-        campaign = await service.update_campaign(campaign_id, campaign_data)
-        
+        updates = campaign_data.model_dump(exclude_unset=True)
+        campaign = await service.update_campaign(campaign_id, **updates)
         logger.info(
-            "Campaign updated",
-            extra={
-                "campaign_id": str(campaign_id),
-                "user_id": str(current_user.id),
-            },
+            "Campaign updated via API",
+            extra={"campaign_id": str(campaign_id), "user_id": str(current_user.id)},
         )
-        
         return CampaignResponse.model_validate(campaign)
     except NotFoundError:
         raise HTTPException(
@@ -168,29 +172,26 @@ async def update_campaign(
     "/{campaign_id}/status",
     response_model=CampaignResponse,
     summary="Update campaign status",
-    description="Update campaign status following state machine rules",
+    description="Update campaign status following valid state transitions",
 )
 async def update_campaign_status(
     campaign_id: UUID,
     status_update: CampaignStatusUpdate,
     service: CampaignServiceDep,
     current_user: CurrentUser,
+    _: Annotated[None, Depends(require_role(UserRole.CAMPAIGN_MANAGER))],
 ) -> CampaignResponse:
     """Update campaign status."""
-    require_role(current_user, [UserRole.ADMIN, UserRole.CAMPAIGN_MANAGER])
-    
     try:
         campaign = await service.update_status(campaign_id, status_update.status)
-        
         logger.info(
-            "Campaign status updated",
+            "Campaign status updated via API",
             extra={
                 "campaign_id": str(campaign_id),
                 "new_status": status_update.status.value,
                 "user_id": str(current_user.id),
             },
         )
-        
         return CampaignResponse.model_validate(campaign)
     except NotFoundError:
         raise HTTPException(
@@ -205,28 +206,24 @@ async def update_campaign_status(
 
 @router.delete(
     "/{campaign_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
+    response_model=CampaignResponse,
     summary="Delete campaign",
-    description="Soft delete campaign by setting status to cancelled",
+    description="Soft delete a campaign by setting status to cancelled",
 )
 async def delete_campaign(
     campaign_id: UUID,
     service: CampaignServiceDep,
     current_user: CurrentUser,
-) -> None:
-    """Soft delete campaign."""
-    require_role(current_user, [UserRole.ADMIN, UserRole.CAMPAIGN_MANAGER])
-    
+    _: Annotated[None, Depends(require_role(UserRole.CAMPAIGN_MANAGER))],
+) -> CampaignResponse:
+    """Soft delete a campaign."""
     try:
-        await service.delete_campaign(campaign_id)
-        
+        campaign = await service.delete_campaign(campaign_id)
         logger.info(
-            "Campaign deleted",
-            extra={
-                "campaign_id": str(campaign_id),
-                "user_id": str(current_user.id),
-            },
+            "Campaign deleted via API",
+            extra={"campaign_id": str(campaign_id), "user_id": str(current_user.id)},
         )
+        return CampaignResponse.model_validate(campaign)
     except NotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -237,21 +234,23 @@ async def delete_campaign(
     "/{campaign_id}/validate",
     response_model=ValidationResultResponse,
     summary="Validate campaign for activation",
-    description="Check if campaign meets all requirements for activation",
+    description="Check if a campaign meets all requirements for activation",
 )
 async def validate_campaign(
     campaign_id: UUID,
-    validation_service: ValidationServiceDep,
+    service: CampaignServiceDep,
     current_user: CurrentUser,
+    _: Annotated[None, Depends(require_role(UserRole.CAMPAIGN_MANAGER))],
 ) -> ValidationResultResponse:
-    """Validate campaign configuration."""
-    require_role(current_user, [UserRole.ADMIN, UserRole.CAMPAIGN_MANAGER])
-    
+    """Validate a campaign for activation."""
     try:
-        result = await validation_service.validate_for_activation(campaign_id)
+        result = await service.validate_for_activation(campaign_id)
         return ValidationResultResponse(
             is_valid=result.is_valid,
-            errors=result.errors,
+            errors=[
+                {"field": e.field, "message": e.message, "code": e.code}
+                for e in result.errors
+            ],
         )
     except NotFoundError:
         raise HTTPException(
@@ -263,30 +262,24 @@ async def validate_campaign(
     "/{campaign_id}/activate",
     response_model=ActivationResponse,
     summary="Activate campaign",
-    description="Validate and activate campaign, transitioning to running status",
+    description="Validate and activate a campaign, transitioning to running status",
 )
 async def activate_campaign(
     campaign_id: UUID,
-    validation_service: ValidationServiceDep,
+    service: CampaignServiceDep,
     current_user: CurrentUser,
+    _: Annotated[None, Depends(require_role(UserRole.CAMPAIGN_MANAGER))],
 ) -> ActivationResponse:
-    """Activate campaign after validation."""
-    require_role(current_user, [UserRole.ADMIN, UserRole.CAMPAIGN_MANAGER])
-    
+    """Activate a campaign after validation."""
     try:
-        await validation_service.activate_campaign(campaign_id)
-        
+        campaign = await service.activate_campaign(campaign_id)
         logger.info(
-            "Campaign activated",
-            extra={
-                "campaign_id": str(campaign_id),
-                "user_id": str(current_user.id),
-            },
+            "Campaign activated via API",
+            extra={"campaign_id": str(campaign_id), "user_id": str(current_user.id)},
         )
-        
         return ActivationResponse(
-            campaign_id=campaign_id,
-            status=CampaignStatus.RUNNING,
+            campaign_id=campaign.id,
+            status=campaign.status,
             message="Campaign activated successfully",
         )
     except NotFoundError:
@@ -297,42 +290,7 @@ async def activate_campaign(
     except ValidationError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "message": e.message,
-                "errors": e.details.get("errors", []) if e.details else [],
-            },
-        )
-
-@router.post(
-    "/{campaign_id}/pause",
-    response_model=CampaignResponse,
-    summary="Pause campaign",
-    description="Pause a running campaign",
-)
-async def pause_campaign(
-    campaign_id: UUID,
-    service: CampaignServiceDep,
-    current_user: CurrentUser,
-) -> CampaignResponse:
-    """Pause a running campaign."""
-    require_role(current_user, [UserRole.ADMIN, UserRole.CAMPAIGN_MANAGER])
-    
-    try:
-        campaign = await service.update_status(campaign_id, CampaignStatus.PAUSED)
-        
-        logger.info(
-            "Campaign paused",
-            extra={
-                "campaign_id": str(campaign_id),
-                "user_id": str(current_user.id),
-            },
-        )
-        
-        return CampaignResponse.model_validate(campaign)
-    except NotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Campaign {campaign_id} not found",
+            detail=str(e),
         )
     except StateTransitionError as e:
         raise HTTPException(
