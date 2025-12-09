@@ -1,0 +1,6 @@
+# REQ-013: Dialogue orchestrator Q&A flow
+# Test and runtime dependencies
+
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
