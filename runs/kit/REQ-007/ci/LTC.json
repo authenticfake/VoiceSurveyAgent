@@ -1,0 +1,87 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-007",
+  "lane": "python",
+  "env": {
+    "DATABASE_URL": "postgresql+asyncpg://postgres:postgres@localhost:5432/voicesurvey_test",
+    "LOG_LEVEL": "DEBUG",
+    "PYTHONPATH": "runs/kit/REQ-007/src:runs/kit/REQ-006/src:runs/kit/REQ-005/src:runs/kit/REQ-004/src:runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src"
+  },
+  "cases": [
+    {
+      "name": "install_deps",
+      "run": "pip install -r requirements.txt",
+      "cwd": "runs/kit/REQ-007",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "unit_tests",
+      "run": "pytest test/test_exclusions_unit.py -v --tb=short",
+      "cwd": "runs/kit/REQ-007",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "integration_tests",
+      "run": "pytest test/test_exclusions_integration.py -v --tb=short",
+      "cwd": "runs/kit/REQ-007",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "lint",
+      "run": "ruff check src/app/contacts/exclusions",
+      "cwd": "runs/kit/REQ-007",
+      "expect": 0,
+      "timeout": 30
+    },
+    {
+      "name": "type_check",
+      "run": "mypy src/app/contacts/exclusions --ignore-missing-imports",
+      "cwd": "runs/kit/REQ-007",
+      "expect": 0,
+      "timeout": 60
+    }
+  ],
+  "tools": {
+    "tests": "pytest>=8.0",
+    "lint": "ruff>=0.4",
+    "types": "mypy>=1.10",
+    "security": "bandit>=1.7",
+    "build": "docker>=24.0"
+  },
+  "commands": {
+    "install": "pip install -r requirements.txt",
+    "test": "pytest test/ -v --cov=src/app/contacts/exclusions",
+    "lint": "ruff check src/",
+    "types": "mypy src/ --ignore-missing-imports"
+  },
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "reports/junit.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "reports/coverage.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 80,
+    "security": {
+      "bandit_high": 0
+    }
+  },
+  "constraints_applied": [
+    "python@3.12",
+    "fastapi",
+    "sqlalchemy[asyncio]",
+    "pytest>=8.0",
+    "ruff>=0.4",
+    "mypy>=1.10"
+  ]
+}
