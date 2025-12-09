@@ -1,0 +1,61 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-010",
+  "lane": "python",
+  "env": {
+    "DATABASE_URL": "postgresql+asyncpg://test:test@localhost:5432/test",
+    "TWILIO_ACCOUNT_SID": "test_sid",
+    "TWILIO_AUTH_TOKEN": "test_token",
+    "LOG_LEVEL": "DEBUG",
+    "PYTHONPATH": "runs/kit/REQ-010/src:runs/kit/REQ-009/src:runs/kit/REQ-008/src:runs/kit/REQ-006/src:runs/kit/REQ-005/src:runs/kit/REQ-004/src:runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src"
+  },
+  "cases": [
+    {
+      "name": "install_deps",
+      "run": "pip install -r runs/kit/REQ-010/requirements.txt",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "tests",
+      "run": "pytest runs/kit/REQ-010/test -v --tb=short -p no:cacheprovider",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "lint",
+      "run": "ruff check runs/kit/REQ-010/src runs/kit/REQ-010/test --ignore=E501",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "types",
+      "run": "mypy runs/kit/REQ-010/src --ignore-missing-imports --no-error-summary",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    }
+  ],
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "reports/junit.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "reports/coverage.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 0.0,
+    "security": {
+      "bandit_high": 0
+    }
+  }
+}
