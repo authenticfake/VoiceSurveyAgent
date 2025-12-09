@@ -1,0 +1,75 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-008",
+  "lane": "python",
+  "env": {
+    "ENVIRONMENT": "test",
+    "DATABASE_URL": "postgresql+asyncpg://postgres:postgres@localhost:5432/voicesurvey_test",
+    "OIDC_ISSUER_URL": "https://test-idp.example.com",
+    "OIDC_CLIENT_ID": "test-client-id",
+    "OIDC_CLIENT_SECRET": "test-client-secret",
+    "JWT_SECRET_KEY": "test-secret-key-for-jwt-signing-min-32-chars"
+  },
+  "cases": [
+    {
+      "name": "install_deps",
+      "run": "pip install -r runs/kit/REQ-008/requirements.txt",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "lint",
+      "run": "ruff check runs/kit/REQ-008/src runs/kit/REQ-008/test --ignore E501",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "types",
+      "run": "mypy runs/kit/REQ-008/src --ignore-missing-imports --no-error-summary",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "tests",
+      "run": "PYTHONPATH=runs/kit/REQ-008/src:runs/kit/REQ-007/src:runs/kit/REQ-006/src:runs/kit/REQ-005/src:runs/kit/REQ-004/src:runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src pytest runs/kit/REQ-008/test -v --tb=short -p no:cacheprovider",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 300
+    }
+  ],
+  "tools": {
+    "tests": "pytest>=8.0",
+    "lint": "ruff>=0.4",
+    "types": "mypy>=1.10",
+    "security": "bandit>=1.7",
+    "build": "docker>=24.0"
+  },
+  "commands": {
+    "install": "pip install -r runs/kit/REQ-008/requirements.txt",
+    "lint": "ruff check runs/kit/REQ-008/src runs/kit/REQ-008/test",
+    "types": "mypy runs/kit/REQ-008/src",
+    "tests": "pytest runs/kit/REQ-008/test -v"
+  },
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "reports/junit-req008.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "reports/coverage-req008.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 80,
+    "security": {
+      "bandit_high": 0
+    }
+  }
+}
