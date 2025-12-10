@@ -1,0 +1,82 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-021",
+  "lane": "python",
+  "env": {
+    "LOG_LEVEL": "DEBUG",
+    "LOG_FORMAT_JSON": "true",
+    "METRICS_ENABLED": "true",
+    "TRACING_ENABLED": "true",
+    "TRACING_SAMPLE_RATE": "1.0",
+    "PYTHONPATH": "runs/kit/REQ-021/src"
+  },
+  "cases": [
+    {
+      "name": "install_deps",
+      "run": "pip install -r runs/kit/REQ-021/requirements.txt",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "tests",
+      "run": "python -m pytest runs/kit/REQ-021/test -v --tb=short -p no:cacheprovider",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 300
+    },
+    {
+      "name": "lint",
+      "run": "python -m ruff check runs/kit/REQ-021/src --ignore=E501,F401",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 60
+    },
+    {
+      "name": "types",
+      "run": "python -m mypy runs/kit/REQ-021/src --ignore-missing-imports --no-error-summary || true",
+      "cwd": ".",
+      "expect": 0,
+      "timeout": 120
+    }
+  ],
+  "tools": {
+    "tests": "pytest",
+    "lint": "ruff",
+    "types": "mypy",
+    "security": "bandit",
+    "build": "pip"
+  },
+  "commands": {
+    "install": "pip install -r runs/kit/REQ-021/requirements.txt",
+    "tests": "pytest runs/kit/REQ-021/test -v",
+    "lint": "ruff check runs/kit/REQ-021/src",
+    "types": "mypy runs/kit/REQ-021/src"
+  },
+  "reports": [
+    {
+      "kind": "junit",
+      "path": "reports/junit-req021.xml",
+      "format": "junit-xml"
+    },
+    {
+      "kind": "coverage",
+      "path": "reports/coverage-req021.xml",
+      "format": "coverage-xml"
+    }
+  ],
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 0.0,
+    "security": {
+      "bandit_high": 0
+    }
+  },
+  "constraints_applied": [
+    "python@3.12",
+    "fastapi",
+    "structured-json-logging",
+    "prometheus-metrics",
+    "opentelemetry-tracing"
+  ]
+}

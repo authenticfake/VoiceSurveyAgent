@@ -2,7 +2,7 @@
 
 ## Plan Snapshot
 
-- **Counts:** total=24 / open=5 / in_progress=19 / done=0 / deferred=0
+- **Counts:** total=24 / open=4 / in_progress=20 / done=0 / deferred=0
 - **Progress:** 0% complete
 - **Checklist:**
   - [x] SPEC aligned
