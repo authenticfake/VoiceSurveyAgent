@@ -2,7 +2,7 @@
 
 ## Plan Snapshot
 
-- **Counts:** total=24 / open=2 / in_progress=22 / done=0 / deferred=0
+- **Counts:** total=24 / open=1 / in_progress=23 / done=0 / deferred=0
 - **Progress:** 0% complete
 - **Checklist:**
   - [x] SPEC aligned
@@ -86,7 +86,7 @@
 | REQ-020 | Call detail view API | GET /api/calls/{call_id} returns call details<br/>Response includes outcome, attempt_number, timestamps<br/>Transcript snippet included if stored<br/>Access restricted to campaign_manager and admin<br/>404 returned for non-existent call_id | REQ-014 | App | in_progress |
 | REQ-021 | Observability instrumentation | All log entries in structured JSON format<br/>Correlation ID propagated across HTTP, telephony, LLM calls<br/>Prometheus metrics endpoint at /metrics<br/>OpenTelemetry traces for API requests<br/>Log level configurable via environment variable | REQ-001 | Infra | in_progress |
 | REQ-022 | Data retention jobs | Retention job runs daily as scheduled task<br/>Recordings older than retention_days deleted from storage<br/>Deletion logged with count and timestamp<br/>Job handles partial failures gracefully<br/>GDPR deletion requests processed within 72 hours | REQ-019 | Infra | in_progress |
-| REQ-023 | Frontend campaign management UI | Campaign list page shows all campaigns with status badges<br/>CSV upload component with drag-drop and progress indicator<br/>Activate button enabled only when validation passes<br/>Form validation matches backend rules<br/>Responsive design for desktop and tablet | REQ-004, REQ-006 | App | open |
+| REQ-023 | Frontend campaign management UI | Campaign list page shows all campaigns with status badges<br/>CSV upload component with drag-drop and progress indicator<br/>Activate button enabled only when validation passes<br/>Form validation matches backend rules<br/>Responsive design for desktop and tablet | REQ-004, REQ-006 | App | in_progress |
 | REQ-024 | Frontend dashboard and export UI | Dashboard shows completion/refusal/not_reached percentages<br/>Time-series chart for call activity<br/>Export button triggers async job<br/>Stats refresh automatically every 60 seconds<br/>Error states with retry options | REQ-017, REQ-018 | App | open |
 
 
