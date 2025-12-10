@@ -2,7 +2,7 @@
 
 ## Plan Snapshot
 
-- **Counts:** total=24 / open=4 / in_progress=20 / done=0 / deferred=0
+- **Counts:** total=24 / open=2 / in_progress=22 / done=0 / deferred=0
 - **Progress:** 0% complete
 - **Checklist:**
   - [x] SPEC aligned
@@ -83,9 +83,9 @@
 | REQ-017 | Campaign dashboard stats API | GET /api/campaigns/{id}/stats returns aggregate metrics<br/>Metrics include total, completed, refused, not_reached counts<br/>Time-series data for calls per hour/day<br/>Stats cached with 60-second TTL<br/>Response time under 500ms for campaigns with 10k contacts | REQ-014 | App | in_progress |
 | REQ-018 | Campaign CSV export | GET /api/campaigns/{id}/export initiates export job<br/>Export includes campaign_id, contact_id, external_contact_id<br/>Async job stores CSV in S3 with signed URL<br/>Download URL returned with expiration<br/>Export respects RBAC (campaign_manager or admin only) | REQ-017 | App | in_progress |
 | REQ-019 | Admin configuration API | GET /api/admin/config returns current configuration<br/>PUT /api/admin/config updates provider settings<br/>Telephony provider credentials stored in Secrets Manager<br/>Config changes logged in audit trail<br/>Admin role required for all config endpoints | REQ-003 | App | in_progress |
-| REQ-020 | Call detail view API | GET /api/calls/{call_id} returns call details<br/>Response includes outcome, attempt_number, timestamps<br/>Transcript snippet included if stored<br/>Access restricted to campaign_manager and admin<br/>404 returned for non-existent call_id | REQ-014 | App | open |
-| REQ-021 | Observability instrumentation | All log entries in structured JSON format<br/>Correlation ID propagated across HTTP, telephony, LLM calls<br/>Prometheus metrics endpoint at /metrics<br/>OpenTelemetry traces for API requests<br/>Log level configurable via environment variable | REQ-001 | Infra | open |
-| REQ-022 | Data retention jobs | Retention job runs daily as scheduled task<br/>Recordings older than retention_days deleted from storage<br/>Deletion logged with count and timestamp<br/>Job handles partial failures gracefully<br/>GDPR deletion requests processed within 72 hours | REQ-019 | Infra | open |
+| REQ-020 | Call detail view API | GET /api/calls/{call_id} returns call details<br/>Response includes outcome, attempt_number, timestamps<br/>Transcript snippet included if stored<br/>Access restricted to campaign_manager and admin<br/>404 returned for non-existent call_id | REQ-014 | App | in_progress |
+| REQ-021 | Observability instrumentation | All log entries in structured JSON format<br/>Correlation ID propagated across HTTP, telephony, LLM calls<br/>Prometheus metrics endpoint at /metrics<br/>OpenTelemetry traces for API requests<br/>Log level configurable via environment variable | REQ-001 | Infra | in_progress |
+| REQ-022 | Data retention jobs | Retention job runs daily as scheduled task<br/>Recordings older than retention_days deleted from storage<br/>Deletion logged with count and timestamp<br/>Job handles partial failures gracefully<br/>GDPR deletion requests processed within 72 hours | REQ-019 | Infra | in_progress |
 | REQ-023 | Frontend campaign management UI | Campaign list page shows all campaigns with status badges<br/>CSV upload component with drag-drop and progress indicator<br/>Activate button enabled only when validation passes<br/>Form validation matches backend rules<br/>Responsive design for desktop and tablet | REQ-004, REQ-006 | App | open |
 | REQ-024 | Frontend dashboard and export UI | Dashboard shows completion/refusal/not_reached percentages<br/>Time-series chart for call activity<br/>Export button triggers async job<br/>Stats refresh automatically every 60 seconds<br/>Error states with retry options | REQ-017, REQ-018 | App | open |
 

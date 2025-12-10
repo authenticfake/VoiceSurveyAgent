@@ -1,0 +1,84 @@
+{
+  "version": "1.0",
+  "req_id": "REQ-023",
+  "lane": "node",
+  "env": {
+    "NEXT_PUBLIC_API_URL": "http://localhost:8000",
+    "CI": "true"
+  },
+  "cases": [
+    {
+      "name": "install_dependencies",
+      "run": "npm ci",
+      "cwd": "runs/kit/REQ-023/src/frontend",
+      "expect": 0,
+      "timeout": 300
+    },
+    {
+      "name": "type_check",
+      "run": "npm run type-check",
+      "cwd": "runs/kit/REQ-023/src/frontend",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "lint",
+      "run": "npm run lint",
+      "cwd": "runs/kit/REQ-023/src/frontend",
+      "expect": 0,
+      "timeout": 120
+    },
+    {
+      "name": "tests",
+      "run": "npm test -- --coverage --passWithNoTests",
+      "cwd": "runs/kit/REQ-023/src/frontend",
+      "expect": 0,
+      "timeout": 300
+    },
+    {
+      "name": "build",
+      "run": "npm run build",
+      "cwd": "runs/kit/REQ-023/src/frontend",
+      "expect": 0,
+      "timeout": 300
+    }
+  ],
+  "tools": {
+    "tests": "jest",
+    "lint": "eslint",
+    "types": "typescript",
+    "security": "npm audit",
+    "build": "next build"
+  },
+  "commands": {
+    "install": "npm ci",
+    "type_check": "npm run type-check",
+    "lint": "npm run lint",
+    "tests": "npm test -- --coverage",
+    "build": "npm run build"
+  },
+  "reports": [
+    {
+      "kind": "coverage",
+      "path": "runs/kit/REQ-023/src/frontend/coverage/lcov.info",
+      "format": "lcov"
+    },
+    {
+      "kind": "junit",
+      "path": "runs/kit/REQ-023/src/frontend/junit.xml",
+      "format": "junit-xml"
+    }
+  ],
+  "gate_policy": {
+    "tests_pass": true,
+    "coverage_min": 70,
+    "security": {
+      "npm_audit_high": 0
+    }
+  },
+  "constraints_applied": [
+    "lane: node",
+    "framework: Next.js/React",
+    "coverage_min: 75%"
+  ]
+}
