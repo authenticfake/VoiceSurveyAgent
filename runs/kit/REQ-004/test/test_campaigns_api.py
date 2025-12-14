@@ -11,6 +11,7 @@ from uuid import uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+import pytest_asyncio
 
 from app.auth.middleware import AuthenticatedUser
 from app.campaigns.models import CampaignStatus, CampaignLanguage, QuestionType
@@ -79,7 +80,7 @@ def sample_campaign_data() -> dict:
     }
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def async_client() -> AsyncGenerator[AsyncClient, None]:
     """Create async HTTP client for testing."""
     async with AsyncClient(

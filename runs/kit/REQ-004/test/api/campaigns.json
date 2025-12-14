@@ -1,156 +1,239 @@
 {
   "info": {
-    "name": "Campaign CRUD API",
-    "description": "API collection for REQ-004 Campaign CRUD operations",
-    "version": "1.0.0"
+    "_postman_id": "c7a8b4f0-4d5e-4c31-8f1e-9a2c3d1e0f00",
+    "name": "REQ-006 Contact CSV Upload API",
+    "description": "API tests for contact CSV upload and management",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
-  "requests": [
+  "item": [
     {
-      "name": "Create Campaign",
-      "method": "POST",
-      "url": "{{base_url}}/api/campaigns",
-      "headers": {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer {{access_token}}"
+      "name": "Upload Contacts CSV",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "contacts.csv",
+              "description": "Ensure this file exists in Postman's working directory or select it manually."
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts/upload",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "campaigns",
+            "{{campaign_id}}",
+            "contacts",
+            "upload"
+          ]
+        }
       },
-      "body": {
-        "name": "Customer Satisfaction Survey Q1",
-        "description": "Quarterly customer satisfaction survey",
-        "language": "en",
-        "intro_script": "Hello, I'm calling from Example Corp. We're conducting a brief 3-question survey about your recent experience. It will take about 2 minutes. Do you consent to participate?",
-        "question_1_text": "On a scale of 1 to 10, how satisfied are you with our service?",
-        "question_1_type": "scale",
-        "question_2_text": "What is one thing we could improve?",
-        "question_2_type": "free_text",
-        "question_3_text": "How likely are you to recommend us to a friend, from 1 to 10?",
-        "question_3_type": "numeric",
-        "max_attempts": 3,
-        "retry_interval_minutes": 60,
-        "allowed_call_start_local": "09:00:00",
-        "allowed_call_end_local": "18:00:00"
-      },
-      "expected_status": 201
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function() { pm.response.to.have.status(200); });",
+              "pm.test('Response has accepted_count', function() { pm.expect(pm.response.json()).to.have.property('accepted_count'); });",
+              "pm.test('Response has errors array', function() { pm.expect(pm.response.json().errors).to.be.an('array'); });"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
     },
     {
-      "name": "List Campaigns",
-      "method": "GET",
-      "url": "{{base_url}}/api/campaigns",
-      "headers": {
-        "Authorization": "Bearer {{access_token}}"
-      },
-      "query_params": {
-        "page": 1,
-        "page_size": 20
-      },
-      "expected_status": 200
+      "name": "Upload CSV with Custom Delimiter",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "contacts_semicolon.csv",
+              "description": "Ensure this file exists or select it manually."
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts/upload?delimiter=;",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "campaigns",
+            "{{campaign_id}}",
+            "contacts",
+            "upload"
+          ],
+          "query": [
+            {
+              "key": "delimiter",
+              "value": ";"
+            }
+          ]
+        }
+      }
     },
     {
-      "name": "List Campaigns with Status Filter",
-      "method": "GET",
-      "url": "{{base_url}}/api/campaigns",
-      "headers": {
-        "Authorization": "Bearer {{access_token}}"
+      "name": "List Campaign Contacts",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "campaigns",
+            "{{campaign_id}}",
+            "contacts"
+          ]
+        }
       },
-      "query_params": {
-        "status": "draft",
-        "page": 1,
-        "page_size": 20
-      },
-      "expected_status": 200
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function() { pm.response.to.have.status(200); });",
+              "pm.test('Response has items array', function() { pm.expect(pm.response.json().items).to.be.an('array'); });",
+              "pm.test('Response has pagination', function() { pm.expect(pm.response.json()).to.have.property('total'); });"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
     },
     {
-      "name": "Get Campaign by ID",
-      "method": "GET",
-      "url": "{{base_url}}/api/campaigns/{{campaign_id}}",
-      "headers": {
-        "Authorization": "Bearer {{access_token}}"
-      },
-      "expected_status": 200
+      "name": "List Contacts with Pagination",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts?page=1&page_size=10",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "campaigns",
+            "{{campaign_id}}",
+            "contacts"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "page_size",
+              "value": "10"
+            }
+          ]
+        }
+      }
     },
     {
-      "name": "Update Campaign",
-      "method": "PUT",
-      "url": "{{base_url}}/api/campaigns/{{campaign_id}}",
-      "headers": {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer {{access_token}}"
-      },
-      "body": {
-        "name": "Updated Campaign Name",
-        "description": "Updated description"
-      },
-      "expected_status": 200
+      "name": "List Contacts with State Filter",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts?state=pending",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "campaigns",
+            "{{campaign_id}}",
+            "contacts"
+          ],
+          "query": [
+            {
+              "key": "state",
+              "value": "pending"
+            }
+          ]
+        }
+      }
     },
     {
-      "name": "Transition to Running",
-      "method": "POST",
-      "url": "{{base_url}}/api/campaigns/{{campaign_id}}/status",
-      "headers": {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer {{access_token}}"
+      "name": "Get Single Contact",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts/{{contact_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "campaigns",
+            "{{campaign_id}}",
+            "contacts",
+            "{{contact_id}}"
+          ]
+        }
       },
-      "body": {
-        "status": "running"
-      },
-      "expected_status": 200
-    },
-    {
-      "name": "Transition to Paused",
-      "method": "POST",
-      "url": "{{base_url}}/api/campaigns/{{campaign_id}}/status",
-      "headers": {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer {{access_token}}"
-      },
-      "body": {
-        "status": "paused"
-      },
-      "expected_status": 200
-    },
-    {
-      "name": "Delete Campaign",
-      "method": "DELETE",
-      "url": "{{base_url}}/api/campaigns/{{campaign_id}}",
-      "headers": {
-        "Authorization": "Bearer {{access_token}}"
-      },
-      "expected_status": 204
-    },
-    {
-      "name": "Get Non-existent Campaign",
-      "method": "GET",
-      "url": "{{base_url}}/api/campaigns/00000000-0000-0000-0000-000000000000",
-      "headers": {
-        "Authorization": "Bearer {{access_token}}"
-      },
-      "expected_status": 404
-    },
-    {
-      "name": "Create Campaign - Invalid Time Window",
-      "method": "POST",
-      "url": "{{base_url}}/api/campaigns",
-      "headers": {
-        "Content-Type": "application/json",
-        "Authorization": "Bearer {{access_token}}"
-      },
-      "body": {
-        "name": "Invalid Campaign",
-        "intro_script": "Hello...",
-        "question_1_text": "Q1?",
-        "question_1_type": "scale",
-        "question_2_text": "Q2?",
-        "question_2_type": "free_text",
-        "question_3_text": "Q3?",
-        "question_3_type": "numeric",
-        "allowed_call_start_local": "18:00:00",
-        "allowed_call_end_local": "09:00:00"
-      },
-      "expected_status": 422
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function() { pm.response.to.have.status(200); });",
+              "pm.test('Response has contact id', function() { pm.expect(pm.response.json()).to.have.property('id'); });"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
     }
-  ],
-  "variables": {
-    "base_url": "http://localhost:8000",
-    "access_token": "<your-jwt-token>",
-    "campaign_id": "<campaign-uuid>"
-  }
+  ]
 }
