@@ -27,12 +27,12 @@ DEBUG=true
 LOG_LEVEL=INFO
 
 # Database
-DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/voicesurvey
+DATABASE_URL=postgresql+asyncpg://afranco:Andrea.1@localhost:5432/voicesurveyagent
 
 # OIDC Configuration
-OIDC_ISSUER_URL=https://your-idp.example.com
-OIDC_CLIENT_ID=your-client-id
-OIDC_CLIENT_SECRET=your-client-secret
+OIDC_ISSUER_URL=http://localhost:8080
+OIDC_CLIENT_ID=voice-survey-agent
+OIDC_CLIENT_SECRET=wQGovP2T32xHHGVwEzRO7M2WLcSBuBPl
 OIDC_REDIRECT_URI=http://localhost:8000/api/auth/callback
 OIDC_SCOPES=openid profile email
 
