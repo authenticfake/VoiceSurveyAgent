@@ -7,6 +7,7 @@ REQ-006: Contact CSV upload and parsing
 import pytest
 from uuid import uuid4
 
+import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.campaigns.models import Campaign, CampaignStatus, CampaignLanguage, QuestionType
@@ -35,7 +36,7 @@ invalid_phone,test2@example.com,EXT002
 +14155551237,,EXT005"""
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def draft_campaign(db_session: AsyncSession, test_user) -> Campaign:
     """Create a draft campaign for testing."""
     campaign = Campaign(
@@ -61,7 +62,7 @@ async def draft_campaign(db_session: AsyncSession, test_user) -> Campaign:
     return campaign
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def running_campaign(db_session: AsyncSession, test_user) -> Campaign:
     """Create a running campaign for testing."""
     campaign = Campaign(

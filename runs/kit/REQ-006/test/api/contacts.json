@@ -91,7 +91,7 @@
   "variables": [
     {
       "key": "base_url",
-      "value": "http://localhost:8080"
+      "value": "http://localhost:8888"
     },
     {
       "key": "campaign_id",
@@ -104,104 +104,6 @@
     {
       "key": "auth_token",
       "value": ""
-    }
-  ]
-}
-
----
-
-## KIT Iteration Log
-
-### Targeted REQ-ID(s)
-- **REQ-006**: Contact CSV upload and parsing
-
-### Rationale
-REQ-006 is the next open REQ in the dependency chain. It depends on REQ-004 (Campaign CRUD API) which is marked as `in_progress`. The implementation builds on the existing contact models and repository from REQ-005 and extends them with full CSV upload functionality.
-
-### In Scope
-- CSV file upload endpoint (`POST /api/campaigns/{id}/contacts/upload`)
-- Phone number validation (E.164 format)
-- Email validation (RFC 5322 simplified)
-- Header normalization with aliases
-- Row-by-row error collection with line numbers
-- Duplicate detection (within file and campaign)
-- Bulk contact creation in pending state
-- Paginated contact listing endpoint
-- Single contact retrieval endpoint
-- State filtering for contacts
-- Unit tests for CSV parser
-- Integration tests for service layer
-- API tests for router endpoints
-
-### Out of Scope
-- Contact state transitions (handled by call scheduler in REQ-008)
-- Exclusion list integration (REQ-007)
-- Contact deletion/update endpoints
-- Async/background CSV processing for large files
-
-### How to Run Tests
-
-# Set environment
-export PYTHONPATH="runs/kit/REQ-006/src:runs/kit/REQ-005/src:runs/kit/REQ-004/src:runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src"
-export TEST_DATABASE_URL="sqlite+aiosqlite:///:memory:"
-
-# Install dependencies
-pip install -r runs/kit/REQ-006/requirements.txt
-
-# Run all tests
-pytest runs/kit/REQ-006/test/ -v --cov=app.contacts --cov-report=term-missing
-
-# Run specific test files
-pytest runs/kit/REQ-006/test/test_csv_parser.py -v
-pytest runs/kit/REQ-006/test/test_contact_service.py -v
-pytest runs/kit/REQ-006/test/test_contact_router.py -v
-
-### Prerequisites
-- Python 3.12+
-- PostgreSQL 15+ (for production) or SQLite (for tests)
-- Dependencies from REQ-001 through REQ-005 installed
-- PYTHONPATH configured to include all prior REQ source directories
-
-### Dependencies and Mocks
-- **Database**: Uses SQLite in-memory for unit tests, can use PostgreSQL for integration tests
-- **Authentication**: Test fixtures mock JWT validation via `conftest.py` overrides
-- **Campaign Repository**: Reuses from REQ-004/REQ-005
-- **Contact Repository**: Extended from REQ-005 with bulk operations
-
-### Product Owner Notes
-- The 95% acceptance rate requirement is tested with a 100-row CSV (95 valid, 5 invalid)
-- Phone number validation accepts common formatting (spaces, dashes, parentheses) and normalizes to E.164
-- Header aliases provide flexibility for different CSV formats from various sources
-- Duplicate detection prevents both in-file duplicates and duplicates against existing campaign contacts
-- Campaign must be in `draft` status to accept contact uploads (prevents modification of active campaigns)
-
-### RAG Citations
-- `runs/kit/REQ-001/src/storage/sql/V0001.up.sql` - Contact table schema with enums
-- `runs/kit/REQ-005/src/app/contacts/models.py` - Contact model definition
-- `runs/kit/REQ-005/src/app/contacts/repository.py` - Base repository pattern
-- `runs/kit/REQ-004/src/app/campaigns/models.py` - Campaign model for status validation
-- `runs/kit/REQ-002/src/app/auth/router.py` - Authentication patterns
-- `runs/kit/REQ-003/src/app/auth/rbac.py` - RBAC decorator usage
-
-{
-  "index": [
-    {
-      "req": "REQ-006",
-      "src": [
-        "runs/kit/REQ-006/src/app/contacts/__init__.py",
-        "runs/kit/REQ-006/src/app/contacts/models.py",
-        "runs/kit/REQ-006/src/app/contacts/schemas.py",
-        "runs/kit/REQ-006/src/app/contacts/repository.py",
-        "runs/kit/REQ-006/src/app/contacts/csv_parser.py",
-        "runs/kit/REQ-006/src/app/contacts/service.py",
-        "runs/kit/REQ-006/src/app/contacts/router.py"
-      ],
-      "tests": [
-        "runs/kit/REQ-006/test/test_csv_parser.py",
-        "runs/kit/REQ-006/test/test_contact_service.py",
-        "runs/kit/REQ-006/test/test_contact_router.py",
-        "runs/kit/REQ-006/test/conftest.py"
-      ]
     }
   ]
 }

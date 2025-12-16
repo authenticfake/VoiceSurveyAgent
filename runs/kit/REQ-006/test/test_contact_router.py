@@ -13,9 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.campaigns.models import Campaign, CampaignStatus, CampaignLanguage, QuestionType
 from app.main import app
+import pytest_asyncio
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def draft_campaign(db_session: AsyncSession, test_user) -> Campaign:
     """Create a draft campaign for testing."""
     campaign = Campaign(

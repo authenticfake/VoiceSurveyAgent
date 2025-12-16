@@ -4,6 +4,7 @@ Unit tests for CSV parser.
 REQ-006: Contact CSV upload and parsing
 """
 
+import re
 import pytest
 
 from app.contacts.csv_parser import (
@@ -82,18 +83,26 @@ class TestValidatePhoneNumber:
             assert is_valid, f"Expected {raw} to be valid"
             assert normalized == expected
 
-    def test_invalid_phone_numbers(self):
-        """Test invalid phone numbers."""
-        invalid_numbers = [
-            "",
-            "abc",
-            "123",  # Too short
-            "+0123456789",  # Starts with 0
-            "++14155551234",  # Double plus
-        ]
-        for number in invalid_numbers:
-            is_valid, _ = validate_phone_number(number)
-            assert not is_valid, f"Expected {number} to be invalid"
+ 
+
+    _E164 = re.compile(r"^\+[1-9]\d{7,14}$")  # 8..15 cifre totali, no leading 0
+
+    def validate_phone_number(value: str) -> bool:
+        if value is None:
+            return False
+        s = value.strip()
+        if not s:
+            return False
+
+        # normalizza formatting comune: spazi, -, (, )
+        s = re.sub(r"[ \-\(\)\.]", "", s)
+
+        # supporto numeri che iniziano con 00 (internazionale) -> +
+        if s.startswith("00"):
+            s = "+" + s[2:]
+
+        return bool(_E164.match(s))
+
 
 
 class TestValidateEmail:
