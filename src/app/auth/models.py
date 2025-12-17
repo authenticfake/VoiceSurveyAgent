@@ -7,6 +7,7 @@ REQ-002: OIDC authentication integration
 from datetime import datetime, timezone
 from typing import Literal
 from uuid import UUID, uuid4
+from enum import Enum as PyEnum
 
 from sqlalchemy import DateTime, Enum, String, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
@@ -19,7 +20,10 @@ class Base(DeclarativeBase):
     pass
 
 
-UserRole = Literal["admin", "campaign_manager", "viewer"]
+class UserRole(PyEnum):
+    ADMIN = "admin"
+    CAMPAIGN_MANAGER = "campaign_manager"
+    VIEWER = "viewer"
 
 
 class User(Base):

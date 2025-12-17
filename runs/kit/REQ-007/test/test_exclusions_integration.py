@@ -55,7 +55,7 @@ async def async_session(async_engine) -> AsyncSession:
 @pytest_asyncio.fixture
 async def setup_database():
     """Set up test database tables."""
-    engine = create_async_engine('postgresql+asyncpg://user:password@localhost/dbname', echo=True)
+    engine = create_async_engine(TEST_DATABASE_URL, echo=True)
     async with engine.begin() as conn:
         # Creazione tabelle (assicurarsi che siano completate prima di continuare)
         await conn.run_sync(Base.metadata.create_all)
