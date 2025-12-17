@@ -1,42 +1,11 @@
 """
-Authentication and authorization module.
+Auth package.
 
-REQ-002: OIDC authentication integration
-REQ-003: RBAC authorization middleware
+IMPORTANT:
+Keep this module import-light to avoid circular imports during test collection.
+We also extend __path__ so the package can span multiple REQ-* folders on PYTHONPATH.
 """
 
-from app.auth.middleware import (
-    AuthenticatedUser,
-    CurrentUser,
-    get_current_user,
-    JWTTokenValidator,
-)
-from app.auth.rbac import (
-    check_role_permission,
-    log_access_denied,
-    require_admin,
-    require_campaign_manager,
-    require_role,
-    require_viewer,
-    Role,
-    RolePermissions,
-    RBACChecker,
-)
+from pkgutil import extend_path
 
-__all__ = [
-    # Middleware exports
-    "AuthenticatedUser",
-    "CurrentUser",
-    "get_current_user",
-    "JWTTokenValidator",
-    # RBAC exports
-    "check_role_permission",
-    "log_access_denied",
-    "require_admin",
-    "require_campaign_manager",
-    "require_role",
-    "require_viewer",
-    "Role",
-    "RolePermissions",
-    "RBACChecker",
-]
+__path__ = extend_path(__path__, __name__)

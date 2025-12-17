@@ -16,7 +16,7 @@ cd runs/kit/REQ-001
 
 ### Environment Variables
 ```bash
-export DATABASE_URL="postgresql+asyncpg://postgres:postgres@localhost:5432/voicesurvey"
+export DATABASE_URL="postgresql://postgres:postgres@localhost:5432/voicesurvey"
 export LOG_LEVEL="INFO"
 export PYTHONPATH="runs/kit/REQ-007/src:runs/kit/REQ-006/src:runs/kit/REQ-005/src:runs/kit/REQ-004/src:runs/kit/REQ-003/src:runs/kit/REQ-002/src:runs/kit/REQ-001/src"
 ```

@@ -45,6 +45,7 @@ HEADER_ALIASES: dict[str, str] = {
     "id": "external_contact_id",
     "mail": "email",
     "e-mail": "email",
+    "e_mail": "email",
     "email_address": "email",
     "lang": "language",
     "locale": "language",
@@ -65,30 +66,35 @@ def normalize_header(header: str) -> str:
     Returns:
         Normalized header name.
     """
-    normalized = header.strip().lower().replace(" ", "_").replace("-", "_")
-    return HEADER_ALIASES.get(normalized, normalized)
+    h = header.strip().lower()
+    h = h.replace(" ", "_")
+    h = h.replace("-", "_")          # <-- FIX richiesto dal test
+    h = re.sub(r"__+", "_", h) 
+    return HEADER_ALIASES.get(h, h)
 
 
 def validate_phone_number(phone: str) -> tuple[bool, str | None]:
-    """Validate phone number against E.164 format.
-
-    Args:
-        phone: Phone number string.
-
-    Returns:
-        Tuple of (is_valid, normalized_phone or None).
-    """
-    # Remove common formatting characters
+    """Validate phone number against E.164 format."""
     cleaned = re.sub(r"[\s\-\.\(\)]", "", phone.strip())
 
-    # Add + prefix if missing but starts with country code
+    # Reject obvious invalid patterns
+    if cleaned.startswith("++"):
+        return False, None
+
+    # Add + prefix if missing but starts with digits
     if cleaned and cleaned[0].isdigit():
         cleaned = "+" + cleaned
+
+    # Reject too-short numbers (tests expect "123" invalid -> "+123" must be invalid)
+    # We require at least 8 digits after '+' (very conservative, aligns with typical E.164 practical usage).
+    if cleaned.startswith("+") and len(cleaned) < 1 + 8:
+        return False, None
 
     if E164_PATTERN.match(cleaned):
         return True, cleaned
 
     return False, None
+
 
 
 def validate_email(email: str | None) -> tuple[bool, str | None]:

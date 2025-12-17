@@ -1,11 +1,11 @@
 {
   "snapshot": {
     "total": 24,
-    "open": 1,
-    "in_progress": 23,
-    "done": 0,
+    "open": 0,
+    "in_progress": 18,
+    "done": 6,
     "deferred": 0,
-    "progressPct": 0
+    "progressPct": 25
   },
   "reqs": [
     {
@@ -20,7 +20,7 @@
       ],
       "dependsOn": [],
       "track": "Infra",
-      "status": "in_progress",
+      "status": "done",
       "lane": "python",
       "test_profile": "app-core",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"
@@ -39,7 +39,7 @@
         "REQ-001"
       ],
       "track": "App",
-      "status": "in_progress",
+      "status": "done",
       "lane": "python",
       "test_profile": "app-core",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"
@@ -58,7 +58,7 @@
         "REQ-002"
       ],
       "track": "App",
-      "status": "in_progress",
+      "status": "done",
       "lane": "python",
       "test_profile": "app-core",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"
@@ -77,7 +77,7 @@
         "REQ-003"
       ],
       "track": "App",
-      "status": "in_progress",
+      "status": "done",
       "lane": "python",
       "test_profile": "app-core",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"
@@ -96,7 +96,7 @@
         "REQ-004"
       ],
       "track": "App",
-      "status": "in_progress",
+      "status": "done",
       "lane": "python",
       "test_profile": "app-core",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"
@@ -115,7 +115,7 @@
         "REQ-004"
       ],
       "track": "App",
-      "status": "in_progress",
+      "status": "done",
       "lane": "python",
       "test_profile": "app-core",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"
@@ -460,7 +460,7 @@
         "REQ-018"
       ],
       "track": "App",
-      "status": "open",
+      "status": "in_progress",
       "lane": "node",
       "test_profile": "frontend",
       "gate_policy_ref": "docs/harper/lane-guides/node.md"

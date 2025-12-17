@@ -61,8 +61,8 @@ VALUES
     ('d8888888-8888-8888-8888-888888888888', 'c3333333-3333-3333-3333-333333333333', 'EXT008', '+393331234567', 'contact8@example.it', 'it', TRUE, FALSE, 'pending', 0, NULL, NULL, NOW(), NOW()),
     ('d9999999-9999-9999-9999-999999999999', 'c3333333-3333-3333-3333-333333333333', 'EXT009', '+393331234568', 'contact9@example.it', 'it', TRUE, FALSE, 'pending', 0, NULL, NULL, NOW(), NOW()),
     ('daaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'c4444444-4444-4444-4444-444444444444', 'EXT010', '+14155551010', 'contact10@example.com', 'en', TRUE, FALSE, 'completed', 1, NOW() - INTERVAL '30 days', 'completed', NOW(), NOW()),
-    ('dbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'c4444444-4444-4444-4444-444444444444', 'EXT011', '+14155551011', 'contact11@example.com', 'auto', TRUE, FALSE, 'completed', 2, NOW() - INTERVAL '29 days', 'completed', NOW(), NOW()),
-    ('dcccccc-cccc-cccc-cccc-cccccccccccc', 'c1111111-1111-1111-1111-111111111111', 'EXT012', '+14155551012', NULL, 'auto', FALSE, TRUE, 'excluded', 0, NULL, NULL, NOW(), NOW())
+    ('dbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'c4444444-4444-4444-4444-444444444444', 'EXT011', '+14155551011', 'contact11@example.com', 'auto', TRUE, FALSE, 'completed', 2, NOW() - INTERVAL '29 days', 'completed', NOW(), NOW()),
+    ('dccccccc-cccc-cccc-cccc-cccccccccccc', 'c1111111-1111-1111-1111-111111111111', 'EXT012', '+14155551012', NULL, 'auto', FALSE, TRUE, 'excluded', 0, NULL, NULL, NOW(), NOW())
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
@@ -114,9 +114,9 @@ ON CONFLICT (contact_id, campaign_id) DO NOTHING;
 
 INSERT INTO events (id, event_type, campaign_id, contact_id, call_attempt_id, payload, created_at)
 VALUES
-    ('ev111111-1111-1111-1111-111111111111', 'survey.completed', 'c2222222-2222-2222-2222-222222222222', 'd4444444-4444-4444-4444-444444444444', 'a1111111-1111-1111-1111-111111111111', '{"answers": ["8", "The mobile app could be faster", "7"], "attempts": 1}', NOW() - INTERVAL '1 day' + INTERVAL '3 minutes'),
-    ('ev222222-2222-2222-2222-222222222222', 'survey.refused', 'c2222222-2222-2222-2222-222222222222', 'd5555555-5555-5555-5555-555555555555', 'a2222222-2222-2222-2222-222222222222', '{"attempts": 1, "reason": "explicit_refusal"}', NOW() - INTERVAL '2 days' + INTERVAL '30 seconds'),
-    ('ev333333-3333-3333-3333-333333333333', 'survey.not_reached', 'c2222222-2222-2222-2222-222222222222', 'd6666666-6666-6666-6666-666666666666', 'a3333333-3333-3333-3333-333333333333', '{"attempts": 5, "last_outcome": "no_answer"}', NOW() - INTERVAL '1 day' + INTERVAL '30 seconds')
+    ('ee111111-1111-1111-1111-111111111111', 'survey.completed', 'c2222222-2222-2222-2222-222222222222', 'd4444444-4444-4444-4444-444444444444', 'a1111111-1111-1111-1111-111111111111', '{"answers": ["8", "The mobile app could be faster", "7"], "attempts": 1}', NOW() - INTERVAL '1 day' + INTERVAL '3 minutes'),
+    ('ee222222-2222-2222-2222-222222222222', 'survey.refused', 'c2222222-2222-2222-2222-222222222222', 'd5555555-5555-5555-5555-555555555555', 'a2222222-2222-2222-2222-222222222222', '{"attempts": 1, "reason": "explicit_refusal"}', NOW() - INTERVAL '2 days' + INTERVAL '30 seconds'),
+    ('ee333333-3333-3333-3333-333333333333', 'survey.not_reached', 'c2222222-2222-2222-2222-222222222222', 'd6666666-6666-6666-6666-666666666666', 'a3333333-3333-3333-3333-333333333333', '{"attempts": 5, "last_outcome": "no_answer"}', NOW() - INTERVAL '1 day' + INTERVAL '30 seconds')
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
@@ -125,6 +125,6 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO email_notifications (id, event_id, contact_id, campaign_id, template_id, to_email, status, provider_message_id, error_message, created_at, updated_at)
 VALUES
-    ('en111111-1111-1111-1111-111111111111', 'ev111111-1111-1111-1111-111111111111', 'd4444444-4444-4444-4444-444444444444', 'c2222222-2222-2222-2222-222222222222', 'e1111111-1111-1111-1111-111111111111', 'contact4@example.com', 'sent', 'ses-msg-001', NULL, NOW() - INTERVAL '1 day' + INTERVAL '4 minutes', NOW() - INTERVAL '1 day' + INTERVAL '4 minutes'),
-    ('en222222-2222-2222-2222-222222222222', 'ev222222-2222-2222-2222-222222222222', 'd5555555-5555-5555-5555-555555555555', 'c2222222-2222-2222-2222-222222222222', 'e3333333-3333-3333-3333-333333333333', 'contact5@example.com', 'sent', 'ses-msg-002', NULL, NOW() - INTERVAL '2 days' + INTERVAL '1 minute', NOW() - INTERVAL '2 days' + INTERVAL '1 minute')
+    ('ea111111-1111-1111-1111-111111111111', 'ee111111-1111-1111-1111-111111111111', 'd4444444-4444-4444-4444-444444444444', 'c2222222-2222-2222-2222-222222222222', 'e1111111-1111-1111-1111-111111111111', 'contact4@example.com', 'sent', 'ses-msg-001', NULL, NOW() - INTERVAL '1 day' + INTERVAL '4 minutes', NOW() - INTERVAL '1 day' + INTERVAL '4 minutes'),
+    ('ea222222-2222-2222-2222-222222222222', 'ee222222-2222-2222-2222-222222222222', 'd5555555-5555-5555-5555-555555555555', 'c2222222-2222-2222-2222-222222222222', 'e3333333-3333-3333-3333-333333333333', 'contact5@example.com', 'sent', 'ses-msg-002', NULL, NOW() - INTERVAL '2 days' + INTERVAL '1 minute', NOW() - INTERVAL '2 days' + INTERVAL '1 minute')
 ON CONFLICT (id) DO NOTHING;

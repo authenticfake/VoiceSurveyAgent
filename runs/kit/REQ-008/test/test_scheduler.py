@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 from uuid import UUID, uuid4
 
 import pytest
+import pytest_asyncio
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -47,13 +48,13 @@ class MockTelephonyProvider:
         return f"provider-call-{uuid4()}"
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 def mock_telephony_provider() -> MockTelephonyProvider:
     """Create mock telephony provider."""
     return MockTelephonyProvider()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 def scheduler_config() -> CallSchedulerConfig:
     """Create scheduler configuration for testing."""
     return CallSchedulerConfig(
@@ -63,25 +64,19 @@ def scheduler_config() -> CallSchedulerConfig:
     )
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_user(db_session: AsyncSession) -> MagicMock:
     """Create a mock user for testing."""
-    from app.auth.models import User, UserRole
-
-    user = User(
-        id=uuid4(),
-        oidc_sub="test-oidc-sub",
-        email="test@example.com",
-        name="Test User",
-        role=UserRole.CAMPAIGN_MANAGER,
-    )
-    db_session.add(user)
-    await db_session.commit()
-    await db_session.refresh(user)
+    user = MagicMock()
+    user.id = uuid4()
+    user.oidc_sub = "test-oidc-sub"
+    user.email = "test@example.com"
+    user.name = "Test User"
+    user.role = "campaign_manager"
     return user
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def running_campaign(db_session: AsyncSession, test_user: MagicMock) -> Campaign:
     """Create a running campaign for testing."""
     campaign = Campaign(
@@ -109,7 +104,7 @@ async def running_campaign(db_session: AsyncSession, test_user: MagicMock) -> Ca
     return campaign
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def pending_contacts(
     db_session: AsyncSession,
     running_campaign: Campaign,
@@ -137,7 +132,7 @@ async def pending_contacts(
     return contacts
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def not_reached_contact(
     db_session: AsyncSession,
     running_campaign: Campaign,
@@ -162,7 +157,7 @@ async def not_reached_contact(
     return contact
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def excluded_contact(
     db_session: AsyncSession,
     running_campaign: Campaign,
@@ -186,7 +181,7 @@ async def excluded_contact(
     return contact
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def max_attempts_contact(
     db_session: AsyncSession,
     running_campaign: Campaign,

@@ -9,7 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.middleware import CurrentUser
+from app.auth.middleware import CurrentUserDep
 from app.auth.schemas import (
     AuthCallbackResponse,
     LoginResponse,
@@ -137,7 +137,8 @@ async def refresh_tokens(
 
 @router.get("/me", response_model=UserProfile)
 async def get_current_user_profile(
-    current_user: CurrentUser,
+    current_user: CurrentUserDep,
+
     service: Annotated[AuthService, Depends(get_auth_service)],
 ) -> UserProfile:
     """Get the current authenticated user's profile.

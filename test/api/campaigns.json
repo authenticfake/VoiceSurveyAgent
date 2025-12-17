@@ -1,0 +1,239 @@
+{
+  "info": {
+    "_postman_id": "c7a8b4f0-4d5e-4c31-8f1e-9a2c3d1e0f00",
+    "name": "REQ-006 Contact CSV Upload API",
+    "description": "API tests for contact CSV upload and management",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Upload Contacts CSV",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "contacts.csv",
+              "description": "Ensure this file exists in Postman's working directory or select it manually."
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts/upload",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "campaigns",
+            "{{campaign_id}}",
+            "contacts",
+            "upload"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function() { pm.response.to.have.status(200); });",
+              "pm.test('Response has accepted_count', function() { pm.expect(pm.response.json()).to.have.property('accepted_count'); });",
+              "pm.test('Response has errors array', function() { pm.expect(pm.response.json().errors).to.be.an('array'); });"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "Upload CSV with Custom Delimiter",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "contacts_semicolon.csv",
+              "description": "Ensure this file exists or select it manually."
+            }
+          ]
+        },
+        "url": {
+          "raw": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts/upload?delimiter=;",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "campaigns",
+            "{{campaign_id}}",
+            "contacts",
+            "upload"
+          ],
+          "query": [
+            {
+              "key": "delimiter",
+              "value": ";"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "List Campaign Contacts",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "campaigns",
+            "{{campaign_id}}",
+            "contacts"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function() { pm.response.to.have.status(200); });",
+              "pm.test('Response has items array', function() { pm.expect(pm.response.json().items).to.be.an('array'); });",
+              "pm.test('Response has pagination', function() { pm.expect(pm.response.json()).to.have.property('total'); });"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "List Contacts with Pagination",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts?page=1&page_size=10",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "campaigns",
+            "{{campaign_id}}",
+            "contacts"
+          ],
+          "query": [
+            {
+              "key": "page",
+              "value": "1"
+            },
+            {
+              "key": "page_size",
+              "value": "10"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "List Contacts with State Filter",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts?state=pending",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "campaigns",
+            "{{campaign_id}}",
+            "contacts"
+          ],
+          "query": [
+            {
+              "key": "state",
+              "value": "pending"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Get Single Contact",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{auth_token}}"
+          }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts/{{contact_id}}",
+          "host": [
+            "{{base_url}}"
+          ],
+          "path": [
+            "api",
+            "campaigns",
+            "{{campaign_id}}",
+            "contacts",
+            "{{contact_id}}"
+          ]
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function() { pm.response.to.have.status(200); });",
+              "pm.test('Response has contact id', function() { pm.expect(pm.response.json()).to.have.property('id'); });"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    }
+  ]
+}

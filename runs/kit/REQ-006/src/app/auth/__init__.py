@@ -1,0 +1,1 @@
+"""Auth package (REQ-006 shadow modules for compatibility)."""

@@ -10,8 +10,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.middleware import CurrentUser
-from app.auth.rbac import Role, RBACChecker, require_admin
+from app.auth.middleware import CurrentUser, get_current_user
 from app.contacts.exclusions.models import ExclusionSource
 from app.contacts.exclusions.schemas import (
     ExclusionCreateRequest,
@@ -27,8 +26,26 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api/exclusions", tags=["exclusions"])
 
-# RBAC checker for campaign_manager or higher
-require_campaign_manager_or_admin = RBACChecker(Role.CAMPAIGN_MANAGER)
+
+def _forbidden(detail: str = "Insufficient permissions") -> HTTPException:
+    return HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
+
+
+async def require_admin(
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> CurrentUser:
+    if getattr(current_user, "role", None) != "admin":
+        raise _forbidden("Admin role required")
+    return current_user
+
+
+async def require_campaign_manager_or_admin(
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> CurrentUser:
+    role = getattr(current_user, "role", None)
+    if role not in {"admin", "campaign_manager"}:
+        raise _forbidden("Campaign manager or admin role required")
+    return current_user
 
 
 def get_exclusion_service(

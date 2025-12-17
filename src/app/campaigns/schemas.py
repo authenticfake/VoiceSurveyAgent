@@ -5,7 +5,7 @@ REQ-004: Campaign CRUD API
 """
 
 from datetime import datetime, time
-from typing import Literal
+from typing import Literal,  List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -47,6 +47,8 @@ class CampaignBase(BaseModel):
         le=5,
         description="Maximum call attempts per contact (1-5)",
     )
+    allowed_call_start_local: Optional[time] = None
+    allowed_call_end_local: Optional[time] = None
     retry_interval_minutes: int = Field(
         default=60,
         ge=1,
@@ -110,6 +112,8 @@ class CampaignUpdate(BaseModel):
     email_completed_template_id: UUID | None = Field(None, description="Completed email template ID")
     email_refused_template_id: UUID | None = Field(None, description="Refused email template ID")
     email_not_reached_template_id: UUID | None = Field(None, description="Not reached email template ID")
+    allowed_call_start_local: Optional[time] = None
+    allowed_call_end_local: Optional[time] = None
 
     @model_validator(mode="after")
     def validate_time_window_if_both_present(self) -> "CampaignUpdate":
@@ -179,6 +183,8 @@ class PaginationMeta(BaseModel):
     page: int = Field(..., ge=1, description="Current page number")
     page_size: int = Field(..., ge=1, description="Items per page")
     total_pages: int = Field(..., ge=0, description="Total number of pages")
+    limit: int = Field(..., ge=1)
+    offset: int = Field(..., ge=0)
 
 
 class CampaignListResponse(BaseModel):
@@ -190,13 +196,29 @@ class CampaignListResponse(BaseModel):
 
 class ErrorDetail(BaseModel):
     """Schema for error detail."""
-
     code: str = Field(..., description="Error code")
     message: str = Field(..., description="Error message")
     field: str | None = Field(None, description="Field that caused the error")
 
 
 class ErrorResponse(BaseModel):
-    """Schema for error response."""
-
+    error: str
     detail: ErrorDetail = Field(..., description="Error details")
+class CampaignListResponse(BaseModel):
+    campaigns: List[CampaignResponse]
+    total: int
+
+
+class ValidationErrorDetail(BaseModel):
+    field: str
+    message: str
+
+
+class ValidationErrorResponse(BaseModel):
+    error: str
+    details: List[ValidationErrorDetail] = Field(default_factory=list)
+
+
+class CampaignActivationResponse(BaseModel):
+    id: UUID
+    status: str

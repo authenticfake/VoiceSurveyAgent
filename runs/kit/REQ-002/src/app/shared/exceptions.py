@@ -6,6 +6,7 @@ REQ-002: OIDC authentication integration
 
 from typing import Any
 
+from uuid import UUID
 
 class AppException(Exception):
     """Base exception for application errors."""
@@ -83,3 +84,58 @@ class UserNotFoundError(AppException):
         details: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(message, "USER_NOT_FOUND", details)
+
+# =============================================================================
+# REQ-004: Campaign domain exceptions (promotion-safe: live in shared)
+# =============================================================================
+
+class CampaignNotFoundError(AppException):
+    """Raised when a campaign is not found."""
+
+    def __init__(self, campaign_id: UUID, message: str | None = None) -> None:
+        self.campaign_id = campaign_id
+        super().__init__(
+            message or f"Campaign not found: {campaign_id}",
+            "CAMPAIGN_NOT_FOUND",
+            {"campaign_id": str(campaign_id)},
+        )
+
+
+class InvalidStatusTransitionError(AppException):
+    """Raised when a campaign status transition is invalid."""
+
+    def __init__(
+        self,
+        current_status: Any,
+        target_status: Any,
+        valid_transitions: set[Any],
+    ) -> None:
+        self.current_status = current_status
+        self.target_status = target_status
+        self.valid_transitions = valid_transitions
+
+        def _val(x: Any) -> str:
+            return getattr(x, "value", str(x))
+
+        valid_list = sorted({_val(v) for v in valid_transitions})
+        msg = (
+            f"Cannot transition from '{_val(current_status)}' to '{_val(target_status)}'. "
+            f"Valid transitions: {', '.join(valid_list)}"
+        )
+
+        super().__init__(
+            msg,
+            "INVALID_STATUS_TRANSITION",
+            {
+                "current_status": _val(current_status),
+                "target_status": _val(target_status),
+                "valid_transitions": valid_list,
+            },
+        )
+
+
+class ValidationError(AppException):
+    """Raised when business validation fails (distinct from pydantic ValidationError)."""
+
+    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+        super().__init__(message, "VALIDATION_ERROR", details)

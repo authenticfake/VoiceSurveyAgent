@@ -2,8 +2,8 @@
 
 ## Plan Snapshot
 
-- **Counts:** total=24 / open=1 / in_progress=23 / done=0 / deferred=0
-- **Progress:** 0% complete
+- **Counts:** total=24 / open=0 / in_progress=18 / done=6 / deferred=0
+- **Progress:** 25% complete
 - **Checklist:**
   - [x] SPEC aligned
   - [x] Prior REQ reconciled
@@ -64,12 +64,12 @@
 
 | ID | Title | Acceptance | DependsOn | Track | Status |
 |---|---|---|---|---|---|
-| REQ-001 | Database schema and migrations | All entities from SPEC data model have corresponding Alembic migrations<br/>Migrations are idempotent and can be run multiple times without error<br/>Foreign key columns have appropriate indexes for query performance<br/>Enum types are created for all status and type fields<br/>UUID primary keys use PostgreSQL native UUID type |  | Infra | in_progress |
-| REQ-002 | OIDC authentication integration | OIDC authorization code flow implemented with configurable IdP endpoints<br/>JWT tokens validated on every API request via middleware<br/>User record created or updated on first login with OIDC subject mapping<br/>Session tokens have configurable expiration with refresh capability<br/>Invalid or expired tokens return 401 with appropriate error message | REQ-001 | App | in_progress |
-| REQ-003 | RBAC authorization middleware | Role extracted from JWT claims or user database record<br/>Route decorators enforce minimum required role<br/>Admin endpoints restricted to admin role only<br/>Campaign modification restricted to campaign_manager and admin<br/>Denied access attempts logged with user ID, endpoint, and timestamp | REQ-002 | App | in_progress |
-| REQ-004 | Campaign CRUD API | POST /api/campaigns creates campaign in draft status<br/>GET /api/campaigns returns paginated list with status filter<br/>GET /api/campaigns/{id} returns full campaign details<br/>PUT /api/campaigns/{id} validates field changes against current status<br/>Status transitions follow state machine: draft→scheduled→running→paused→completed | REQ-003 | App | in_progress |
-| REQ-005 | Campaign validation service | Activation blocked if campaign has zero contacts<br/>Activation blocked if any of 3 questions is empty<br/>Activation blocked if retry policy invalid (attempts < 1 or > 5)<br/>Activation blocked if time window invalid (start >= end)<br/>Successful validation transitions status to running or scheduled | REQ-004 | App | in_progress |
-| REQ-006 | Contact CSV upload and parsing | POST /api/campaigns/{id}/contacts/upload accepts multipart CSV<br/>Phone numbers validated against E.164 format<br/>Invalid rows collected with line number and error reason<br/>Valid rows create Contact records in pending state<br/>At least 95% of valid rows accepted when file has mixed validity | REQ-004 | App | in_progress |
+| REQ-001 | Database schema and migrations | All entities from SPEC data model have corresponding Alembic migrations<br/>Migrations are idempotent and can be run multiple times without error<br/>Foreign key columns have appropriate indexes for query performance<br/>Enum types are created for all status and type fields<br/>UUID primary keys use PostgreSQL native UUID type |  | Infra | done |
+| REQ-002 | OIDC authentication integration | OIDC authorization code flow implemented with configurable IdP endpoints<br/>JWT tokens validated on every API request via middleware<br/>User record created or updated on first login with OIDC subject mapping<br/>Session tokens have configurable expiration with refresh capability<br/>Invalid or expired tokens return 401 with appropriate error message | REQ-001 | App | done |
+| REQ-003 | RBAC authorization middleware | Role extracted from JWT claims or user database record<br/>Route decorators enforce minimum required role<br/>Admin endpoints restricted to admin role only<br/>Campaign modification restricted to campaign_manager and admin<br/>Denied access attempts logged with user ID, endpoint, and timestamp | REQ-002 | App | done |
+| REQ-004 | Campaign CRUD API | POST /api/campaigns creates campaign in draft status<br/>GET /api/campaigns returns paginated list with status filter<br/>GET /api/campaigns/{id} returns full campaign details<br/>PUT /api/campaigns/{id} validates field changes against current status<br/>Status transitions follow state machine: draft→scheduled→running→paused→completed | REQ-003 | App | done |
+| REQ-005 | Campaign validation service | Activation blocked if campaign has zero contacts<br/>Activation blocked if any of 3 questions is empty<br/>Activation blocked if retry policy invalid (attempts < 1 or > 5)<br/>Activation blocked if time window invalid (start >= end)<br/>Successful validation transitions status to running or scheduled | REQ-004 | App | done |
+| REQ-006 | Contact CSV upload and parsing | POST /api/campaigns/{id}/contacts/upload accepts multipart CSV<br/>Phone numbers validated against E.164 format<br/>Invalid rows collected with line number and error reason<br/>Valid rows create Contact records in pending state<br/>At least 95% of valid rows accepted when file has mixed validity | REQ-004 | App | done |
 | REQ-007 | Exclusion list management | POST /api/exclusions/import accepts CSV of phone numbers<br/>Contacts matching exclusion list marked as excluded state<br/>Excluded contacts never returned by scheduler queries<br/>Manual exclusion addition via API supported<br/>Exclusion removal requires admin role | REQ-006 | App | in_progress |
 | REQ-008 | Call scheduler service | Scheduler runs as background task every 60 seconds<br/>Selects contacts with state pending or not_reached<br/>Filters by attempts_count < campaign.max_attempts<br/>Filters by current time within allowed_call_start/end window<br/>Creates CallAttempt record before initiating call | REQ-007 | App | in_progress |
 | REQ-009 | Telephony provider adapter interface | TelephonyProvider interface defines initiate_call method<br/>Interface defines parse_webhook_event method<br/>Concrete adapter implements Twilio-compatible API<br/>Adapter configurable via ProviderConfig entity<br/>Adapter is injectable for testing with mock provider | REQ-001 | App | in_progress |
@@ -87,9 +87,7 @@
 | REQ-021 | Observability instrumentation | All log entries in structured JSON format<br/>Correlation ID propagated across HTTP, telephony, LLM calls<br/>Prometheus metrics endpoint at /metrics<br/>OpenTelemetry traces for API requests<br/>Log level configurable via environment variable | REQ-001 | Infra | in_progress |
 | REQ-022 | Data retention jobs | Retention job runs daily as scheduled task<br/>Recordings older than retention_days deleted from storage<br/>Deletion logged with count and timestamp<br/>Job handles partial failures gracefully<br/>GDPR deletion requests processed within 72 hours | REQ-019 | Infra | in_progress |
 | REQ-023 | Frontend campaign management UI | Campaign list page shows all campaigns with status badges<br/>CSV upload component with drag-drop and progress indicator<br/>Activate button enabled only when validation passes<br/>Form validation matches backend rules<br/>Responsive design for desktop and tablet | REQ-004, REQ-006 | App | in_progress |
-| REQ-024 | Frontend dashboard and export UI | Dashboard shows completion/refusal/not_reached percentages<br/>Time-series chart for call activity<br/>Export button triggers async job<br/>Stats refresh automatically every 60 seconds<br/>Error states with retry options | REQ-017, REQ-018 | App | open |
-
-
+| REQ-024 | Frontend dashboard and export UI | Dashboard shows completion/refusal/not_reached percentages<br/>Time-series chart for call activity<br/>Export button triggers async job<br/>Stats refresh automatically every 60 seconds<br/>Error states with retry options | REQ-017, REQ-018 | App | in_progress |
 
 ### Acceptance — REQ-001
 

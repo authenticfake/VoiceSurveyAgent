@@ -1,0 +1,69 @@
+{
+  "req_id": "REQ-001",
+  "strategy": "suffix",
+  "timestamp": "2025-12-13T18-06-30-718Z",
+  "src_root": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-001",
+  "dest_root": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent",
+  "total_actions": 12,
+  "actions": [
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-001/ci/HOWTO.md",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/ci/HOWTO.md"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-001/ci/LTC.json",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/ci/LTC.json"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-001/docs/KIT_REQ-001.md",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/docs/KIT_REQ-001.md"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-001/docs/README_REQ-001.md",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/docs/README_REQ-001.md"
+    },
+    {
+      "op": "write_suffix",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/requirements.txt.incoming-REQ-001-2025-12-13T18-06-30-718Z"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-001/scripts/db_downgrade.sh",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/scripts/db_downgrade.sh"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-001/scripts/db_seed.sh",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/scripts/db_seed.sh"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-001/scripts/db_upgrade.sh",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/scripts/db_upgrade.sh"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-001/src/storage/seed/seed.sql",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/storage/seed/seed.sql"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-001/src/storage/sql/V0001.down.sql",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/storage/sql/V0001.down.sql"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-001/src/storage/sql/V0001.up.sql",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/storage/sql/V0001.up.sql"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-001/test/test_migration_sql.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/test/test_migration_sql.py"
+    }
+  ]
+}

@@ -204,3 +204,12 @@ class Campaign(Base):
             True if transition is valid.
         """
         return new_status in VALID_STATUS_TRANSITIONS.get(self.status, set())
+    
+    # --- SQLAlchemy relationship registry fix ---
+# Campaign.relationship("Contact") needs Contact to be imported so the registry can resolve it.
+try:
+    from app.contacts.models import Contact  # noqa: F401
+except Exception:
+    # In some minimal test contexts the contacts module might not be available.
+    # If it's missing, relationships will fail anyway when accessed.
+    pass

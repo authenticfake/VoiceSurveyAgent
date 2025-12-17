@@ -1,0 +1,109 @@
+{
+  "info": {
+    "name": "REQ-006 Contact CSV Upload API",
+    "description": "API tests for contact CSV upload and management",
+    "version": "1.0.0"
+  },
+  "requests": [
+    {
+      "name": "Upload Contacts CSV",
+      "method": "POST",
+      "url": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts/upload",
+      "headers": {
+        "Authorization": "Bearer {{auth_token}}"
+      },
+      "body": {
+        "mode": "formdata",
+        "formdata": [
+          {
+            "key": "file",
+            "type": "file",
+            "src": "contacts.csv"
+          }
+        ]
+      },
+      "tests": [
+        "pm.test('Status code is 200', function() { pm.response.to.have.status(200); });",
+        "pm.test('Response has accepted_count', function() { pm.expect(pm.response.json()).to.have.property('accepted_count'); });",
+        "pm.test('Response has errors array', function() { pm.expect(pm.response.json().errors).to.be.an('array'); });"
+      ]
+    },
+    {
+      "name": "Upload CSV with Custom Delimiter",
+      "method": "POST",
+      "url": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts/upload?delimiter=;",
+      "headers": {
+        "Authorization": "Bearer {{auth_token}}"
+      },
+      "body": {
+        "mode": "formdata",
+        "formdata": [
+          {
+            "key": "file",
+            "type": "file",
+            "src": "contacts_semicolon.csv"
+          }
+        ]
+      }
+    },
+    {
+      "name": "List Campaign Contacts",
+      "method": "GET",
+      "url": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts",
+      "headers": {
+        "Authorization": "Bearer {{auth_token}}"
+      },
+      "tests": [
+        "pm.test('Status code is 200', function() { pm.response.to.have.status(200); });",
+        "pm.test('Response has items array', function() { pm.expect(pm.response.json().items).to.be.an('array'); });",
+        "pm.test('Response has pagination', function() { pm.expect(pm.response.json()).to.have.property('total'); });"
+      ]
+    },
+    {
+      "name": "List Contacts with Pagination",
+      "method": "GET",
+      "url": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts?page=1&page_size=10",
+      "headers": {
+        "Authorization": "Bearer {{auth_token}}"
+      }
+    },
+    {
+      "name": "List Contacts with State Filter",
+      "method": "GET",
+      "url": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts?state=pending",
+      "headers": {
+        "Authorization": "Bearer {{auth_token}}"
+      }
+    },
+    {
+      "name": "Get Single Contact",
+      "method": "GET",
+      "url": "{{base_url}}/api/campaigns/{{campaign_id}}/contacts/{{contact_id}}",
+      "headers": {
+        "Authorization": "Bearer {{auth_token}}"
+      },
+      "tests": [
+        "pm.test('Status code is 200', function() { pm.response.to.have.status(200); });",
+        "pm.test('Response has contact id', function() { pm.expect(pm.response.json()).to.have.property('id'); });"
+      ]
+    }
+  ],
+  "variables": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8888"
+    },
+    {
+      "key": "campaign_id",
+      "value": ""
+    },
+    {
+      "key": "contact_id",
+      "value": ""
+    },
+    {
+      "key": "auth_token",
+      "value": ""
+    }
+  ]
+}

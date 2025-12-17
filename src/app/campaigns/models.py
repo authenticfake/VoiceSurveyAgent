@@ -27,6 +27,7 @@ from app.auth.models import Base
 
 if TYPE_CHECKING:
     from app.auth.models import User
+    from app.contacts.models import Contact
 
 
 class CampaignStatus(str, Enum):
@@ -135,6 +136,7 @@ class Campaign(Base):
             create_type=False,
         ),
         nullable=False,
+        default=QuestionType.FREE_TEXT,
     )
     
     # Question 3
@@ -149,6 +151,8 @@ class Campaign(Base):
             create_type=False,
         ),
         nullable=False,
+        default=QuestionType.FREE_TEXT,
+
     )
     
     # Retry policy
@@ -167,10 +171,13 @@ class Campaign(Base):
     allowed_call_start_local: Mapped[time] = mapped_column(
         Time,
         nullable=False,
+        default=time(9, 0),
+
     )
     allowed_call_end_local: Mapped[time] = mapped_column(
         Time,
         nullable=False,
+        default=time(20, 0),
     )
     
     # Email template references
@@ -193,7 +200,7 @@ class Campaign(Base):
     # Creator reference
     created_by_user_id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="SET NULL"),
+        ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
     )
     
@@ -208,6 +215,14 @@ class Campaign(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=func.now(),
+    )
+
+    # Relationships
+    created_by: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
+    contacts: Mapped[list["Contact"]] = relationship(
+        "Contact",
+        back_populates="campaign",
+        cascade="all, delete-orphan",
     )
 
     # Table constraints
@@ -238,4 +253,11 @@ class Campaign(Base):
         return new_status in VALID_STATUS_TRANSITIONS.get(self.status, set())
 
     def __repr__(self) -> str:
-        return f"<Campaign(id={self.id}, name='{self.name}', status={self.status.value})>"
+        return f"<Campaign(id={self.id}, name='{self.name}', status={self.status.value})>"    # --- SQLAlchemy relationship registry fix ---
+# Campaign.relationship("Contact") needs Contact to be imported so the registry can resolve it.
+try:
+    from app.contacts.models import Contact  # noqa: F401
+except Exception:
+    # In some minimal test contexts the contacts module might not be available.
+    # If it's missing, relationships will fail anyway when accessed.
+    pass        

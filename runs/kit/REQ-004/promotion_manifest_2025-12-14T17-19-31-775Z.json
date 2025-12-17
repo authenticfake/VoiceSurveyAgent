@@ -1,0 +1,162 @@
+{
+  "req_id": "REQ-004",
+  "strategy": "suffix",
+  "timestamp": "2025-12-14T17-19-31-775Z",
+  "src_root": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004",
+  "dest_root": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent",
+  "total_actions": 32,
+  "actions": [
+    {
+      "op": "write_suffix",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/.DS_Store.incoming-REQ-004-2025-12-14T17-19-31-775Z"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/ci/HOWTO.md",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/ci/HOWTO.md"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/ci/LTC.json",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/ci/LTC.json"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/docs/KIT_REQ-004.md",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/docs/KIT_REQ-004.md"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/docs/README_REQ-004.md",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/docs/README_REQ-004.md"
+    },
+    {
+      "op": "write_suffix",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/requirements.txt.incoming-REQ-004-2025-12-14T17-19-31-775Z"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/.DS_Store",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/.DS_Store"
+    },
+    {
+      "op": "write_suffix",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/.DS_Store.incoming-REQ-004-2025-12-14T17-19-31-775Z"
+    },
+    {
+      "op": "write_suffix",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/__pycache__/main.cpython-312.pyc.incoming-REQ-004-2025-12-14T17-19-31-775Z"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/campaigns/__init__.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/campaigns/__init__.py"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/campaigns/__pycache__/__init__.cpython-312.pyc",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/campaigns/__pycache__/__init__.cpython-312.pyc"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/campaigns/__pycache__/models.cpython-312.pyc",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/campaigns/__pycache__/models.cpython-312.pyc"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/campaigns/__pycache__/repository.cpython-312.pyc",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/campaigns/__pycache__/repository.cpython-312.pyc"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/campaigns/__pycache__/router.cpython-312.pyc",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/campaigns/__pycache__/router.cpython-312.pyc"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/campaigns/__pycache__/schemas.cpython-312.pyc",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/campaigns/__pycache__/schemas.cpython-312.pyc"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/campaigns/__pycache__/service.cpython-312.pyc",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/campaigns/__pycache__/service.cpython-312.pyc"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/campaigns/models.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/campaigns/models.py"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/campaigns/repository.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/campaigns/repository.py"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/campaigns/router.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/campaigns/router.py"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/campaigns/schemas.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/campaigns/schemas.py"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/src/app/campaigns/service.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/campaigns/service.py"
+    },
+    {
+      "op": "write_suffix",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/main.py.incoming-REQ-004-2025-12-14T17-19-31-775Z"
+    },
+    {
+      "op": "write_suffix",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/src/app/shared/exceptions.py.incoming-REQ-004-2025-12-14T17-19-31-775Z"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/test/.DS_Store",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/test/.DS_Store"
+    },
+    {
+      "op": "write_suffix",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/test/__pycache__/conftest.cpython-312-pytest-9.0.2.pyc.incoming-REQ-004-2025-12-14T17-19-31-775Z"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/test/__pycache__/test_campaigns_api.cpython-312-pytest-9.0.2.pyc",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/test/__pycache__/test_campaigns_api.cpython-312-pytest-9.0.2.pyc"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/test/__pycache__/test_campaigns_unit.cpython-312-pytest-9.0.2.pyc",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/test/__pycache__/test_campaigns_unit.cpython-312-pytest-9.0.2.pyc"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/test/api/campaigns.json",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/test/api/campaigns.json"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/test/api/envv.json",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/test/api/envv.json"
+    },
+    {
+      "op": "write_suffix",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/test/conftest.py.incoming-REQ-004-2025-12-14T17-19-31-775Z"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/test/test_campaigns_api.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/test/test_campaigns_api.py"
+    },
+    {
+      "op": "copy",
+      "from": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-004/test/test_campaigns_unit.py",
+      "to": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/test/test_campaigns_unit.py"
+    }
+  ]
+}

@@ -3,8 +3,18 @@ Authentication middleware for JWT validation.
 
 REQ-002: OIDC authentication integration
 REQ-003: RBAC authorization middleware - Extended with role extraction
+
+This module exposes:
+- TokenValidatorProtocol
+- JWTTokenValidator
+- CurrentUser
+- get_current_user
+- CurrentUserDep (FastAPI dependency, wrapper-based for test patching)
 """
 
+from __future__ import annotations
+
+import inspect
 from datetime import datetime, timezone
 from typing import Annotated, Protocol
 from uuid import UUID
@@ -12,7 +22,7 @@ from uuid import UUID
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import Settings, get_settings
@@ -21,23 +31,19 @@ from app.shared.exceptions import InvalidTokenError, TokenExpiredError
 from app.shared.logging import get_logger
 
 logger = get_logger(__name__)
-
 security = HTTPBearer(auto_error=False)
 
 
 class CurrentUser(BaseModel):
     """Current authenticated user information."""
 
+    model_config = ConfigDict(frozen=True)
+
     id: UUID = Field(..., description="User ID")
     oidc_sub: str = Field(..., description="OIDC subject identifier")
     email: str = Field(..., description="User email")
     name: str = Field(..., description="User display name")
     role: str = Field(..., description="User role")
-
-    class Config:
-        """Pydantic configuration."""
-
-        frozen = True
 
 
 class TokenValidatorProtocol(Protocol):
@@ -50,26 +56,9 @@ class JWTTokenValidator:
     """JWT token validator."""
 
     def __init__(self, settings: Settings | None = None) -> None:
-        """Initialize token validator.
-
-        Args:
-            settings: Application settings.
-        """
         self._settings = settings or get_settings()
 
     def validate_access_token(self, token: str) -> dict:
-        """Validate an access token and return its payload.
-
-        Args:
-            token: JWT access token.
-
-        Returns:
-            Token payload dictionary.
-
-        Raises:
-            TokenExpiredError: If token has expired.
-            InvalidTokenError: If token is invalid.
-        """
         try:
             payload = jwt.decode(
                 token,
@@ -77,14 +66,12 @@ class JWTTokenValidator:
                 algorithms=[self._settings.jwt_algorithm],
             )
 
-            # Check token type
             if payload.get("type") != "access":
                 raise InvalidTokenError(
                     message="Invalid token type",
                     details={"expected": "access", "got": payload.get("type")},
                 )
 
-            # Check expiration
             exp = payload.get("exp")
             if exp and datetime.fromtimestamp(exp, tz=timezone.utc) < datetime.now(
                 timezone.utc
@@ -104,28 +91,13 @@ class JWTTokenValidator:
 
 async def get_current_user(
     request: Request,
-    credentials: Annotated[
-        HTTPAuthorizationCredentials | None, Depends(security)
-    ] = None,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)] = None,
     session: AsyncSession = Depends(get_db_session),
     settings: Settings = Depends(get_settings),
 ) -> CurrentUser:
     """Extract and validate current user from JWT token.
 
-    This dependency validates the JWT token and extracts user information.
-    Role is extracted from JWT claims or fetched from database.
-
-    Args:
-        request: FastAPI request object.
-        credentials: HTTP Bearer credentials.
-        session: Database session.
-        settings: Application settings.
-
-    Returns:
-        CurrentUser with validated user information.
-
-    Raises:
-        HTTPException: If authentication fails.
+    Role is extracted from JWT claims or fetched from DB (fallback).
     """
     if credentials is None:
         logger.warning(
@@ -149,7 +121,6 @@ async def get_current_user(
         validator = JWTTokenValidator(settings)
         payload = validator.validate_access_token(credentials.credentials)
 
-        # Extract user information from token
         user_id = payload.get("user_id")
         if user_id is None:
             raise InvalidTokenError(
@@ -157,8 +128,6 @@ async def get_current_user(
                 details={"payload_keys": list(payload.keys())},
             )
 
-        # Role can come from JWT claims or we could fetch from DB
-        # For performance, we prefer JWT claims
         role = payload.get("role")
         if role is None:
             # Fallback: fetch from database if not in token
@@ -175,26 +144,20 @@ async def get_current_user(
 
         return CurrentUser(
             id=UUID(user_id),
-            oidc_sub=payload.get("sub", ""),
-            email=payload.get("email", ""),
-            name=payload.get("name", ""),
+            oidc_sub=payload.get("sub", "") or "",
+            email=payload.get("email", "") or "",
+            name=payload.get("name", "") or "",
             role=role,
         )
 
     except TokenExpiredError:
         logger.info(
             "Token expired",
-            extra={
-                "endpoint": str(request.url.path),
-                "method": request.method,
-            },
+            extra={"endpoint": str(request.url.path), "method": request.method},
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "code": "TOKEN_EXPIRED",
-                "message": "Token has expired",
-            },
+            detail={"code": "TOKEN_EXPIRED", "message": "Token has expired"},
             headers={"WWW-Authenticate": "Bearer"},
         )
     except InvalidTokenError as e:
@@ -208,13 +171,36 @@ async def get_current_user(
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "code": e.code,
-                "message": e.message,
-            },
+            detail={"code": e.code, "message": e.message},
             headers={"WWW-Authenticate": "Bearer"},
         )
 
 
-# Type alias for dependency injection
-AuthenticatedUser = Annotated[CurrentUser, Depends(get_current_user)]
+async def _get_current_user_dep(
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)] = None,
+    session: AsyncSession = Depends(get_db_session),
+    settings: Settings = Depends(get_settings),
+) -> CurrentUser:
+    """
+    Wrapper dependency that resolves get_current_user at runtime.
+
+    This makes unit tests that patch `app.auth.middleware.get_current_user`
+    work reliably: FastAPI depends on this wrapper, and the wrapper picks up
+    the patched function.
+    """
+    result = get_current_user(
+        request=request,
+        credentials=credentials,
+        session=session,
+        settings=settings,
+    )
+    if inspect.isawaitable(result):
+        return await result
+    return result  # type: ignore[return-value]
+
+
+# Dependency aliases
+CurrentUserDep = Annotated[CurrentUser, Depends(_get_current_user_dep)]
+AuthenticatedUser = CurrentUser
+AuthenticatedUserDep = CurrentUserDep

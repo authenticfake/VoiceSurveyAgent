@@ -9,7 +9,7 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, Integer, String, func
+from sqlalchemy import JSON, DateTime, Enum as SQLEnum, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -91,10 +91,12 @@ class CallAttempt(Base):
         String(100),
         nullable=True,
     )
-    metadata: Mapped[dict[str, Any] | None] = mapped_column(
-        JSONB,
-        nullable=True,
-    )
+    # metadata: Mapped[dict[str, Any] | None] = mapped_column(
+    #     JSONB,
+    #     nullable=True,
+    # )
+    payload: Mapped[dict] = mapped_column("metadata", JSON, nullable=True, default=dict)
+
 
     # Relationships
     contact: Mapped["Contact"] = relationship(

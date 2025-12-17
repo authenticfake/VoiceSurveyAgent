@@ -4,7 +4,7 @@ Repository for call attempt database operations.
 REQ-008: Call scheduler service
 """
 
-from datetime import datetime
+from datetime import datetime,timezone
 from typing import Any, Protocol, Sequence
 from uuid import UUID
 
@@ -92,7 +92,8 @@ class CallAttemptRepository:
             campaign_id=campaign_id,
             attempt_number=attempt_number,
             call_id=call_id,
-            started_at=datetime.now(tz=None),
+            started_at=datetime.now(timezone.utc),
+            
         )
         self._session.add(attempt)
         await self._session.flush()
@@ -167,7 +168,8 @@ class CallAttemptRepository:
         if ended_at is not None:
             attempt.ended_at = ended_at
         if metadata is not None:
-            attempt.metadata = metadata
+            attempt.payload = metadata
+
 
         await self._session.flush()
         await self._session.refresh(attempt)

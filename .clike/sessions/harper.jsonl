@@ -96,3 +96,17 @@
 {"ts":1765376258994,"mode":"harper","role":"user","content":"▶ KIT REQ-024 | mode=harper model=claude-opus-4-5 profile=— core=[\"SPEC.md\",\"PLAN.md\",\"TECH_CONSTRAINTS.yaml\"]","model":"claude-opus-4-5","attachments":[]}
 {"ts":1765376362907,"mode":"harper","role":"user","content":"▶ KIT REQ-024 | mode=harper model=claude-opus-4-5 profile=— core=[\"SPEC.md\",\"PLAN.md\",\"TECH_CONSTRAINTS.yaml\"]","model":"claude-opus-4-5","attachments":[]}
 {"ts":1765376620965,"mode":"harper","role":"system","content":"✔ KIT REQ-024 done — [echo] manual::claude-opus-4-5 :: KIT generation • [files] 22 • [text] 31 chars","model":"claude-opus-4-5","attachments":[]}
+{"ts":1765724600902,"mode":"harper","role":"user","content":"▶ GATE REQ-002 auto pass | mode=harper model=claude-opus-4-5","model":"claude-opus-4-5","attachments":[]}
+{"ts":1765724610214,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-002/ci/LTC.json: FAIL","model":"claude-opus-4-5"}
+{"ts":1765724640564,"mode":"harper","role":"user","content":"▶ GATE REQ-003 auto pass | mode=harper model=claude-opus-4-5","model":"claude-opus-4-5","attachments":[]}
+{"ts":1765724650105,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-003/ci/LTC.json: FAIL","model":"claude-opus-4-5"}
+{"ts":1765724719650,"mode":"harper","role":"user","content":"▶ GATE REQ-002 manual pass | mode=harper model=claude-opus-4-5","model":"claude-opus-4-5","attachments":[]}
+{"ts":1765724738844,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-002/ci/LTC.json: PASS","model":"claude-opus-4-5"}
+{"ts":1765725242798,"mode":"harper","role":"user","content":"▶ GATE REQ-003 manual pass | mode=harper model=claude-opus-4-5","model":"claude-opus-4-5","attachments":[]}
+{"ts":1765725250073,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-003/ci/LTC.json: PASS","model":"claude-opus-4-5"}
+{"ts":1765732768623,"mode":"harper","role":"user","content":"▶ GATE REQ-004 manual pass | mode=harper model=claude-opus-4-5","model":"claude-opus-4-5","attachments":[]}
+{"ts":1765732775079,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-004/ci/LTC.json: PASS","model":"claude-opus-4-5"}
+{"ts":1765821698344,"mode":"harper","role":"user","content":"▶ GATE REQ-005 manual pass | mode=harper model=claude-opus-4-5","model":"claude-opus-4-5","attachments":[]}
+{"ts":1765821711590,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-005/ci/LTC.json: PASS","model":"claude-opus-4-5"}
+{"ts":1765875878637,"mode":"harper","role":"user","content":"▶ GATE REQ-006 manual pass | mode=harper model=claude-opus-4-5","model":"claude-opus-4-5","attachments":[]}
+{"ts":1765875887024,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-006/ci/LTC.json: PASS","model":"claude-opus-4-5"}

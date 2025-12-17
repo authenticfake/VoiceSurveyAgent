@@ -204,7 +204,7 @@ class CallScheduler:
             True if within window, False otherwise.
         """
         now = datetime.now(timezone.utc)
-        current_time = now.time()
+        current_time = now.time().replace(tzinfo=None)
 
         start_time = campaign.allowed_call_start_local
         end_time = campaign.allowed_call_end_local

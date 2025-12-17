@@ -7,9 +7,13 @@ REQ-004: Campaign CRUD API
 import math
 from typing import Annotated
 from uuid import UUID
+import inspect
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Any, Callable, Optional, get_args, get_origin
+from fastapi.params import Depends as DependsParam
+import inspect
 
 from app.auth.middleware import CurrentUser
 from app.auth.rbac import require_campaign_manager, require_viewer, RBACChecker
@@ -47,6 +51,58 @@ def get_campaign_service(
     repository = CampaignRepository(session)
     return CampaignService(repository)
 
+def _extract_session_dependency() -> Optional[Callable[..., Any]]:
+    """
+    Try to extract the dependency callable used to provide the `session` argument
+    for get_campaign_service, so we can depend on it in our indirection wrapper.
+    Supports both:
+      - session: Annotated[AsyncSession, Depends(get_db_session)]
+      - session: AsyncSession = Depends(get_db_session)
+    """
+    try:
+        sig = inspect.signature(get_campaign_service)
+        param = sig.parameters.get("session")
+        if param is None:
+            return None
+
+        # Pattern: session: AsyncSession = Depends(get_db_session)
+        default = param.default
+        if default is not inspect._empty and hasattr(default, "dependency"):
+            return default.dependency  # type: ignore[attr-defined]
+
+        # Pattern: session: Annotated[AsyncSession, Depends(get_db_session)]
+        ann = param.annotation
+        if get_origin(ann) is not None and get_origin(ann).__name__ == "Annotated":
+            for meta in get_args(ann)[1:]:
+                if isinstance(meta, DependsParam) and getattr(meta, "dependency", None):
+                    return meta.dependency
+    except Exception:
+        return None
+
+    return None
+
+
+_SESSION_DEP = _extract_session_dependency()
+
+
+if _SESSION_DEP is None:
+    # Fallback: keep old behavior (but ideally _SESSION_DEP should be found)
+    async def _campaign_service_dep() -> CampaignService:
+        maybe = get_campaign_service()  # may still fail if session is required
+        if inspect.isawaitable(maybe):
+            return await maybe
+        return maybe
+else:
+    async def _campaign_service_dep(session: Any = Depends(_SESSION_DEP)) -> CampaignService:
+        """
+        Indirection dependency so tests can patch `app.campaigns.router.get_campaign_service`
+        and FastAPI will still inject the DB session correctly.
+        """
+        maybe = get_campaign_service(session)
+        if inspect.isawaitable(maybe):
+            return await maybe
+        return maybe
+
 
 @router.post(
     "",
@@ -62,7 +118,7 @@ def get_campaign_service(
 async def create_campaign(
     data: CampaignCreate,
     current_user: Annotated[CurrentUser, Depends(require_campaign_manager)],
-    service: Annotated[CampaignService, Depends(get_campaign_service)],
+    service: Annotated[CampaignService, Depends(_campaign_service_dep)],
 ) -> CampaignResponse:
     """Create a new campaign.
 
@@ -96,7 +152,7 @@ async def create_campaign(
 )
 async def list_campaigns(
     current_user: Annotated[CurrentUser, Depends(require_viewer)],
-    service: Annotated[CampaignService, Depends(get_campaign_service)],
+    service: Annotated[CampaignService, Depends(_campaign_service_dep)],
     status_filter: Annotated[
         CampaignStatus | None,
         Query(alias="status", description="Filter by campaign status"),
@@ -147,7 +203,7 @@ async def list_campaigns(
 async def get_campaign(
     campaign_id: UUID,
     current_user: Annotated[CurrentUser, Depends(require_viewer)],
-    service: Annotated[CampaignService, Depends(get_campaign_service)],
+    service: Annotated[CampaignService, Depends(_campaign_service_dep)],
 ) -> CampaignResponse:
     """Get campaign details by ID.
 
@@ -181,8 +237,8 @@ async def update_campaign(
     campaign_id: UUID,
     data: CampaignUpdate,
     current_user: Annotated[CurrentUser, Depends(require_campaign_manager)],
-    service: Annotated[CampaignService, Depends(get_campaign_service)],
-) -> CampaignResponse:
+    service: Annotated[CampaignService, Depends(_campaign_service_dep)],
+    ) -> CampaignResponse:
     """Update an existing campaign.
 
     Updates campaign fields. Some fields can only be updated when campaign
@@ -231,7 +287,7 @@ async def update_campaign(
 async def delete_campaign(
     campaign_id: UUID,
     current_user: Annotated[CurrentUser, Depends(require_campaign_manager)],
-    service: Annotated[CampaignService, Depends(get_campaign_service)],
+    service: Annotated[CampaignService, Depends(_campaign_service_dep)],
 ) -> None:
     """Delete a campaign (soft delete).
 
@@ -273,7 +329,7 @@ async def transition_campaign_status(
     campaign_id: UUID,
     data: CampaignStatusTransition,
     current_user: Annotated[CurrentUser, Depends(require_campaign_manager)],
-    service: Annotated[CampaignService, Depends(get_campaign_service)],
+    service:Annotated[CampaignService, Depends(_campaign_service_dep)],
 ) -> CampaignResponse:
     """Transition campaign to a new status.
 

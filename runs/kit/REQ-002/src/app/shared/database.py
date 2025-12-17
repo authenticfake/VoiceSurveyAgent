@@ -2,7 +2,54 @@
 Database session management with async SQLAlchemy.
 
 REQ-002: OIDC authentication integration
+
+NOTE (retro-compat):
+Some later REQs import `Base` from `app.shared.database`.
+REQ-002 originally provided only the async engine/session manager.
+We expose a SQLAlchemy Declarative Base here to keep backward compatibility.
 """
+# --- ADD: declarative Base (retro-compat) -------------------------------------
+from __future__ import annotations
+
+from sqlalchemy.orm import DeclarativeBase
+
+
+class Base(DeclarativeBase):
+    """SQLAlchemy declarative base (shared across kits).
+
+    NOTE: Required by newer kits (e.g. REQ-006 app.email.models) that import:
+        from app.shared.database import Base
+    """
+    pass
+
+
+# --- BEGIN PATCH: Base compatibility layer (REQ-006+) ---
+
+from sqlalchemy.orm import DeclarativeBase
+
+# IMPORTANT:
+# Many kits historically define Base in app.auth.models.
+# Newer kits (e.g. REQ-006 email/models) import Base from app.shared.database.
+# To keep ONE metadata across the whole "app" namespace, we alias Base to auth.models.Base if present.
+try:
+    from app.auth.models import Base as _AuthBase  # type: ignore
+except Exception:  # pragma: no cover
+    _AuthBase = None  # type: ignore[assignment]
+
+if _AuthBase is not None:
+    Base = _AuthBase  # noqa: N816
+else:
+    class Base(DeclarativeBase):
+        """Fallback Base if auth.models.Base is not available."""
+        pass
+
+__all__ = [
+    # legacy exports (whatever is already here)
+    # + new export
+    "Base",
+]
+
+# --- END PATCH ---
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -16,6 +63,10 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from app.config import get_settings
+
+
+class Base(DeclarativeBase):
+    """SQLAlchemy declarative base (retro-compatible export)."""
 
 
 class DatabaseSessionProtocol(Protocol):
@@ -102,3 +153,6 @@ async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency for database sessions."""
     async for session in get_database_manager().get_session():
         yield session
+
+
+db_manager = get_database_manager()

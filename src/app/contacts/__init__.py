@@ -1,12 +1,14 @@
 """
-Contact management module.
+Contacts package.
 
-REQ-005: Campaign validation service (contact repository protocol)
-REQ-006: Contact CSV upload and parsing (future)
+Do not import router/service here to avoid side effects.
 """
 
-from app.contacts.repository import ContactRepository
+from pkgutil import extend_path
 
-__all__ = [
-    "ContactRepository",
-]
+# Make app.contacts a composable namespace package across kits
+__path__ = extend_path(__path__, __name__)
+
+from app.contacts.models import Contact, ContactState
+
+__all__ = ["Contact", "ContactState"]

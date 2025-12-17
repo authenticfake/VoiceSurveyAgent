@@ -1,8 +1,5 @@
 """
 SQLAlchemy models for contacts.
-
-REQ-005: Campaign validation service (contact model for count)
-REQ-006: Contact CSV upload and parsing (future)
 """
 
 from datetime import datetime
@@ -136,3 +133,6 @@ class Contact(Base):
         "Campaign",
         back_populates="contacts",
     )
+
+    def __repr__(self) -> str:
+        return f"<Contact(id={self.id}, phone={self.phone_number}, state={self.state})>"

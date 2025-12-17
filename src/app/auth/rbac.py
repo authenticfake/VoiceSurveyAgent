@@ -3,14 +3,17 @@ Role-Based Access Control (RBAC) middleware and decorators.
 
 REQ-003: RBAC authorization middleware
 """
+from __future__ import annotations
 
 from collections.abc import Callable
 from enum import Enum
 from functools import wraps
 from typing import Any, TypeVar
+from typing import Annotated, Iterable
 
 from fastapi import Depends, HTTPException, Request, status
 
+from typing import Annotated, Iterabl
 from app.auth.middleware import CurrentUser, get_current_user
 from app.auth.models import UserRole
 from app.shared.logging import get_logger
@@ -19,6 +22,8 @@ logger = get_logger(__name__)
 
 F = TypeVar("F", bound=Callable[..., Any])
 
+def _has_any_role(user_role: str, allowed: Iterable[str]) -> bool:
+    return user_role in set(allowed)
 
 class Role(str, Enum):
     """User roles with hierarchical ordering."""
@@ -128,7 +133,13 @@ class RBACChecker:
         )
         return current_user
 
+def require_roles(*roles: str):
+    async def _dep(user: Annotated[CurrentUser, Depends(get_current_user)]) -> CurrentUser:
+        if not _has_any_role(user.role, roles):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+        return user
 
+    return _dep
 # Pre-configured dependency instances for common role requirements
 require_admin = RBACChecker(Role.ADMIN)
 require_campaign_manager = RBACChecker(Role.CAMPAIGN_MANAGER)

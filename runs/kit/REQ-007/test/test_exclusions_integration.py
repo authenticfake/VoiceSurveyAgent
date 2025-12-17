@@ -13,19 +13,24 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.auth.models import Base, User
-from app.contacts.exclusions.models import ExclusionListEntry, ExclusionSource
+from app.auth.models import  User
+from app.contacts.exclusions.models import ExclusionListEntry, ExclusionSource, ExclusionBase
 from app.contacts.exclusions.repository import ExclusionRepository
 from app.contacts.exclusions.service import ExclusionService
 from app.contacts.models import Contact, ContactState
 from app.campaigns.models import Campaign, CampaignStatus, CampaignLanguage, QuestionType
+import pytest_asyncio
+from app.auth.models import Base
+from app.contacts.exclusions.models import ExclusionBase as Base
+from sqlalchemy import Column, Table
+from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 
 # Test database URL - use environment variable or default to test database
-TEST_DATABASE_URL = "postgresql+asyncpg://postgres:postgres@localhost:5432/voicesurvey_test"
+TEST_DATABASE_URL = "postgresql+asyncpg://afranco:Andrea.1@localhost:5432/voicesurveyagent"
 
 
-@pytest.fixture
+@pytest_asyncio.fixture(scope="session")
 async def async_engine():
     """Create async engine for tests."""
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
@@ -33,7 +38,7 @@ async def async_engine():
     await engine.dispose()
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def async_session(async_engine) -> AsyncSession:
     """Create async session for tests."""
     async_session_maker = sessionmaker(
@@ -45,17 +50,36 @@ async def async_session(async_engine) -> AsyncSession:
         yield session
 
 
-@pytest.fixture
+
+
+@pytest_asyncio.fixture
 async def setup_database(async_engine):
-    """Set up test database tables."""
+    """Set up ONLY the tables needed by exclusions integration tests."""
+    def _create_tables(sync_conn):
+        Base.metadata.create_all(
+            bind=sync_conn,
+            tables=[User.__table__, ExclusionListEntry.__table__],
+            checkfirst=True,
+        )
+
+    def _drop_tables(sync_conn):
+        Base.metadata.drop_all(
+            bind=sync_conn,
+            tables=[ExclusionListEntry.__table__, User.__table__],
+            checkfirst=True,
+        )
+
     async with async_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_create_tables)
+
     yield
+
     async with async_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
+        await conn.run_sync(_drop_tables)
 
 
-@pytest.fixture
+
+@pytest_asyncio.fixture
 async def test_user(async_session: AsyncSession, setup_database) -> User:
     """Create a test admin user."""
     user = User(
@@ -71,7 +95,7 @@ async def test_user(async_session: AsyncSession, setup_database) -> User:
     return user
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def test_campaign(async_session: AsyncSession, test_user: User) -> Campaign:
     """Create a test campaign."""
     campaign = Campaign(
@@ -380,7 +404,7 @@ invalid_phone,Invalid format
 class TestExclusionAPI:
     """Integration tests for exclusion API endpoints."""
 
-    @pytest.fixture
+    @pytest_asyncio.fixture
     def app(self):
         """Create FastAPI app for testing."""
         from fastapi import FastAPI
@@ -393,7 +417,7 @@ class TestExclusionAPI:
 
         return app
 
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def client(self, app, async_session: AsyncSession, test_user: User):
         """Create test client with mocked dependencies."""
         from app.shared.database import get_db_session

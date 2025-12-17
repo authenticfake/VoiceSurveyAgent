@@ -1,0 +1,8 @@
+{
+  "profile": "/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-003/ci/LTC.json",
+  "req_id": "REQ-003",
+  "mode": "auto",
+  "passed": 3,
+  "failed": 2,
+  "cases": []
+}

@@ -12,14 +12,23 @@ from typing import Any
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+import sys
+from pathlib import Path
+
+# Add this kit's src/ to sys.path so `import app.*` works when running tests directly
+KIT_ROOT = Path(__file__).resolve().parents[1]
+SRC = KIT_ROOT / "src"
+sys.path.insert(0, str(SRC))
+
+
 
 # Set test environment
 os.environ.setdefault("ENVIRONMENT", "test")
-os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/voicesurvey_test")
-os.environ.setdefault("OIDC_ISSUER_URL", "https://test-idp.example.com")
-os.environ.setdefault("OIDC_CLIENT_ID", "test-client-id")
-os.environ.setdefault("OIDC_CLIENT_SECRET", "test-client-secret")
-os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-jwt-signing-min-32-chars")
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://afranco:Andrea.1@localhost:5432/voicesurveyagent")
+os.environ.setdefault("OIDC_ISSUER_URL", "http://localhost:8880")
+os.environ.setdefault("OIDC_CLIENT_ID", "voice-survey-agent")
+os.environ.setdefault("OIDC_CLIENT_SECRET", "wQGovP2T32xHHGVwEzRO7M2WLcSBuBPl")
+os.environ.setdefault("JWT_SECRET_KEY", "your-secure-secret-key-min-32-chars")
 
 
 @pytest.fixture(scope="session")
