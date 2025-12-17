@@ -1,35 +1,62 @@
-"""
-Pytest configuration and fixtures for REQ-007 tests.
-
-We force REQ-007/src at the beginning of sys.path so local modules (app.contacts.*)
-win over earlier kits. Other kits are appended to satisfy shared imports (app.auth.*).
-"""
-
+# runs/kit/REQ-007/test/conftest.py
 from __future__ import annotations
 
 import os
-import sys
+from collections.abc import AsyncGenerator
 
 import pytest
+import pytest_asyncio
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    create_async_engine,
+)
 
 
-def _src_for(req_dir: str) -> str:
-    here = os.path.dirname(__file__)
-    return os.path.abspath(os.path.join(here, "..", req_dir, "src"))
+def _db_url() -> str:
+    # usa env var se presente, altrimenti default locale
+    return os.environ.get(
+        "DATABASE_URL",
+        "postgresql+asyncpg://afranco:Andrea.1@localhost:5432/voicesurveyagent",
+    )
 
 
-# REQ-007 must be first.
-sys.path.insert(0, _src_for("."))
+@pytest_asyncio.fixture(scope="session")
+async def async_engine() -> AsyncGenerator[AsyncEngine, None]:
+    engine = create_async_engine(
+        _db_url(),
+        echo=False,
+        pool_pre_ping=True,
+    )
+    try:
+        yield engine
+    finally:
+        await engine.dispose()
 
-# Other kits after.
-for req in ["REQ-001", "REQ-002", "REQ-003", "REQ-004", "REQ-005", "REQ-006"]:
-    sys.path.append(_src_for(os.path.join("..", req)))
 
+@pytest_asyncio.fixture(scope="function")
+async def db_session(async_engine: AsyncEngine) -> AsyncGenerator[AsyncSession, None]:
+    """
+    1 test = 1 conn + 1 transazione esterna
+    dentro una SAVEPOINT (nested) così anche se il codice fa commit,
+    noi ripartiamo con una nuova SAVEPOINT e a fine test rollback totale.
+    """
+    async with async_engine.connect() as conn:
+        trans = await conn.begin()
 
-def pytest_configure(config) -> None:
-    config.addinivalue_line("markers", "asyncio: mark test as async")
+        session = AsyncSession(bind=conn, expire_on_commit=False)
 
+        await conn.begin_nested()
 
-@pytest.fixture(scope="session")
-def anyio_backend() -> str:
-    return "asyncio"
+        @event.listens_for(session.sync_session, "after_transaction_end")
+        def _restart_savepoint(sess, transaction) -> None:  # pragma: no cover
+            # Quando finisce una SAVEPOINT, ne riapriamo un'altra automaticamente
+            if transaction.nested and not transaction._parent.nested:
+                conn.sync_connection.begin_nested()
+
+        try:
+            yield session
+        finally:
+            await session.close()
+            await trans.rollback()

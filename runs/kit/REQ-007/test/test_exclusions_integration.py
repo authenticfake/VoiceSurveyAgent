@@ -27,57 +27,57 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 
 # Test database URL - use environment variable or default to test database
-TEST_DATABASE_URL = "postgresql+asyncpg://afranco:Andrea.1@localhost:5432/voicesurveyagent"
+#TEST_DATABASE_URL = "postgresql+asyncpg://afranco:Andrea.1@localhost:5432/voicesurveyagent"
 
 
-@pytest_asyncio.fixture(scope="session")
-async def async_engine():
-    """Create async engine for tests."""
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-    yield engine
-    await engine.dispose()
+# @pytest_asyncio.fixture(scope="session")
+# async def async_engine():
+#     """Create async engine for tests."""
+#     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
+#     yield engine
+#     await engine.dispose()
+
+
+# @pytest_asyncio.fixture
+# async def async_session(async_engine) -> AsyncSession:
+#     """Create async session for tests."""
+#     async_session_maker = sessionmaker(
+#         async_engine,
+#         class_=AsyncSession,
+#         expire_on_commit=False,
+#     )
+#     async with async_session_maker() as session:
+#         yield session
+
+
+
+
+# @pytest_asyncio.fixture
+# async def setup_database():
+#     """Set up test database tables."""
+#     engine = create_async_engine(TEST_DATABASE_URL, echo=True)
+#     async with engine.begin() as conn:
+#         # Creazione tabelle (assicurarsi che siano completate prima di continuare)
+#         await conn.run_sync(Base.metadata.create_all)
+#     yield engine  # Restituire l'engine per l'uso nei test
+
+#     # Pulizia
+#     async with engine.begin() as conn:
+#         await conn.run_sync(Base.metadata.drop_all)
+
+# @pytest_asyncio.fixture
+# async def db_session(setup_database):
+#     """Fornisce una sessione separata per ogni test."""
+#     async_session = sessionmaker(
+#         setup_database, class_=AsyncSession, expire_on_commit=False
+#     )
+#     async with async_session() as session:
+#         yield session  # Sessione separata per ogni test
+
 
 
 @pytest_asyncio.fixture
-async def async_session(async_engine) -> AsyncSession:
-    """Create async session for tests."""
-    async_session_maker = sessionmaker(
-        async_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
-    async with async_session_maker() as session:
-        yield session
-
-
-
-
-@pytest_asyncio.fixture
-async def setup_database():
-    """Set up test database tables."""
-    engine = create_async_engine(TEST_DATABASE_URL, echo=True)
-    async with engine.begin() as conn:
-        # Creazione tabelle (assicurarsi che siano completate prima di continuare)
-        await conn.run_sync(Base.metadata.create_all)
-    yield engine  # Restituire l'engine per l'uso nei test
-
-    # Pulizia
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-
-@pytest_asyncio.fixture
-async def db_session(setup_database):
-    """Fornisce una sessione separata per ogni test."""
-    async_session = sessionmaker(
-        setup_database, class_=AsyncSession, expire_on_commit=False
-    )
-    async with async_session() as session:
-        yield session  # Sessione separata per ogni test
-
-
-
-@pytest_asyncio.fixture
-async def test_user(async_session: AsyncSession, setup_database) -> User:
+async def test_user(async_session: AsyncSession) -> User:
     """Create a test admin user."""
     user = User(
         id=uuid4(),
@@ -123,7 +123,7 @@ class TestExclusionRepository:
 
     @pytest.mark.asyncio
     async def test_create_and_get_by_id(
-        self, async_session: AsyncSession, setup_database
+        self, async_session: AsyncSession
     ) -> None:
         """Test creating and retrieving exclusion entry."""
         repo = ExclusionRepository(async_session)
@@ -143,7 +143,7 @@ class TestExclusionRepository:
 
     @pytest.mark.asyncio
     async def test_get_by_phone(
-        self, async_session: AsyncSession, setup_database
+        self, async_session: AsyncSession
     ) -> None:
         """Test retrieving exclusion entry by phone number."""
         repo = ExclusionRepository(async_session)
@@ -163,7 +163,7 @@ class TestExclusionRepository:
 
     @pytest.mark.asyncio
     async def test_exists(
-        self, async_session: AsyncSession, setup_database
+        self, async_session: AsyncSession
     ) -> None:
         """Test checking if phone number exists in exclusion list."""
         repo = ExclusionRepository(async_session)
@@ -179,7 +179,7 @@ class TestExclusionRepository:
 
     @pytest.mark.asyncio
     async def test_exists_bulk(
-        self, async_session: AsyncSession, setup_database
+        self, async_session: AsyncSession
     ) -> None:
         """Test bulk checking phone numbers."""
         repo = ExclusionRepository(async_session)
@@ -200,7 +200,7 @@ class TestExclusionRepository:
 
     @pytest.mark.asyncio
     async def test_create_bulk_ignores_duplicates(
-        self, async_session: AsyncSession, setup_database
+        self, async_session: AsyncSession
     ) -> None:
         """Test bulk create ignores duplicates."""
         repo = ExclusionRepository(async_session)
@@ -221,7 +221,7 @@ class TestExclusionRepository:
 
     @pytest.mark.asyncio
     async def test_delete(
-        self, async_session: AsyncSession, setup_database
+        self, async_session: AsyncSession
     ) -> None:
         """Test deleting exclusion entry."""
         repo = ExclusionRepository(async_session)
@@ -240,7 +240,7 @@ class TestExclusionRepository:
 
     @pytest.mark.asyncio
     async def test_list_all_with_pagination(
-        self, async_session: AsyncSession, setup_database
+        self, async_session: AsyncSession
     ) -> None:
         """Test listing exclusions with pagination."""
         repo = ExclusionRepository(async_session)
@@ -269,7 +269,7 @@ class TestExclusionService:
 
     @pytest.mark.asyncio
     async def test_import_csv_valid(
-        self, async_session: AsyncSession, setup_database
+        self, async_session: AsyncSession
     ) -> None:
         """Test importing valid CSV."""
         service = ExclusionService(async_session)
@@ -288,7 +288,7 @@ class TestExclusionService:
 
     @pytest.mark.asyncio
     async def test_import_csv_with_errors(
-        self, async_session: AsyncSession, setup_database
+        self, async_session: AsyncSession
     ) -> None:
         """Test importing CSV with invalid rows."""
         service = ExclusionService(async_session)
@@ -308,7 +308,7 @@ invalid_phone,Invalid format
 
     @pytest.mark.asyncio
     async def test_import_csv_with_duplicates_in_file(
-        self, async_session: AsyncSession, setup_database
+        self, async_session: AsyncSession
     ) -> None:
         """Test importing CSV with duplicate phone numbers in file."""
         service = ExclusionService(async_session)
@@ -326,7 +326,7 @@ invalid_phone,Invalid format
 
     @pytest.mark.asyncio
     async def test_import_csv_with_existing_duplicates(
-        self, async_session: AsyncSession, setup_database
+        self, async_session: AsyncSession
     ) -> None:
         """Test importing CSV with phone numbers already in database."""
         service = ExclusionService(async_session)
@@ -442,7 +442,7 @@ class TestExclusionAPI:
 
     @pytest.mark.asyncio
     async def test_create_exclusion_endpoint(
-        self, client: AsyncClient, setup_database
+        self, client: AsyncClient
     ) -> None:
         """Test POST /api/exclusions endpoint."""
         response = await client.post(
@@ -461,7 +461,7 @@ class TestExclusionAPI:
 
     @pytest.mark.asyncio
     async def test_list_exclusions_endpoint(
-        self, client: AsyncClient, async_session: AsyncSession, setup_database
+        self, client: AsyncClient, async_session: AsyncSession
     ) -> None:
         """Test GET /api/exclusions endpoint."""
         # Create some entries
@@ -482,7 +482,7 @@ class TestExclusionAPI:
 
     @pytest.mark.asyncio
     async def test_import_csv_endpoint(
-        self, client: AsyncClient, setup_database
+        self, client: AsyncClient
     ) -> None:
         """Test POST /api/exclusions/import endpoint."""
         csv_content = b"""phone_number,reason
@@ -501,7 +501,7 @@ class TestExclusionAPI:
 
     @pytest.mark.asyncio
     async def test_delete_exclusion_endpoint(
-        self, client: AsyncClient, async_session: AsyncSession, setup_database
+        self, client: AsyncClient, async_session: AsyncSession
     ) -> None:
         """Test DELETE /api/exclusions/{id} endpoint."""
         # Create entry
@@ -521,7 +521,7 @@ class TestExclusionAPI:
 
     @pytest.mark.asyncio
     async def test_delete_nonexistent_exclusion(
-        self, client: AsyncClient, setup_database
+        self, client: AsyncClient
     ) -> None:
         """Test DELETE /api/exclusions/{id} with non-existent ID."""
         response = await client.delete(f"/api/exclusions/{uuid4()}")
