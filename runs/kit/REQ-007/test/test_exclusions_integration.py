@@ -53,29 +53,26 @@ async def async_session(async_engine) -> AsyncSession:
 
 
 @pytest_asyncio.fixture
-async def setup_database(async_engine):
-    """Set up ONLY the tables needed by exclusions integration tests."""
-    def _create_tables(sync_conn):
-        Base.metadata.create_all(
-            bind=sync_conn,
-            tables=[User.__table__, ExclusionListEntry.__table__],
-            checkfirst=True,
-        )
+async def setup_database():
+    """Set up test database tables."""
+    engine = create_async_engine('postgresql+asyncpg://user:password@localhost/dbname', echo=True)
+    async with engine.begin() as conn:
+        # Creazione tabelle (assicurarsi che siano completate prima di continuare)
+        await conn.run_sync(Base.metadata.create_all)
+    yield engine  # Restituire l'engine per l'uso nei test
 
-    def _drop_tables(sync_conn):
-        Base.metadata.drop_all(
-            bind=sync_conn,
-            tables=[ExclusionListEntry.__table__, User.__table__],
-            checkfirst=True,
-        )
+    # Pulizia
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
 
-    async with async_engine.begin() as conn:
-        await conn.run_sync(_create_tables)
-
-    yield
-
-    async with async_engine.begin() as conn:
-        await conn.run_sync(_drop_tables)
+@pytest_asyncio.fixture
+async def db_session(setup_database):
+    """Fornisce una sessione separata per ogni test."""
+    async_session = sessionmaker(
+        setup_database, class_=AsyncSession, expire_on_commit=False
+    )
+    async with async_session() as session:
+        yield session  # Sessione separata per ogni test
 
 
 
