@@ -2,8 +2,8 @@
 
 ## Plan Snapshot
 
-- **Counts:** total=24 / open=0 / in_progress=18 / done=6 / deferred=0
-- **Progress:** 25% complete
+- **Counts:** total=24 / open=0 / in_progress=17 / done=7 / deferred=0
+- **Progress:** 29% complete
 - **Checklist:**
   - [x] SPEC aligned
   - [x] Prior REQ reconciled
@@ -70,7 +70,7 @@
 | REQ-004 | Campaign CRUD API | POST /api/campaigns creates campaign in draft status<br/>GET /api/campaigns returns paginated list with status filter<br/>GET /api/campaigns/{id} returns full campaign details<br/>PUT /api/campaigns/{id} validates field changes against current status<br/>Status transitions follow state machine: draft→scheduled→running→paused→completed | REQ-003 | App | done |
 | REQ-005 | Campaign validation service | Activation blocked if campaign has zero contacts<br/>Activation blocked if any of 3 questions is empty<br/>Activation blocked if retry policy invalid (attempts < 1 or > 5)<br/>Activation blocked if time window invalid (start >= end)<br/>Successful validation transitions status to running or scheduled | REQ-004 | App | done |
 | REQ-006 | Contact CSV upload and parsing | POST /api/campaigns/{id}/contacts/upload accepts multipart CSV<br/>Phone numbers validated against E.164 format<br/>Invalid rows collected with line number and error reason<br/>Valid rows create Contact records in pending state<br/>At least 95% of valid rows accepted when file has mixed validity | REQ-004 | App | done |
-| REQ-007 | Exclusion list management | POST /api/exclusions/import accepts CSV of phone numbers<br/>Contacts matching exclusion list marked as excluded state<br/>Excluded contacts never returned by scheduler queries<br/>Manual exclusion addition via API supported<br/>Exclusion removal requires admin role | REQ-006 | App | in_progress |
+| REQ-007 | Exclusion list management | POST /api/exclusions/import accepts CSV of phone numbers<br/>Contacts matching exclusion list marked as excluded state<br/>Excluded contacts never returned by scheduler queries<br/>Manual exclusion addition via API supported<br/>Exclusion removal requires admin role | REQ-006 | App | done |
 | REQ-008 | Call scheduler service | Scheduler runs as background task every 60 seconds<br/>Selects contacts with state pending or not_reached<br/>Filters by attempts_count < campaign.max_attempts<br/>Filters by current time within allowed_call_start/end window<br/>Creates CallAttempt record before initiating call | REQ-007 | App | in_progress |
 | REQ-009 | Telephony provider adapter interface | TelephonyProvider interface defines initiate_call method<br/>Interface defines parse_webhook_event method<br/>Concrete adapter implements Twilio-compatible API<br/>Adapter configurable via ProviderConfig entity<br/>Adapter is injectable for testing with mock provider | REQ-001 | App | in_progress |
 | REQ-010 | Telephony webhook handler | POST /webhooks/telephony/events receives provider callbacks<br/>Events parsed into domain CallEvent objects<br/>call.answered triggers dialogue start<br/>call.no_answer updates attempt outcome and contact state<br/>Duplicate events handled idempotently via call_id | REQ-009 | App | in_progress |

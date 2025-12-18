@@ -110,3 +110,5 @@
 {"ts":1765821711590,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-005/ci/LTC.json: PASS","model":"claude-opus-4-5"}
 {"ts":1765875878637,"mode":"harper","role":"user","content":"▶ GATE REQ-006 manual pass | mode=harper model=claude-opus-4-5","model":"claude-opus-4-5","attachments":[]}
 {"ts":1765875887024,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-006/ci/LTC.json: PASS","model":"claude-opus-4-5"}
+{"ts":1766078468564,"mode":"harper","role":"user","content":"▶ GATE REQ-007 manual pass | mode=harper model=gpt-5.2","model":"gpt-5.2","attachments":[]}
+{"ts":1766078476858,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-007/ci/LTC.json: PASS","model":"gpt-5.2"}
