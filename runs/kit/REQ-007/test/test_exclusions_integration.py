@@ -20,76 +20,25 @@ from app.contacts.exclusions.service import ExclusionService
 from app.contacts.models import Contact, ContactState
 from app.campaigns.models import Campaign, CampaignStatus, CampaignLanguage, QuestionType
 import pytest_asyncio
-from app.auth.models import Base
-from app.contacts.exclusions.models import ExclusionBase as Base
+from app.contacts.exclusions.models import ExclusionBase
 from sqlalchemy import Column, Table
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 
 
-# Test database URL - use environment variable or default to test database
-#TEST_DATABASE_URL = "postgresql+asyncpg://afranco:Andrea.1@localhost:5432/voicesurveyagent"
-
-
-# @pytest_asyncio.fixture(scope="session")
-# async def async_engine():
-#     """Create async engine for tests."""
-#     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-#     yield engine
-#     await engine.dispose()
-
-
-# @pytest_asyncio.fixture
-# async def async_session(async_engine) -> AsyncSession:
-#     """Create async session for tests."""
-#     async_session_maker = sessionmaker(
-#         async_engine,
-#         class_=AsyncSession,
-#         expire_on_commit=False,
-#     )
-#     async with async_session_maker() as session:
-#         yield session
-
-
-
-
-# @pytest_asyncio.fixture
-# async def setup_database():
-#     """Set up test database tables."""
-#     engine = create_async_engine(TEST_DATABASE_URL, echo=True)
-#     async with engine.begin() as conn:
-#         # Creazione tabelle (assicurarsi che siano completate prima di continuare)
-#         await conn.run_sync(Base.metadata.create_all)
-#     yield engine  # Restituire l'engine per l'uso nei test
-
-#     # Pulizia
-#     async with engine.begin() as conn:
-#         await conn.run_sync(Base.metadata.drop_all)
-
-# @pytest_asyncio.fixture
-# async def db_session(setup_database):
-#     """Fornisce una sessione separata per ogni test."""
-#     async_session = sessionmaker(
-#         setup_database, class_=AsyncSession, expire_on_commit=False
-#     )
-#     async with async_session() as session:
-#         yield session  # Sessione separata per ogni test
-
-
 
 @pytest_asyncio.fixture
-async def test_user(async_session: AsyncSession) -> User:
-    """Create a test admin user."""
+async def test_user(async_session):
     user = User(
         id=uuid4(),
-        oidc_sub="test|admin001",
+        oidc_sub=f"test|{uuid4()}",
         email="admin@test.com",
         name="Test Admin",
         role="admin",
     )
     async_session.add(user)
-    await async_session.commit()
-    await async_session.refresh(user)
+    await async_session.flush()
     return user
+
 
 
 @pytest_asyncio.fixture
@@ -424,12 +373,14 @@ class TestExclusionAPI:
             yield async_session
 
         def override_get_current_user():
-            return CurrentUser(
-                id=test_user.id,
-                email=test_user.email,
-                name=test_user.name,
-                role=test_user.role,
-            )
+            def override_get_current_user():
+                return CurrentUser(
+                    id=test_user.id,
+                    email=test_user.email,
+                    name=test_user.name,
+                    role=test_user.role,
+                    oidc_sub="test-sub",
+                )
 
         app.dependency_overrides[get_db_session] = override_get_db
         app.dependency_overrides[get_current_user] = override_get_current_user
