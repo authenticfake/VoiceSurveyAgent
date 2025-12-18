@@ -1,7 +1,8 @@
 node_modules/
-              dist/
-              .vscode/
-              .env
-              runs/
-              *.log
-             *.pyc 
+dist/
+.vscode/
+.env
+runs/
+*.log
+*.pyc
+__pycache__/ 
