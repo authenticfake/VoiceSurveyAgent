@@ -2,9 +2,14 @@
 Tests for consent flow orchestration.
 
 REQ-012: Dialogue orchestrator consent flow
+
+VINCOLI:
+- Test SINCRONI
+- Veloci
+- No DB / No SQLAlchemy
+- Repository in-memory (interno all'orchestrator)
 """
 
-from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
@@ -13,7 +18,6 @@ from app.dialogue.consent import (
     ConsentDetector,
     ConsentFlowOrchestrator,
     ConsentIntent,
-    ConsentResult,
 )
 from app.dialogue.models import (
     CallContext,
@@ -21,6 +25,7 @@ from app.dialogue.models import (
     DialoguePhase,
     DialogueSessionState,
 )
+
 
 class MockLLMGateway:
     """Mock LLM gateway."""
@@ -31,6 +36,7 @@ class MockLLMGateway:
     async def chat_completion(self, *args, **kwargs) -> str:
         return self.response
 
+
 class MockTelephonyControl:
     """Mock telephony control."""
 
@@ -39,17 +45,22 @@ class MockTelephonyControl:
         self.terminated_calls: list[dict] = []
 
     async def play_text(self, call_id: str, text: str, language: str) -> None:
-        self.played_texts.append({
-            "call_id": call_id,
-            "text": text,
-            "language": language,
-        })
+        self.played_texts.append(
+            {
+                "call_id": call_id,
+                "text": text,
+                "language": language,
+            }
+        )
 
     async def terminate_call(self, call_id: str, reason: str) -> None:
-        self.terminated_calls.append({
-            "call_id": call_id,
-            "reason": reason,
-        })
+        self.terminated_calls.append(
+            {
+                "call_id": call_id,
+                "reason": reason,
+            }
+        )
+
 
 class MockEventPublisher:
     """Mock event publisher."""
@@ -64,13 +75,16 @@ class MockEventPublisher:
         call_id: str,
         attempt_count: int,
     ) -> None:
-        self.published_events.append({
-            "type": "survey.refused",
-            "campaign_id": campaign_id,
-            "contact_id": contact_id,
-            "call_id": call_id,
-            "attempt_count": attempt_count,
-        })
+        self.published_events.append(
+            {
+                "type": "survey.refused",
+                "campaign_id": campaign_id,
+                "contact_id": contact_id,
+                "call_id": call_id,
+                "attempt_count": attempt_count,
+            }
+        )
+
 
 @pytest.fixture
 def call_context() -> CallContext:
@@ -90,91 +104,104 @@ def call_context() -> CallContext:
         question_3_type="numeric",
     )
 
+
 @pytest.fixture
 def mock_telephony() -> MockTelephonyControl:
     """Create mock telephony control."""
     return MockTelephonyControl()
+
 
 @pytest.fixture
 def mock_events() -> MockEventPublisher:
     """Create mock event publisher."""
     return MockEventPublisher()
 
-class TestConsentFlowOrchestrator:
-    """Tests for ConsentFlowOrchestrator."""
 
-    @pytest.mark.asyncio
-    async def test_handle_call_answered_plays_intro(
+class TestConsentFlowOrchestrator:
+    """Tests for ConsentFlowOrchestrator (SYNC)."""
+
+    def _make_orchestrator(
+        self,
+        llm_response: str = '{"intent": "POSITIVE", "confidence": 0.9}',
+        telephony: MockTelephonyControl | None = None,
+        events: MockEventPublisher | None = None,
+    ) -> tuple[ConsentFlowOrchestrator, MockTelephonyControl, MockEventPublisher]:
+        telephony = telephony or MockTelephonyControl()
+        events = events or MockEventPublisher()
+
+        llm = MockLLMGateway(llm_response)
+        detector = ConsentDetector(llm)
+        orchestrator = ConsentFlowOrchestrator(detector, telephony, events)
+        return orchestrator, telephony, events
+
+    def test_handle_call_answered_plays_intro(
         self,
         call_context: CallContext,
         mock_telephony: MockTelephonyControl,
         mock_events: MockEventPublisher,
     ) -> None:
-        """Test that call.answered plays intro script."""
-        llm = MockLLMGateway()
-        detector = ConsentDetector(llm)
-        orchestrator = ConsentFlowOrchestrator(detector, mock_telephony, mock_events)
+        """call.answered: plays intro immediately."""
+        orchestrator, _, _ = self._make_orchestrator(
+            telephony=mock_telephony, events=mock_events
+        )
 
-        session = await orchestrator.handle_call_answered(call_context)
+        session = orchestrator.handle_call_answered_sync(call_context)
 
-        # Verify intro was played
+        assert session is not None
         assert len(mock_telephony.played_texts) >= 1
         assert mock_telephony.played_texts[0]["text"] == call_context.intro_script
         assert mock_telephony.played_texts[0]["language"] == "en"
 
-    @pytest.mark.asyncio
-    async def test_handle_call_answered_asks_consent(
+    def test_handle_call_answered_asks_consent(
         self,
         call_context: CallContext,
         mock_telephony: MockTelephonyControl,
         mock_events: MockEventPublisher,
     ) -> None:
-        """Test that call.answered asks consent question."""
-        llm = MockLLMGateway()
-        detector = ConsentDetector(llm)
-        orchestrator = ConsentFlowOrchestrator(detector, mock_telephony, mock_events)
+        """call.answered: asks consent question after intro."""
+        orchestrator, _, _ = self._make_orchestrator(
+            telephony=mock_telephony, events=mock_events
+        )
 
-        session = await orchestrator.handle_call_answered(call_context)
+        orchestrator.handle_call_answered_sync(call_context)
 
-        # Verify consent question was asked (second text played)
         assert len(mock_telephony.played_texts) >= 2
-        consent_text = mock_telephony.played_texts[1]["text"]
-        assert "consent" in consent_text.lower() or "participate" in consent_text.lower()
+        consent_text = mock_telephony.played_texts[1]["text"].lower()
+        assert ("consent" in consent_text) or ("participate" in consent_text)
 
-    @pytest.mark.asyncio
-    async def test_handle_call_answered_creates_session(
+    def test_handle_call_answered_creates_session(
         self,
         call_context: CallContext,
         mock_telephony: MockTelephonyControl,
         mock_events: MockEventPublisher,
     ) -> None:
-        """Test that call.answered creates dialogue session."""
-        llm = MockLLMGateway()
-        detector = ConsentDetector(llm)
-        orchestrator = ConsentFlowOrchestrator(detector, mock_telephony, mock_events)
+        """call.answered: creates session with expected state."""
+        orchestrator, _, _ = self._make_orchestrator(
+            telephony=mock_telephony, events=mock_events
+        )
 
-        session = await orchestrator.handle_call_answered(call_context)
+        session = orchestrator.handle_call_answered_sync(call_context)
 
-        assert session is not None
         assert session.call_context == call_context
         assert session.phase == DialoguePhase.CONSENT_REQUEST
         assert session.consent_state == ConsentState.PENDING
         assert session.consent_requested_at is not None
 
-    @pytest.mark.asyncio
-    async def test_positive_consent_proceeds_to_questions(
+    def test_positive_consent_proceeds_to_questions(
         self,
         call_context: CallContext,
         mock_telephony: MockTelephonyControl,
         mock_events: MockEventPublisher,
     ) -> None:
-        """Test that positive consent proceeds to first question."""
-        llm = MockLLMGateway('{"intent": "POSITIVE", "confidence": 0.9}')
-        detector = ConsentDetector(llm)
-        orchestrator = ConsentFlowOrchestrator(detector, mock_telephony, mock_events)
+        """Positive consent: consent granted -> phase QUESTION_1."""
+        orchestrator, _, _ = self._make_orchestrator(
+            llm_response='{"intent": "POSITIVE", "confidence": 0.9}',
+            telephony=mock_telephony,
+            events=mock_events,
+        )
 
-        await orchestrator.handle_call_answered(call_context)
-        result = await orchestrator.handle_user_response(
+        orchestrator.handle_call_answered_sync(call_context)
+        result = orchestrator.handle_user_response_sync(
             call_id=call_context.call_id,
             user_response="yes, I agree",
         )
@@ -185,49 +212,59 @@ class TestConsentFlowOrchestrator:
         assert session.phase == DialoguePhase.QUESTION_1
         assert result.intent == ConsentIntent.POSITIVE
 
-    @pytest.mark.asyncio
-    async def test_negative_consent_terminates_call(
+    def test_negative_consent_terminates_call_within_10_seconds(
         self,
         call_context: CallContext,
         mock_telephony: MockTelephonyControl,
         mock_events: MockEventPublisher,
     ) -> None:
-        """Test that negative consent terminates call within 10 seconds."""
-        llm = MockLLMGateway('{"intent": "NEGATIVE", "confidence": 0.9}')
-        detector = ConsentDetector(llm)
-        orchestrator = ConsentFlowOrchestrator(detector, mock_telephony, mock_events)
+        """Negative consent: terminate call and enforce timing <= 10s."""
+        orchestrator, _, _ = self._make_orchestrator(
+            llm_response='{"intent": "NEGATIVE", "confidence": 0.9}',
+            telephony=mock_telephony,
+            events=mock_events,
+        )
 
-        await orchestrator.handle_call_answered(call_context)
-        result = await orchestrator.handle_user_response(
+        orchestrator.handle_call_answered_sync(call_context)
+        orchestrator.handle_user_response_sync(
             call_id=call_context.call_id,
             user_response="no thanks",
         )
 
-        # Verify call was terminated
         assert len(mock_telephony.terminated_calls) == 1
         assert mock_telephony.terminated_calls[0]["call_id"] == call_context.call_id
         assert mock_telephony.terminated_calls[0]["reason"] == "consent_refused"
 
-    @pytest.mark.asyncio
-    async def test_negative_consent_publishes_event(
+        # Timing constraint: refused within 10 seconds from consent request
+        session = orchestrator.get_session(call_context.call_id)
+        assert session is not None
+        assert session.consent_requested_at is not None
+        assert session.consent_resolved_at is not None
+        delta_seconds = (
+            session.consent_resolved_at - session.consent_requested_at
+        ).total_seconds()
+        assert delta_seconds <= 10.0
+
+    def test_negative_consent_publishes_event(
         self,
         call_context: CallContext,
         mock_telephony: MockTelephonyControl,
         mock_events: MockEventPublisher,
     ) -> None:
-        """Test that negative consent publishes survey.refused event."""
-        llm = MockLLMGateway('{"intent": "NEGATIVE", "confidence": 0.9}')
-        detector = ConsentDetector(llm)
-        orchestrator = ConsentFlowOrchestrator(detector, mock_telephony, mock_events)
+        """Negative consent: publishes survey.refused."""
+        orchestrator, _, _ = self._make_orchestrator(
+            llm_response='{"intent": "NEGATIVE", "confidence": 0.9}',
+            telephony=mock_telephony,
+            events=mock_events,
+        )
 
-        await orchestrator.handle_call_answered(call_context)
-        await orchestrator.handle_user_response(
+        orchestrator.handle_call_answered_sync(call_context)
+        orchestrator.handle_user_response_sync(
             call_id=call_context.call_id,
             user_response="no thanks",
             attempt_count=2,
         )
 
-        # Verify event was published
         assert len(mock_events.published_events) == 1
         event = mock_events.published_events[0]
         assert event["type"] == "survey.refused"
@@ -236,20 +273,21 @@ class TestConsentFlowOrchestrator:
         assert event["call_id"] == call_context.call_id
         assert event["attempt_count"] == 2
 
-    @pytest.mark.asyncio
-    async def test_negative_consent_updates_session_state(
+    def test_negative_consent_updates_session_state(
         self,
         call_context: CallContext,
         mock_telephony: MockTelephonyControl,
         mock_events: MockEventPublisher,
     ) -> None:
-        """Test that negative consent updates session state correctly."""
-        llm = MockLLMGateway('{"intent": "NEGATIVE", "confidence": 0.9}')
-        detector = ConsentDetector(llm)
-        orchestrator = ConsentFlowOrchestrator(detector, mock_telephony, mock_events)
+        """Negative consent: session becomes REFUSED."""
+        orchestrator, _, _ = self._make_orchestrator(
+            llm_response='{"intent": "NEGATIVE", "confidence": 0.9}',
+            telephony=mock_telephony,
+            events=mock_events,
+        )
 
-        await orchestrator.handle_call_answered(call_context)
-        await orchestrator.handle_user_response(
+        orchestrator.handle_call_answered_sync(call_context)
+        orchestrator.handle_user_response_sync(
             call_id=call_context.call_id,
             user_response="no thanks",
         )
@@ -260,93 +298,90 @@ class TestConsentFlowOrchestrator:
         assert session.phase == DialoguePhase.REFUSED
         assert session.state == DialogueSessionState.REFUSED
 
-    @pytest.mark.asyncio
-    async def test_repeat_request_replays_intro(
+    def test_repeat_request_replays_intro_and_consent_question(
         self,
         call_context: CallContext,
         mock_telephony: MockTelephonyControl,
         mock_events: MockEventPublisher,
     ) -> None:
-        """Test that repeat request replays intro and consent question."""
-        llm = MockLLMGateway('{"intent": "REPEAT_REQUEST", "confidence": 0.8}')
-        detector = ConsentDetector(llm)
-        orchestrator = ConsentFlowOrchestrator(detector, mock_telephony, mock_events)
+        """Repeat request: should replay intro + consent question."""
+        orchestrator, _, _ = self._make_orchestrator(
+            llm_response='{"intent": "REPEAT_REQUEST", "confidence": 0.8}',
+            telephony=mock_telephony,
+            events=mock_events,
+        )
 
-        await orchestrator.handle_call_answered(call_context)
+        orchestrator.handle_call_answered_sync(call_context)
         initial_count = len(mock_telephony.played_texts)
 
-        await orchestrator.handle_user_response(
+        orchestrator.handle_user_response_sync(
             call_id=call_context.call_id,
             user_response="can you repeat that?",
         )
 
-        # Should have played: repeat message, intro, consent question
         assert len(mock_telephony.played_texts) >= initial_count + 3
-
         session = orchestrator.get_session(call_context.call_id)
         assert session is not None
         assert session.phase == DialoguePhase.CONSENT_REQUEST
 
-    @pytest.mark.asyncio
-    async def test_unclear_response_asks_clarification(
+    def test_unclear_response_asks_clarification(
         self,
         call_context: CallContext,
         mock_telephony: MockTelephonyControl,
         mock_events: MockEventPublisher,
     ) -> None:
-        """Test that unclear response asks for clarification."""
-        llm = MockLLMGateway('{"intent": "UNCLEAR", "confidence": 0.5}')
-        detector = ConsentDetector(llm)
-        orchestrator = ConsentFlowOrchestrator(detector, mock_telephony, mock_events)
+        """Unclear: ask clarification (yes/no)."""
+        orchestrator, _, _ = self._make_orchestrator(
+            llm_response='{"intent": "UNCLEAR", "confidence": 0.5}',
+            telephony=mock_telephony,
+            events=mock_events,
+        )
 
-        await orchestrator.handle_call_answered(call_context)
+        orchestrator.handle_call_answered_sync(call_context)
         initial_count = len(mock_telephony.played_texts)
 
-        await orchestrator.handle_user_response(
+        orchestrator.handle_user_response_sync(
             call_id=call_context.call_id,
             user_response="hmm maybe",
         )
 
-        # Should have played clarification message
         assert len(mock_telephony.played_texts) > initial_count
-        last_text = mock_telephony.played_texts[-1]["text"]
-        assert "yes or no" in last_text.lower() or "sì o no" in last_text.lower()
+        last_text = mock_telephony.played_texts[-1]["text"].lower()
+        assert ("yes or no" in last_text) or ("sì o no" in last_text)
 
-    @pytest.mark.asyncio
-    async def test_max_unclear_attempts_terminates(
+    def test_max_unclear_attempts_terminates(
         self,
         call_context: CallContext,
         mock_telephony: MockTelephonyControl,
         mock_events: MockEventPublisher,
     ) -> None:
-        """Test that max unclear attempts terminates call."""
-        llm = MockLLMGateway('{"intent": "UNCLEAR", "confidence": 0.5}')
-        detector = ConsentDetector(llm)
-        orchestrator = ConsentFlowOrchestrator(detector, mock_telephony, mock_events)
+        """After max unclear attempts: terminate call."""
+        orchestrator, _, _ = self._make_orchestrator(
+            llm_response='{"intent": "UNCLEAR", "confidence": 0.5}',
+            telephony=mock_telephony,
+            events=mock_events,
+        )
 
-        await orchestrator.handle_call_answered(call_context)
+        orchestrator.handle_call_answered_sync(call_context)
 
-        # First unclear response
-        await orchestrator.handle_user_response(
+        orchestrator.handle_user_response_sync(
             call_id=call_context.call_id,
             user_response="hmm",
         )
         assert len(mock_telephony.terminated_calls) == 0
 
-        # Second unclear response - should terminate
-        await orchestrator.handle_user_response(
+        orchestrator.handle_user_response_sync(
             call_id=call_context.call_id,
             user_response="hmm",
         )
         assert len(mock_telephony.terminated_calls) == 1
 
-    @pytest.mark.asyncio
-    async def test_italian_language_messages(
+    def test_italian_language_messages(
         self,
         mock_telephony: MockTelephonyControl,
         mock_events: MockEventPublisher,
     ) -> None:
-        """Test that Italian language uses Italian messages."""
+        """Italian language: uses Italian texts."""
         context = CallContext(
             call_id="test-call-it",
             campaign_id=uuid4(),
@@ -362,77 +397,76 @@ class TestConsentFlowOrchestrator:
             question_3_type="numeric",
         )
 
-        llm = MockLLMGateway('{"intent": "NEGATIVE", "confidence": 0.9}')
-        detector = ConsentDetector(llm)
-        orchestrator = ConsentFlowOrchestrator(detector, mock_telephony, mock_events)
+        orchestrator, _, _ = self._make_orchestrator(
+            llm_response='{"intent": "NEGATIVE", "confidence": 0.9}',
+            telephony=mock_telephony,
+            events=mock_events,
+        )
 
-        await orchestrator.handle_call_answered(context)
-        await orchestrator.handle_user_response(
+        orchestrator.handle_call_answered_sync(context)
+        orchestrator.handle_user_response_sync(
             call_id=context.call_id,
             user_response="no grazie",
         )
 
-        # Verify Italian messages were used
         texts = [t["text"] for t in mock_telephony.played_texts]
-        assert any("Acconsente" in t or "Arrivederci" in t for t in texts)
+        assert any(("Acconsente" in t) or ("Arrivederci" in t) for t in texts)
 
-    @pytest.mark.asyncio
-    async def test_session_not_found_raises_error(
+    def test_session_not_found_raises_error(
         self,
         mock_telephony: MockTelephonyControl,
         mock_events: MockEventPublisher,
     ) -> None:
-        """Test that handling response for unknown session raises error."""
-        llm = MockLLMGateway()
-        detector = ConsentDetector(llm)
-        orchestrator = ConsentFlowOrchestrator(detector, mock_telephony, mock_events)
+        """Unknown session: raise ValueError."""
+        orchestrator, _, _ = self._make_orchestrator(
+            telephony=mock_telephony, events=mock_events
+        )
 
         with pytest.raises(ValueError, match="No session found"):
-            await orchestrator.handle_user_response(
+            orchestrator.handle_user_response_sync(
                 call_id="unknown-call",
                 user_response="yes",
             )
 
-    @pytest.mark.asyncio
-    async def test_transcript_recorded(
+    def test_transcript_recorded(
         self,
         call_context: CallContext,
         mock_telephony: MockTelephonyControl,
         mock_events: MockEventPublisher,
     ) -> None:
-        """Test that transcript is recorded during flow."""
-        llm = MockLLMGateway('{"intent": "POSITIVE", "confidence": 0.9}')
-        detector = ConsentDetector(llm)
-        orchestrator = ConsentFlowOrchestrator(detector, mock_telephony, mock_events)
+        """Transcript: includes at least intro, consent question, user response."""
+        orchestrator, _, _ = self._make_orchestrator(
+            llm_response='{"intent": "POSITIVE", "confidence": 0.9}',
+            telephony=mock_telephony,
+            events=mock_events,
+        )
 
-        await orchestrator.handle_call_answered(call_context)
-        await orchestrator.handle_user_response(
+        orchestrator.handle_call_answered_sync(call_context)
+        orchestrator.handle_user_response_sync(
             call_id=call_context.call_id,
             user_response="yes I agree",
         )
 
         session = orchestrator.get_session(call_context.call_id)
         assert session is not None
-        assert len(session.transcript) >= 3  # intro, consent question, user response
+        assert len(session.transcript) >= 3
 
-        # Verify user response is in transcript
         user_utterances = [t for t in session.transcript if t["role"] == "user"]
         assert len(user_utterances) >= 1
         assert user_utterances[0]["text"] == "yes I agree"
 
-    @pytest.mark.asyncio
-    async def test_remove_session(
+    def test_remove_session(
         self,
         call_context: CallContext,
         mock_telephony: MockTelephonyControl,
         mock_events: MockEventPublisher,
     ) -> None:
-        """Test session removal."""
-        llm = MockLLMGateway()
-        detector = ConsentDetector(llm)
-        orchestrator = ConsentFlowOrchestrator(detector, mock_telephony, mock_events)
+        """Session removal."""
+        orchestrator, _, _ = self._make_orchestrator(
+            telephony=mock_telephony, events=mock_events
+        )
 
-        await orchestrator.handle_call_answered(call_context)
+        orchestrator.handle_call_answered_sync(call_context)
         assert orchestrator.get_session(call_context.call_id) is not None
 
         orchestrator.remove_session(call_context.call_id)

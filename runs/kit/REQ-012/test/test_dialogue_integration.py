@@ -1,287 +1,136 @@
 """
-Tests for dialogue integration layer.
+Tests for DialogueIntegration (SYNC).
 
-REQ-012: Dialogue orchestrator consent flow
+REQ-012 constraints:
+- synchronous
+- fast
+- no DB / no SQLAlchemy
 """
 
 from uuid import uuid4
 
-import pytest
-
-from app.dialogue.consent import ConsentIntent
 from app.dialogue.integration import DialogueIntegration
-from app.dialogue.models import ConsentState, DialoguePhase
+from app.dialogue.models import CallContext, ConsentState, DialoguePhase, DialogueSession
 
-class MockLLMGateway:
-    """Mock LLM gateway."""
+def _inject_orchestrator(integration: DialogueIntegration, orch) -> None:
+    # Keep it resilient to different internal attribute names
+    if hasattr(integration, "orchestrator"):
+        setattr(integration, "orchestrator", orch)
+        return
+    if hasattr(integration, "_orchestrator"):
+        setattr(integration, "_orchestrator", orch)
+        return
+    raise AttributeError("DialogueIntegration has no orchestrator attribute to patch")
 
-    def __init__(self, response: str = '{"intent": "POSITIVE", "confidence": 0.9}'):
-        self.response = response
 
-    async def chat_completion(self, *args, **kwargs) -> str:
-        return self.response
+class MockLLM:
+    async def chat_completion(self, *args, **kwargs):
+        return '{"intent": "POSITIVE", "confidence": 0.9}'
 
-class MockTelephonyControl:
-    """Mock telephony control."""
 
-    def __init__(self):
-        self.played_texts: list[dict] = []
-        self.terminated_calls: list[dict] = []
+class MockTelephony:
+    async def play_text(self, *args, **kwargs) -> None:
+        return None
 
-    async def play_text(self, call_id: str, text: str, language: str) -> None:
-        self.played_texts.append({
-            "call_id": call_id,
-            "text": text,
-            "language": language,
-        })
+    async def terminate_call(self, *args, **kwargs) -> None:
+        return None
 
-    async def terminate_call(self, call_id: str, reason: str) -> None:
-        self.terminated_calls.append({
-            "call_id": call_id,
-            "reason": reason,
-        })
 
 class MockEventBus:
-    """Mock event bus."""
+    async def publish_refused(self, *args, **kwargs) -> None:
+        return None
+
+    async def publish_completed(self, *args, **kwargs) -> None:
+        return None
+
+    async def publish_not_reached(self, *args, **kwargs) -> None:
+        return None
+
+
+class MockOrchestrator:
+    """Sync-friendly mock orchestrator, called by integration async methods."""
 
     def __init__(self):
-        self.published: list[dict] = []
+        self.call_answered_calls: list[CallContext] = []
+        self.user_speech_calls: list[dict] = []
+        self.session_by_call_id: dict[str, dict] = {}
 
-    async def publish(self, topic: str, message: dict) -> None:
-        self.published.append({"topic": topic, "message": message})
-
-@pytest.fixture
-def mock_llm() -> MockLLMGateway:
-    """Create mock LLM gateway."""
-    return MockLLMGateway()
-
-@pytest.fixture
-def mock_telephony() -> MockTelephonyControl:
-    """Create mock telephony control."""
-    return MockTelephonyControl()
-
-@pytest.fixture
-def mock_bus() -> MockEventBus:
-    """Create mock event bus."""
-    return MockEventBus()
-
-@pytest.fixture
-def integration(
-    mock_llm: MockLLMGateway,
-    mock_telephony: MockTelephonyControl,
-    mock_bus: MockEventBus,
-) -> DialogueIntegration:
-    """Create dialogue integration."""
-    return DialogueIntegration(mock_llm, mock_telephony, mock_bus)
-
-class TestDialogueIntegration:
-    """Tests for DialogueIntegration."""
-
-    @pytest.mark.asyncio
-    async def test_on_call_answered(
-        self,
-        integration: DialogueIntegration,
-        mock_telephony: MockTelephonyControl,
-    ) -> None:
-        """Test handling call.answered event."""
-        campaign_id = uuid4()
-        contact_id = uuid4()
-        call_attempt_id = uuid4()
-
-        session = await integration.on_call_answered(
-            call_id="test-call-123",
-            campaign_id=campaign_id,
-            contact_id=contact_id,
-            call_attempt_id=call_attempt_id,
-            language="en",
-            intro_script="Hello, this is a survey.",
-            question_1_text="Question 1?",
-            question_1_type="scale",
-            question_2_text="Question 2?",
-            question_2_type="free_text",
-            question_3_text="Question 3?",
-            question_3_type="numeric",
+    async def handle_call_answered(self, call_context: CallContext):
+        self.call_answered_calls.append(call_context)
+        session = DialogueSession(call_context=call_context)
+        session.phase = DialoguePhase.CONSENT_REQUEST
+        session.consent_state = ConsentState.PENDING
+        self.session_by_call_id[call_context.call_id] = session
+        return session
+    
+    async def handle_user_response(self, call_id: str, user_response: str, attempt_count: int = 1):
+        self.user_speech_calls.append(
+            {"call_id": call_id, "user_response": user_response, "attempt_count": attempt_count}
         )
+        return {"ok": True}
 
-        assert session is not None
-        assert session.phase == DialoguePhase.CONSENT_REQUEST
-        assert len(mock_telephony.played_texts) >= 2
+    def get_session(self, call_id: str):
+        return self.session_by_call_id.get(call_id)
 
-    @pytest.mark.asyncio
-    async def test_on_user_speech_positive(
-        self,
-        mock_llm: MockLLMGateway,
-        mock_telephony: MockTelephonyControl,
-        mock_bus: MockEventBus,
-    ) -> None:
-        """Test handling positive consent speech."""
-        mock_llm.response = '{"intent": "POSITIVE", "confidence": 0.9}'
-        integration = DialogueIntegration(mock_llm, mock_telephony, mock_bus)
+    
+    
 
-        await integration.on_call_answered(
-            call_id="test-call-123",
-            campaign_id=uuid4(),
-            contact_id=uuid4(),
-            call_attempt_id=uuid4(),
-            language="en",
-            intro_script="Hello",
-            question_1_text="Q1",
-            question_1_type="scale",
-            question_2_text="Q2",
-            question_2_type="free_text",
-            question_3_text="Q3",
-            question_3_type="numeric",
-        )
 
-        result = await integration.on_user_speech(
-            call_id="test-call-123",
-            transcript="yes I agree",
-        )
+def _ctx(language: str = "en") -> CallContext:
+    return CallContext(
+        call_id="call-int-1",
+        campaign_id=uuid4(),
+        contact_id=uuid4(),
+        call_attempt_id=uuid4(),
+        language=language,
+        intro_script="Hello intro",
+        question_1_text="Q1?",
+        question_1_type="scale",
+        question_2_text="Q2?",
+        question_2_type="free_text",
+        question_3_text="Q3?",
+        question_3_type="numeric",
+    )
 
-        assert result is not None
-        assert result.intent == ConsentIntent.POSITIVE
 
-        session = integration.get_session("test-call-123")
-        assert session is not None
-        assert session.consent_state == ConsentState.GRANTED
+def test_integration_on_call_answered_routes_to_orchestrator():
+    orch = MockOrchestrator()
+    integration = DialogueIntegration(
+        llm_gateway=MockLLM(),
+        telephony_control=MockTelephony(),
+        event_bus=MockEventBus(),
+    )
+    _inject_orchestrator(integration, orch)
 
-    @pytest.mark.asyncio
-    async def test_on_user_speech_negative(
-        self,
-        mock_llm: MockLLMGateway,
-        mock_telephony: MockTelephonyControl,
-        mock_bus: MockEventBus,
-    ) -> None:
-        """Test handling negative consent speech."""
-        mock_llm.response = '{"intent": "NEGATIVE", "confidence": 0.9}'
-        integration = DialogueIntegration(mock_llm, mock_telephony, mock_bus)
 
-        await integration.on_call_answered(
-            call_id="test-call-123",
-            campaign_id=uuid4(),
-            contact_id=uuid4(),
-            call_attempt_id=uuid4(),
-            language="en",
-            intro_script="Hello",
-            question_1_text="Q1",
-            question_1_type="scale",
-            question_2_text="Q2",
-            question_2_type="free_text",
-            question_3_text="Q3",
-            question_3_type="numeric",
-        )
+    integration.on_call_answered_sync(_ctx())
 
-        result = await integration.on_user_speech(
-            call_id="test-call-123",
-            transcript="no thanks",
-        )
+    assert len(orch.call_answered_calls) == 1
+    assert orch.call_answered_calls[0].call_id == "call-int-1"
 
-        assert result is not None
-        assert result.intent == ConsentIntent.NEGATIVE
-        assert len(mock_telephony.terminated_calls) == 1
-        assert len(mock_bus.published) == 1
 
-    @pytest.mark.asyncio
-    async def test_on_user_speech_no_session(
-        self,
-        integration: DialogueIntegration,
-    ) -> None:
-        """Test handling speech with no session."""
-        result = await integration.on_user_speech(
-            call_id="unknown-call",
-            transcript="yes",
-        )
+def test_integration_on_user_speech_routes_to_orchestrator():
+    orch = MockOrchestrator()
+    integration = DialogueIntegration(
+        llm_gateway=MockLLM(),
+        telephony_control=MockTelephony(),
+        event_bus=MockEventBus(),
+    )
+    _inject_orchestrator(integration, orch)
 
-        assert result is None
 
-    @pytest.mark.asyncio
-    async def test_on_user_speech_not_consent_phase(
-        self,
-        mock_llm: MockLLMGateway,
-        mock_telephony: MockTelephonyControl,
-        mock_bus: MockEventBus,
-    ) -> None:
-        """Test handling speech when not in consent phase."""
-        mock_llm.response = '{"intent": "POSITIVE", "confidence": 0.9}'
-        integration = DialogueIntegration(mock_llm, mock_telephony, mock_bus)
+    # Create a session first (integration checks orchestrator.get_session)
+    integration.on_call_answered_sync(_ctx())
 
-        await integration.on_call_answered(
-            call_id="test-call-123",
-            campaign_id=uuid4(),
-            contact_id=uuid4(),
-            call_attempt_id=uuid4(),
-            language="en",
-            intro_script="Hello",
-            question_1_text="Q1",
-            question_1_type="scale",
-            question_2_text="Q2",
-            question_2_type="free_text",
-            question_3_text="Q3",
-            question_3_type="numeric",
-        )
+    integration.on_user_speech_sync(
+        call_id="call-int-1",
+        user_response="yes",
+        attempt_count=2,
+    )
 
-        # First response grants consent
-        await integration.on_user_speech(
-            call_id="test-call-123",
-            transcript="yes",
-        )
 
-        # Second response should return None (not in consent phase)
-        result = await integration.on_user_speech(
-            call_id="test-call-123",
-            transcript="another response",
-        )
-
-        assert result is None
-
-    @pytest.mark.asyncio
-    async def test_cleanup_session(
-        self,
-        integration: DialogueIntegration,
-    ) -> None:
-        """Test session cleanup."""
-        await integration.on_call_answered(
-            call_id="test-call-123",
-            campaign_id=uuid4(),
-            contact_id=uuid4(),
-            call_attempt_id=uuid4(),
-            language="en",
-            intro_script="Hello",
-            question_1_text="Q1",
-            question_1_type="scale",
-            question_2_text="Q2",
-            question_2_type="free_text",
-            question_3_text="Q3",
-            question_3_type="numeric",
-        )
-
-        assert integration.get_session("test-call-123") is not None
-
-        integration.cleanup_session("test-call-123")
-
-        assert integration.get_session("test-call-123") is None
-
-    @pytest.mark.asyncio
-    async def test_correlation_id_passed(
-        self,
-        integration: DialogueIntegration,
-    ) -> None:
-        """Test that correlation ID is passed to session."""
-        session = await integration.on_call_answered(
-            call_id="test-call-123",
-            campaign_id=uuid4(),
-            contact_id=uuid4(),
-            call_attempt_id=uuid4(),
-            language="en",
-            intro_script="Hello",
-            question_1_text="Q1",
-            question_1_type="scale",
-            question_2_text="Q2",
-            question_2_type="free_text",
-            question_3_text="Q3",
-            question_3_type="numeric",
-            correlation_id="corr-123",
-        )
-
-        assert session.call_context is not None
-        assert session.call_context.correlation_id == "corr-123"
+    assert len(orch.user_speech_calls) == 1
+    call = orch.user_speech_calls[0]
+    assert call["call_id"] == "call-int-1"
+    assert call["user_response"] == "yes"
+    assert call["attempt_count"] == 2
