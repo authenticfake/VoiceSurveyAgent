@@ -1,12 +1,12 @@
 """
-Integration tests for OpenAI adapter.
+Unit tests for OpenAI adapter (sync-only).
 
 REQ-011: LLM gateway integration
 """
 
+from __future__ import annotations
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-import httpx
 
 from app.dialogue.llm.openai_adapter import OpenAIAdapter
 from app.dialogue.llm.models import (
@@ -15,36 +15,48 @@ from app.dialogue.llm.models import (
     ControlSignal,
     LLMAuthenticationError,
     LLMProvider,
-    LLMProviderError,
     LLMRateLimitError,
     LLMTimeoutError,
     MessageRole,
     SurveyContext,
 )
 
-@pytest.fixture
-def openai_adapter() -> OpenAIAdapter:
-    """Create OpenAI adapter for testing."""
-    return OpenAIAdapter(
-        api_key="test-api-key",
-        default_model="gpt-4.1-mini",
-        timeout_seconds=10.0,
-        max_retries=2,
-    )
+
+class FakeResponse:
+    def __init__(self, status_code: int, json_data: dict | None = None, headers: dict | None = None) -> None:
+        self.status_code = status_code
+        self._json_data = json_data or {}
+        self.headers = headers or {}
+        self.content = b"1"
+        self.text = "x"
+
+    def json(self) -> dict:
+        return self._json_data
+
+
+class FakeTransport:
+    def __init__(self, responses: list[FakeResponse] | None = None, raise_exc: Exception | None = None) -> None:
+        self._responses = responses or []
+        self._raise_exc = raise_exc
+        self.calls: list[dict] = []
+
+    def post(self, url: str, *, json: dict, headers: dict, timeout: float) -> FakeResponse:
+        self.calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        if self._raise_exc is not None:
+            raise self._raise_exc
+        return self._responses.pop(0)
+
 
 @pytest.fixture
 def sample_request() -> ChatRequest:
-    """Create sample chat request."""
     return ChatRequest(
-        messages=[
-            ChatMessage(role=MessageRole.USER, content="Hello"),
-        ],
+        messages=[ChatMessage(role=MessageRole.USER, content="Hello")],
         correlation_id="test-correlation-123",
     )
 
+
 @pytest.fixture
 def sample_openai_response() -> dict:
-    """Create sample OpenAI API response."""
     return {
         "id": "chatcmpl-123",
         "object": "chat.completion",
@@ -60,204 +72,114 @@ def sample_openai_response() -> dict:
                 "finish_reason": "stop",
             }
         ],
-        "usage": {
-            "prompt_tokens": 10,
-            "completion_tokens": 20,
-            "total_tokens": 30,
-        },
+        "usage": {"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
     }
 
-class TestOpenAIAdapterProperties:
-    """Tests for OpenAI adapter properties."""
 
-    def test_provider(self, openai_adapter: OpenAIAdapter) -> None:
-        """Test provider property."""
-        assert openai_adapter.provider == LLMProvider.OPENAI
+def test_properties() -> None:
+    adapter = OpenAIAdapter(api_key="k", default_model="gpt-4.1-mini")
+    assert adapter.provider == LLMProvider.OPENAI
+    assert adapter.default_model == "gpt-4.1-mini"
 
-    def test_default_model(self, openai_adapter: OpenAIAdapter) -> None:
-        """Test default model property."""
-        assert openai_adapter.default_model == "gpt-4.1-mini"
 
-class TestOpenAIAdapterChatCompletion:
-    """Tests for chat completion."""
+def test_successful_completion(sample_request: ChatRequest, sample_openai_response: dict) -> None:
+    transport = FakeTransport(responses=[FakeResponse(200, sample_openai_response)])
+    adapter = OpenAIAdapter(
+        api_key="test-api-key",
+        default_model="gpt-4.1-mini",
+        timeout_seconds=10.0,
+        max_retries=2,
+        transport=transport,
+        sleep_func=lambda _: None,
+    )
 
-    @pytest.mark.asyncio
-    async def test_successful_completion(
-        self,
-        openai_adapter: OpenAIAdapter,
-        sample_request: ChatRequest,
-        sample_openai_response: dict,
-    ) -> None:
-        """Test successful chat completion."""
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = sample_openai_response
+    response = adapter.chat_completion_sync(sample_request)
 
-        with patch.object(
-            openai_adapter, "_execute_with_retry", new_callable=AsyncMock
-        ) as mock_execute:
-            mock_execute.return_value = mock_response
+    assert response.content == "Hello! How can I help you?"
+    assert response.model == "gpt-4.1-mini"
+    assert response.provider == LLMProvider.OPENAI
+    assert response.correlation_id == "test-correlation-123"
+    assert ControlSignal.CONSENT_ACCEPTED in response.control_signals
+    assert response.usage["total_tokens"] == 30
 
-            response = await openai_adapter.chat_completion(sample_request)
+    assert transport.calls[0]["timeout"] == 10.0  # timeout forwarded
 
-            assert response.content == "Hello! How can I help you?"
-            assert response.model == "gpt-4.1-mini"
-            assert response.provider == LLMProvider.OPENAI
-            assert response.correlation_id == "test-correlation-123"
-            assert ControlSignal.CONSENT_ACCEPTED in response.control_signals
-            assert response.usage["total_tokens"] == 30
 
-    @pytest.mark.asyncio
-    async def test_completion_with_survey_context(
-        self,
-        openai_adapter: OpenAIAdapter,
-        sample_openai_response: dict,
-    ) -> None:
-        """Test completion with survey context adds system prompt."""
-        context = SurveyContext(
-            campaign_name="Test Survey",
-            intro_script="Hello, this is a test survey.",
-            question_1_text="Q1",
-            question_1_type="scale",
-            question_2_text="Q2",
-            question_2_type="free_text",
-            question_3_text="Q3",
-            question_3_type="numeric",
-        )
+def test_completion_with_survey_context_adds_system_prompt(sample_openai_response: dict) -> None:
+    context = SurveyContext(
+        campaign_name="Test Survey",
+        intro_script="Hello, this is a test survey.",
+        question_1_text="Q1",
+        question_1_type="scale",
+        question_2_text="Q2",
+        question_2_type="free_text",
+        question_3_text="Q3",
+        question_3_type="numeric",
+    )
+    request = ChatRequest(
+        messages=[ChatMessage(role=MessageRole.USER, content="Yes")],
+        survey_context=context,
+        correlation_id="test-123",
+    )
 
-        request = ChatRequest(
-            messages=[ChatMessage(role=MessageRole.USER, content="Yes")],
-            survey_context=context,
-            correlation_id="test-123",
-        )
+    transport = FakeTransport(responses=[FakeResponse(200, sample_openai_response)])
+    adapter = OpenAIAdapter(api_key="k", transport=transport, sleep_func=lambda _: None)
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = sample_openai_response
+    adapter.chat_completion_sync(request)
 
-        with patch.object(
-            openai_adapter, "_execute_with_retry", new_callable=AsyncMock
-        ) as mock_execute:
-            mock_execute.return_value = mock_response
+    payload = transport.calls[0]["json"]
+    msgs = payload["messages"]
+    assert msgs[0]["role"] == "system"
+    assert "Test Survey" in msgs[0]["content"]
 
-            await openai_adapter.chat_completion(request)
 
-            # Verify system prompt was added
-            call_args = mock_execute.call_args
-            payload = call_args[0][1]  # Second positional arg is payload
-            messages = payload["messages"]
-            assert messages[0]["role"] == "system"
-            assert "Test Survey" in messages[0]["content"]
+def test_timeout_error(sample_request: ChatRequest, caplog: pytest.LogCaptureFixture) -> None:
+    transport = FakeTransport(raise_exc=TimeoutError("timeout"))
+    adapter = OpenAIAdapter(api_key="k", transport=transport, timeout_seconds=0.1)
 
-    @pytest.mark.asyncio
-    async def test_timeout_error(
-        self,
-        openai_adapter: OpenAIAdapter,
-        sample_request: ChatRequest,
-    ) -> None:
-        """Test timeout handling."""
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client.post.side_effect = httpx.TimeoutException("Timeout")
-            mock_client_class.return_value = mock_client
+    with pytest.raises(LLMTimeoutError) as exc_info:
+        adapter.chat_completion_sync(sample_request)
 
-            with pytest.raises(LLMTimeoutError) as exc_info:
-                await openai_adapter.chat_completion(sample_request)
+    assert exc_info.value.correlation_id == "test-correlation-123"
+    assert exc_info.value.provider == LLMProvider.OPENAI
+    assert any(getattr(r, "correlation_id", None) == "test-correlation-123" for r in caplog.records)
 
-            assert exc_info.value.correlation_id == "test-correlation-123"
-            assert exc_info.value.provider == LLMProvider.OPENAI
 
-class TestOpenAIAdapterRetry:
-    """Tests for retry logic."""
+def test_authentication_error_no_retry() -> None:
+    transport = FakeTransport(responses=[FakeResponse(401)])
+    adapter = OpenAIAdapter(api_key="k", max_retries=3, transport=transport, sleep_func=lambda _: None)
 
-    @pytest.mark.asyncio
-    async def test_authentication_error_no_retry(
-        self,
-        openai_adapter: OpenAIAdapter,
-    ) -> None:
-        """Test that auth errors don't retry."""
-        mock_response = MagicMock()
-        mock_response.status_code = 401
+    with pytest.raises(LLMAuthenticationError):
+        adapter.chat_completion_sync(ChatRequest(messages=[ChatMessage(role=MessageRole.USER, content="x")], correlation_id="c"))
 
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client.post.return_value = mock_response
-            mock_client_class.return_value = mock_client
+    assert len(transport.calls) == 1
 
-            with pytest.raises(LLMAuthenticationError):
-                await openai_adapter._execute_with_retry(
-                    mock_client, {}, {}, "test-123"
-                )
 
-            # Should only be called once (no retry)
-            assert mock_client.post.call_count == 1
+def test_rate_limit_retry_then_success(sample_openai_response: dict) -> None:
+    transport = FakeTransport(
+        responses=[
+            FakeResponse(429, headers={"Retry-After": "0"}),
+            FakeResponse(200, sample_openai_response),
+        ]
+    )
+    adapter = OpenAIAdapter(api_key="k", max_retries=2, transport=transport, sleep_func=lambda _: None)
 
-    @pytest.mark.asyncio
-    async def test_rate_limit_retry(
-        self,
-        openai_adapter: OpenAIAdapter,
-    ) -> None:
-        """Test rate limit triggers retry."""
-        rate_limit_response = MagicMock()
-        rate_limit_response.status_code = 429
-        rate_limit_response.headers = {"Retry-After": "1"}
+    resp = adapter.chat_completion_sync(ChatRequest(messages=[ChatMessage(role=MessageRole.USER, content="x")], correlation_id="c"))
 
-        success_response = MagicMock()
-        success_response.status_code = 200
+    assert resp.provider == LLMProvider.OPENAI
+    assert len(transport.calls) == 2
 
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client.post.side_effect = [rate_limit_response, success_response]
-            mock_client_class.return_value = mock_client
 
-            # Mock sleep to avoid actual delay
-            with patch.object(openai_adapter, "_sleep", new_callable=AsyncMock):
-                result = await openai_adapter._execute_with_retry(
-                    mock_client, {}, {}, "test-123"
-                )
+def test_rate_limit_final_raises() -> None:
+    transport = FakeTransport(
+        responses=[
+            FakeResponse(429, headers={"Retry-After": "0"}),
+            FakeResponse(429, headers={"Retry-After": "0"}),
+        ]
+    )
+    adapter = OpenAIAdapter(api_key="k", max_retries=2, transport=transport, sleep_func=lambda _: None)
 
-            assert result.status_code == 200
-            assert mock_client.post.call_count == 2
+    with pytest.raises(LLMRateLimitError):
+        adapter.chat_completion_sync(ChatRequest(messages=[ChatMessage(role=MessageRole.USER, content="x")], correlation_id="c"))
 
-class TestOpenAIAdapterHealthCheck:
-    """Tests for health check."""
-
-    @pytest.mark.asyncio
-    async def test_health_check_success(
-        self,
-        openai_adapter: OpenAIAdapter,
-    ) -> None:
-        """Test successful health check."""
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_response = MagicMock()
-            mock_response.status_code = 200
-            mock_client.get.return_value = mock_response
-            mock_client_class.return_value = mock_client
-
-            result = await openai_adapter.health_check()
-            assert result is True
-
-    @pytest.mark.asyncio
-    async def test_health_check_failure(
-        self,
-        openai_adapter: OpenAIAdapter,
-    ) -> None:
-        """Test failed health check."""
-        with patch("httpx.AsyncClient") as mock_client_class:
-            mock_client = AsyncMock()
-            mock_client.__aenter__.return_value = mock_client
-            mock_client.__aexit__.return_value = None
-            mock_client.get.side_effect = Exception("Connection failed")
-            mock_client_class.return_value = mock_client
-
-            result = await openai_adapter.health_check()
-            assert result is False
+    assert len(transport.calls) == 2

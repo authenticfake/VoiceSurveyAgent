@@ -5,24 +5,17 @@ REQ-011: LLM gateway integration
 """
 
 import pytest
-from typing import Any
 
 from app.dialogue.llm.gateway import LLMGateway, BaseLLMAdapter
 from app.dialogue.llm.models import (
     ChatRequest,
     ChatResponse,
-    ChatMessage,
     LLMProvider,
-    MessageRole,
 )
+
 
 class TestLLMGatewayProtocol:
     """Tests for LLMGateway protocol."""
-
-    def test_protocol_is_runtime_checkable(self) -> None:
-        """Test that protocol can be checked at runtime."""
-        from typing import runtime_checkable
-        assert hasattr(LLMGateway, "__protocol_attrs__") or True  # Protocol exists
 
     def test_mock_implementation_satisfies_protocol(self) -> None:
         """Test that a mock implementation satisfies the protocol."""
@@ -45,11 +38,21 @@ class TestLLMGatewayProtocol:
                     latency_ms=100.0,
                 )
 
+            def chat_completion_sync(self, request: ChatRequest) -> ChatResponse:
+                return ChatResponse(
+                    content="test",
+                    model="test-model",
+                    provider=LLMProvider.OPENAI,
+                    correlation_id=request.correlation_id,
+                    latency_ms=50.0,
+                )
+
             async def health_check(self) -> bool:
                 return True
 
         gateway = MockGateway()
         assert isinstance(gateway, LLMGateway)
+
 
 class TestBaseLLMAdapter:
     """Tests for BaseLLMAdapter base class."""
@@ -70,7 +73,7 @@ class TestBaseLLMAdapter:
             def provider(self) -> LLMProvider:
                 return LLMProvider.OPENAI
 
-            async def chat_completion(self, request: ChatRequest) -> ChatResponse:
+            def chat_completion_sync(self, request: ChatRequest) -> ChatResponse:
                 return ChatResponse(
                     content="test",
                     model=self._default_model,
