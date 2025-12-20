@@ -3,7 +3,7 @@ Consent detection and flow orchestration.
 
 REQ-012: Dialogue orchestrator consent flow
 """
-
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -191,6 +191,29 @@ Be conservative: if unsure, use UNCLEAR. Consider cultural variations for Italia
                 raw_response=user_response,
                 reasoning=f"Detection error: {str(e)}",
             )
+    
+    def detect_sync(
+            self,
+            user_response: str,
+            language: str,
+            context: str | None = None,
+        ) -> ConsentResult:
+            """Sync wrapper around `detect()`.
+
+            This exists to allow fast, fully synchronous unit tests (no pytest-asyncio,
+            no custom event loops). It MUST NOT be called from within a running event loop.
+            """
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                # No running loop: safe to run synchronously
+                return asyncio.run(self.detect(user_response, language, context=context))
+
+            raise RuntimeError(
+                "detect_sync() cannot be called from within a running event loop. "
+                "Use `await detect(...)` instead."
+            )
+
 
     def _parse_llm_response(self, response: str, raw_response: str) -> ConsentResult:
         """Parse LLM response into ConsentResult.
@@ -406,6 +429,23 @@ class ConsentFlowOrchestrator:
         )
 
         return session
+    
+    def handle_call_answered_sync(self, call_context: CallContext) -> DialogueSession:
+        """Sync wrapper around `handle_call_answered()`.
+
+        For unit tests: keeps tests synchronous and deterministic.
+        MUST NOT be called from within a running event loop.
+        """
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.handle_call_answered(call_context))
+
+        raise RuntimeError(
+            "handle_call_answered_sync() cannot be called from within a running event loop. "
+            "Use `await handle_call_answered(...)` instead."
+        )
+
 
     async def handle_user_response(
         self,
@@ -468,6 +508,34 @@ class ConsentFlowOrchestrator:
             await self._handle_unclear_response(session, attempt_count)
 
         return result
+    
+    def handle_user_response_sync(
+        self,
+        call_id: str,
+        user_response: str,
+        attempt_count: int = 1,
+    ) -> ConsentResult:
+        """Sync wrapper around `handle_user_response()`.
+
+        For unit tests: keeps tests synchronous and deterministic.
+        MUST NOT be called from within a running event loop.
+        """
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(
+                self.handle_user_response(
+                    call_id=call_id,
+                    user_response=user_response,
+                    attempt_count=attempt_count,
+                )
+            )
+
+        raise RuntimeError(
+            "handle_user_response_sync() cannot be called from within a running event loop. "
+            "Use `await handle_user_response(...)` instead."
+        )
+
 
     async def _handle_consent_granted(self, session: DialogueSession) -> None:
         """Handle positive consent.

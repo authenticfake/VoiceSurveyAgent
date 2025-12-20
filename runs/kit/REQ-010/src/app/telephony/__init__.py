@@ -1,19 +1,7 @@
-"""
-Telephony module for provider integration and webhook handling.
+from __future__ import annotations
 
-REQ-009: Telephony provider adapter interface
-REQ-010: Telephony webhook handler
-"""
+from typing import TYPE_CHECKING
 
-from app.telephony.events import CallEvent, CallEventType
-from app.telephony.interface import TelephonyProvider
-from app.telephony.webhooks.handler import WebhookHandler
-from app.telephony.webhooks.router import router as webhooks_router
-
-__all__ = [
-    "CallEvent",
-    "CallEventType",
-    "TelephonyProvider",
-    "WebhookHandler",
-    "webhooks_router",
-]
+if TYPE_CHECKING:
+    from app.telephony.webhooks.handler import WebhookHandler  # noqa: F401
+ # noqa: F401

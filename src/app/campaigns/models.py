@@ -24,9 +24,12 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.auth.models import Base
+from app.email.models import EmailTemplate
 
 if TYPE_CHECKING:
     from app.auth.models import User
+    from app.calls.models import CallAttempt
+
     from app.contacts.models import Contact
 
 from typing import Type
@@ -137,24 +140,24 @@ class Campaign(Base):
         nullable=False,
         default=CampaignLanguage.IT,
     )
-    intro_script: Mapped[str] = mapped_column(
+    intro_script: Mapped[str| None] = mapped_column(
         Text,
-        nullable=False,
+        nullable=True,
     )
     
     # Question 1
-    question_1_text: Mapped[str] = mapped_column(
+    question_1_text: Mapped[str | None] = mapped_column(
         Text,
-        nullable=False,
+        nullable=True,
     )
     question_1_type: Mapped[QuestionType] = mapped_column(
         _pg_enum(QuestionType, "question_type"),
-        nullable=False,
+        nullable=True,
         default=QuestionType.FREE_TEXT,
     )
     
     # Question 2
-    question_2_text: Mapped[str] = mapped_column(
+    question_2_text: Mapped[str | None] = mapped_column(
         Text,
         nullable=False,
     )
@@ -196,13 +199,13 @@ class Campaign(Base):
     # Call time window
     allowed_call_start_local: Mapped[time] = mapped_column(
         Time,
-        nullable=False,
+        nullable=True,
         default=time(9, 0),
 
     )
     allowed_call_end_local: Mapped[time] = mapped_column(
         Time,
-        nullable=False,
+        nullable=True,
         default=time(20, 0),
     )
     
@@ -224,10 +227,10 @@ class Campaign(Base):
     )
     
     # Creator reference
-    created_by_user_id: Mapped[UUID] = mapped_column(
+    created_by_user_id: Mapped[UUID | None] = mapped_column(
         PGUUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="RESTRICT"),
-        nullable=False,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
     )
     
     # Timestamps
@@ -248,6 +251,13 @@ class Campaign(Base):
     contacts: Mapped[list["Contact"]] = relationship(
         "Contact",
         back_populates="campaign",
+        lazy="selectin",
+        cascade="all, delete-orphan",
+    )
+    call_attempts: Mapped[list["CallAttempt"]] = relationship(
+        "CallAttempt",
+        back_populates="campaign",
+        lazy="selectin",
         cascade="all, delete-orphan",
     )
 

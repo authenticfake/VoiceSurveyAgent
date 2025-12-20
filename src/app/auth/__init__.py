@@ -9,4 +9,4 @@ Import concrete components from submodules, e.g.:
 
 from app.auth.models import Base, User  # re-export the ORM base + user model
 
-__all__ = ["Base", "User"]
+__all__ = ["Base", "User", "UserRole"]

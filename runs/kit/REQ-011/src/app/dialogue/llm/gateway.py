@@ -9,6 +9,7 @@ from typing import Protocol, runtime_checkable
 
 from app.dialogue.llm.models import ChatRequest, ChatResponse, LLMProvider
 
+
 @runtime_checkable
 class LLMGateway(Protocol):
     """Protocol for LLM gateway implementations.
@@ -44,6 +45,16 @@ class LLMGateway(Protocol):
         """
         ...
 
+    def chat_completion_sync(self, request: ChatRequest) -> ChatResponse:
+        """Synchronous version of chat completion.
+
+        This is introduced to allow ultra-fast, deterministic, sync-only
+        unit tests (no event loop, no async fixtures).
+
+        Production/E2E can keep using the async method.
+        """
+        ...
+
     async def health_check(self) -> bool:
         """Check if the LLM provider is healthy and accessible.
 
@@ -51,6 +62,7 @@ class LLMGateway(Protocol):
             True if healthy, False otherwise.
         """
         ...
+
 
 class BaseLLMAdapter(ABC):
     """Base class for LLM adapter implementations.
@@ -82,19 +94,28 @@ class BaseLLMAdapter(ABC):
     @abstractmethod
     def provider(self) -> LLMProvider:
         """Get the LLM provider type."""
-        ...
+        raise NotImplementedError
 
     @property
     def default_model(self) -> str:
         """Get the default model for this provider."""
         return self._default_model
 
-    @abstractmethod
     async def chat_completion(self, request: ChatRequest) -> ChatResponse:
-        """Execute a chat completion request."""
-        ...
+        """Async chat completion (compatibility API).
+
+        Default implementation delegates to the sync implementation.
+        Adapters may override this method with a truly async implementation
+        if needed, but unit tests for REQ-011 will use `chat_completion_sync`.
+        """
+        return self.chat_completion_sync(request)
+
+    @abstractmethod
+    def chat_completion_sync(self, request: ChatRequest) -> ChatResponse:
+        """Execute a chat completion request synchronously."""
+        raise NotImplementedError
 
     @abstractmethod
     async def health_check(self) -> bool:
         """Check if the LLM provider is healthy."""
-        ...
+        raise NotImplementedError

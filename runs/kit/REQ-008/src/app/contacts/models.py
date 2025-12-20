@@ -21,6 +21,16 @@ if TYPE_CHECKING:
     from app.calls.models import CallAttempt
     from app.campaigns.models import Campaign
 
+def _pg_enum(enum_cls, name: str) -> SQLEnum:
+    """Postgres enum che salva Enum.value (non Enum.name)."""
+    return SQLEnum(
+        enum_cls,
+        name=name,
+        create_type=False,
+        values_callable=lambda e: [m.value for m in e],
+        validate_strings=True,
+    )
+
 
 class ContactState(str, Enum):
     """Contact lifecycle state."""
@@ -81,7 +91,7 @@ class Contact(Base):
         nullable=True,
     )
     preferred_language: Mapped[ContactLanguage] = mapped_column(
-        SQLEnum(ContactLanguage, name="contact_language", create_type=False),
+        _pg_enum(ContactLanguage, "contact_language"),
         nullable=False,
         default=ContactLanguage.AUTO,
     )
@@ -97,7 +107,7 @@ class Contact(Base):
         index=True,
     )
     state: Mapped[ContactState] = mapped_column(
-        SQLEnum(ContactState, name="contact_state", create_type=False),
+        _pg_enum(ContactState, "contact_state"),
         nullable=False,
         default=ContactState.PENDING,
         index=True,
@@ -112,7 +122,7 @@ class Contact(Base):
         nullable=True,
     )
     last_outcome: Mapped[ContactOutcome | None] = mapped_column(
-        SQLEnum(ContactOutcome, name="contact_outcome", create_type=False),
+        _pg_enum(ContactOutcome, "contact_outcome"),
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(

@@ -5,13 +5,16 @@ REQ-002: OIDC authentication integration
 """
 
 from datetime import datetime, timezone
-from typing import Literal
-from uuid import UUID, uuid4
 from enum import Enum as PyEnum
+from typing import TYPE_CHECKING, Literal
+from uuid import UUID, uuid4
 
 from sqlalchemy import DateTime, Enum, String, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+if TYPE_CHECKING:
+    from app.campaigns.models import Campaign
 
 
 class Base(DeclarativeBase):
@@ -67,6 +70,11 @@ class User(Base):
         nullable=False,
         server_default=func.now(),
         onupdate=lambda: datetime.now(timezone.utc),
+    )
+    campaigns: Mapped[list["Campaign"]] = relationship(
+        "Campaign",
+        back_populates="created_by",
+        lazy="selectin",
     )
 
     def __repr__(self) -> str:

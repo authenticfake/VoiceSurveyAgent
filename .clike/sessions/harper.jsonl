@@ -112,3 +112,17 @@
 {"ts":1765875887024,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-006/ci/LTC.json: PASS","model":"claude-opus-4-5"}
 {"ts":1766078468564,"mode":"harper","role":"user","content":"▶ GATE REQ-007 manual pass | mode=harper model=gpt-5.2","model":"gpt-5.2","attachments":[]}
 {"ts":1766078476858,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-007/ci/LTC.json: PASS","model":"gpt-5.2"}
+{"ts":1766248244218,"mode":"harper","role":"user","content":"▶ GATE REQ-008 manual pass | mode=harper model=gpt-5.2","model":"gpt-5.2","attachments":[]}
+{"ts":1766248255485,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-008/ci/LTC.json: PASS","model":"gpt-5.2"}
+{"ts":1766254542726,"mode":"harper","role":"user","content":"▶ GATE REQ-009 auto pass | mode=harper model=gpt-5.2","model":"gpt-5.2","attachments":[]}
+{"ts":1766254549988,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-009/ci/LTC.json: FAIL","model":"gpt-5.2"}
+{"ts":1766254574172,"mode":"harper","role":"user","content":"▶ GATE REQ-009 manul pass | mode=harper model=gpt-5.2","model":"gpt-5.2","attachments":[]}
+{"ts":1766254579223,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-009/ci/LTC.json: FAIL","model":"gpt-5.2"}
+{"ts":1766254644676,"mode":"harper","role":"user","content":"▶ GATE REQ-009 manual pass | mode=harper model=gpt-5.2","model":"gpt-5.2","attachments":[]}
+{"ts":1766254652221,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-009/ci/LTC.json: PASS","model":"gpt-5.2"}
+{"ts":1766260883159,"mode":"harper","role":"user","content":"▶ GATE REQ-010 manual pass | mode=harper model=gpt-5.2","model":"gpt-5.2","attachments":[]}
+{"ts":1766260902237,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-010/ci/LTC.json: PASS","model":"gpt-5.2"}
+{"ts":1766263572147,"mode":"harper","role":"user","content":"▶ GATE REQ-011 manual pass | mode=harper model=gpt-5.2","model":"gpt-5.2","attachments":[]}
+{"ts":1766263588343,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-011/ci/LTC.json: PASS","model":"gpt-5.2"}
+{"ts":1766269857825,"mode":"harper","role":"user","content":"▶ GATE REQ-012 manual pass | mode=harper model=gpt-5.2","model":"gpt-5.2","attachments":[]}
+{"ts":1766269883737,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-012/ci/LTC.json: PASS","model":"gpt-5.2"}

@@ -1,8 +1,9 @@
-"""
-Contacts package.
+from __future__ import annotations
 
-Do not import router/service here to avoid side effects.
-"""
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.contacts.repository import ContactRepository  # noqa: F401
 
 from pkgutil import extend_path
 

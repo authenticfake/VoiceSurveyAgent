@@ -20,12 +20,13 @@ class CallStatus(str, Enum):
     QUEUED = "queued"
     INITIATED = "initiated"
     RINGING = "ringing"
-    IN_PROGRESS = "in_progress"
+    IN_PROGRESS = "in-progress"
     COMPLETED = "completed"
-    BUSY = "busy"
-    NO_ANSWER = "no_answer"
     FAILED = "failed"
+    BUSY = "busy"
+    NO_ANSWER = "no-answer"
     CANCELED = "canceled"
+    UNKNOWN = "unknown"
 
 
 class WebhookEventType(str, Enum):
@@ -36,8 +37,8 @@ class WebhookEventType(str, Enum):
     CALL_ANSWERED = "call.answered"
     CALL_COMPLETED = "call.completed"
     CALL_FAILED = "call.failed"
-    CALL_NO_ANSWER = "call.no_answer"
     CALL_BUSY = "call.busy"
+    CALL_NO_ANSWER = "call.no-answer"
 
 
 @dataclass(frozen=True)
@@ -84,21 +85,7 @@ class CallInitiationResponse:
 
 @dataclass(frozen=True)
 class WebhookEvent:
-    """Parsed webhook event from telephony provider.
-
-    Attributes:
-        event_type: Type of webhook event.
-        provider_call_id: Provider's call identifier.
-        call_id: Internal call identifier (from metadata).
-        campaign_id: Campaign UUID (from metadata).
-        contact_id: Contact UUID (from metadata).
-        status: Current call status.
-        timestamp: Event timestamp.
-        duration_seconds: Call duration (for completed calls).
-        error_code: Error code (for failed calls).
-        error_message: Error message (for failed calls).
-        raw_payload: Original webhook payload.
-    """
+    """Parsed webhook event from telephony provider."""
 
     event_type: WebhookEventType
     provider_call_id: str
@@ -113,98 +100,47 @@ class WebhookEvent:
     raw_payload: dict[str, Any] = field(default_factory=dict)
 
 
+
+@dataclass(frozen=True)
 class TelephonyProviderError(Exception):
     """Base exception for telephony provider errors."""
 
-    def __init__(
-        self,
-        message: str,
-        error_code: str | None = None,
-        provider_response: dict[str, Any] | None = None,
-    ) -> None:
-        """Initialize telephony provider error.
+    message: str
+    error_code: str
+    provider_response: dict[str, Any] = field(default_factory=dict)
 
-        Args:
-            message: Error message.
-            error_code: Provider-specific error code.
-            provider_response: Raw provider response.
-        """
-        super().__init__(message)
-        self.error_code = error_code
-        self.provider_response = provider_response or {}
+    def __post_init__(self) -> None:
+        # Ensure Exception base class carries the message for str(error)
+        Exception.__init__(self, self.message)
+
+    def __str__(self) -> str:
+        return self.message
 
 
+
+@dataclass(frozen=True)
 class CallInitiationError(TelephonyProviderError):
-    """Error during call initiation."""
-
-    pass
+    """Raised when call initiation fails."""
 
 
+@dataclass(frozen=True)
 class WebhookParseError(TelephonyProviderError):
-    """Error parsing webhook event."""
-
-    pass
+    """Raised when webhook parsing fails."""
 
 
 class TelephonyProvider(ABC):
-    """Abstract interface for telephony providers.
-
-    This interface defines the contract for telephony provider adapters.
-    Implementations must provide methods for initiating calls and parsing
-    webhook events.
-    """
+    """Abstract base class for telephony providers."""
 
     @abstractmethod
-    async def initiate_call(
+    def initiate_call(
         self,
         request: CallInitiationRequest,
     ) -> CallInitiationResponse:
-        """Initiate an outbound call.
-
-        Args:
-            request: Call initiation request with destination and metadata.
-
-        Returns:
-            Response containing provider call ID and initial status.
-
-        Raises:
-            CallInitiationError: If call initiation fails.
-        """
-        ...
+        """Initiate an outbound call."""
 
     @abstractmethod
     def parse_webhook_event(
         self,
         payload: dict[str, Any],
     ) -> WebhookEvent:
-        """Parse a webhook event from the provider.
-
-        Args:
-            payload: Raw webhook payload from provider.
-
-        Returns:
-            Parsed webhook event with normalized fields.
-
-        Raises:
-            WebhookParseError: If payload cannot be parsed.
-        """
-        ...
-
-    @abstractmethod
-    def validate_webhook_signature(
-        self,
-        payload: bytes,
-        signature: str,
-        url: str,
-    ) -> bool:
-        """Validate webhook signature for authenticity.
-
-        Args:
-            payload: Raw request body bytes.
-            signature: Signature header value from provider.
-            url: Full URL that received the webhook.
-
-        Returns:
-            True if signature is valid, False otherwise.
-        """
-        ...
+        """Parse incoming webhook payload into standardized event."""

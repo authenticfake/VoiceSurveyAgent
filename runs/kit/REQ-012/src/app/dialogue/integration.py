@@ -180,3 +180,62 @@ class DialogueIntegration:
             call_id: Call identifier.
         """
         self._orchestrator.remove_session(call_id)
+    
+        # ------------------------------------------------------------------
+    # Sync wrappers (for deterministic unit tests)
+    # ------------------------------------------------------------------
+
+    def on_call_answered_sync(self, call_context) -> None:
+        """Sync wrapper around on_call_answered() for unit tests.
+
+        Accepts CallContext and forwards as positional args to the async API.
+        """
+        import asyncio
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(
+                self.on_call_answered(
+                    call_context.call_id,
+                    str(call_context.campaign_id),
+                    str(call_context.contact_id),
+                    str(call_context.call_attempt_id),
+                    call_context.language,
+                    call_context.intro_script,
+                    call_context.question_1_text,
+                    call_context.question_1_type,
+                    call_context.question_2_text,
+                    call_context.question_2_type,
+                    call_context.question_3_text,
+                    call_context.question_3_type,
+                )
+            )
+            return
+
+        raise RuntimeError(
+            "on_call_answered_sync() cannot be called from a running event loop"
+        )
+
+    def on_user_speech_sync(
+        self,
+        call_id: str,
+        user_response: str,
+        attempt_count: int = 1,
+    ) -> None:
+        """Sync wrapper around on_user_speech() for unit tests."""
+        import asyncio
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(self.on_user_speech(call_id, user_response, attempt_count))
+
+            return
+
+        raise RuntimeError(
+            "on_user_speech_sync() cannot be called from a running event loop"
+        )
+
+
+

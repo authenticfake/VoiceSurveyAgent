@@ -26,11 +26,23 @@ from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.auth.models import Base
+from app.email.models import EmailTemplate
+
 
 if TYPE_CHECKING:
     from app.auth.models import User
     from app.calls.models import CallAttempt
     from app.contacts.models import Contact
+
+def _pg_enum(enum_cls, name: str) -> SQLEnum:
+    """Postgres enum che salva Enum.value (non Enum.name)."""
+    return SQLEnum(
+        enum_cls,
+        name=name,
+        create_type=False,
+        values_callable=lambda e: [m.value for m in e],
+        validate_strings=True,
+    )
 
 
 class CampaignStatus(str, Enum):
@@ -90,13 +102,13 @@ class Campaign(Base):
         nullable=True,
     )
     status: Mapped[CampaignStatus] = mapped_column(
-        SQLEnum(CampaignStatus, name="campaign_status", create_type=False),
+        _pg_enum(CampaignStatus, "campaign_status"),
         nullable=False,
         default=CampaignStatus.DRAFT,
         index=True,
     )
     language: Mapped[CampaignLanguage] = mapped_column(
-        SQLEnum(CampaignLanguage, name="campaign_language", create_type=False),
+        _pg_enum(CampaignLanguage, "campaign_language"),
         nullable=False,
         default=CampaignLanguage.EN,
     )
@@ -109,7 +121,7 @@ class Campaign(Base):
         nullable=True,
     )
     question_1_type: Mapped[QuestionType | None] = mapped_column(
-        SQLEnum(QuestionType, name="question_type", create_type=False),
+        _pg_enum(QuestionType, "question_type"),
         nullable=True,
     )
     question_2_text: Mapped[str | None] = mapped_column(
@@ -117,7 +129,7 @@ class Campaign(Base):
         nullable=True,
     )
     question_2_type: Mapped[QuestionType | None] = mapped_column(
-        SQLEnum(QuestionType, name="question_type", create_type=False),
+        _pg_enum(QuestionType, "question_type"),
         nullable=True,
     )
     question_3_text: Mapped[str | None] = mapped_column(
@@ -125,7 +137,7 @@ class Campaign(Base):
         nullable=True,
     )
     question_3_type: Mapped[QuestionType | None] = mapped_column(
-        SQLEnum(QuestionType, name="question_type", create_type=False),
+        _pg_enum(QuestionType, "question_type"),
         nullable=True,
     )
     max_attempts: Mapped[int] = mapped_column(

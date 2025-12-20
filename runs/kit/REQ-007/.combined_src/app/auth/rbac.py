@@ -13,7 +13,7 @@ from typing import Annotated, Iterable
 
 from fastapi import Depends, HTTPException, Request, status
 
-from typing import Annotated, Iterabl
+from typing import Annotated
 from app.auth.middleware import CurrentUser, get_current_user
 from app.auth.models import UserRole
 from app.shared.logging import get_logger

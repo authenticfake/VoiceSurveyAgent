@@ -2,135 +2,126 @@
 Telephony provider interface definition.
 
 REQ-009: Telephony provider adapter interface
-REQ-010: Telephony webhook handler (parse_webhook_event method)
+- TelephonyProvider interface defines initiate_call method
+- Interface defines parse_webhook_event method
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
 from typing import Any
 from uuid import UUID
 
-from app.telephony.events import CallEvent
 
+class CallStatus(str, Enum):
+    """Call status values."""
+
+    QUEUED = "queued"
+    INITIATED = "initiated"
+    RINGING = "ringing"
+    IN_PROGRESS = "in-progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    BUSY = "busy"
+    NO_ANSWER = "no-answer"
+    CANCELED = "canceled"
+    UNKNOWN = "unknown"
+
+
+class WebhookEventType(str, Enum):
+    """Webhook event types from telephony provider."""
+
+    CALL_INITIATED = "call.initiated"
+    CALL_RINGING = "call.ringing"
+    CALL_ANSWERED = "call.answered"
+    CALL_COMPLETED = "call.completed"
+    CALL_FAILED = "call.failed"
+    CALL_BUSY = "call.busy"
+    CALL_NO_ANSWER = "call.no-answer"
+
+
+@dataclass(frozen=True)
 class CallInitiationRequest:
-    """Request to initiate an outbound call."""
+    """Request to initiate an outbound call.
 
-    def __init__(
-        self,
-        to_number: str,
-        from_number: str,
-        callback_url: str,
-        call_id: str,
-        campaign_id: UUID,
-        contact_id: UUID,
-        language: str = "en",
-        metadata: dict[str, Any] | None = None,
-    ) -> None:
-        """Initialize call initiation request.
+    Attributes:
+        to: Destination phone number in E.164 format.
+        from_number: Caller ID phone number in E.164 format.
+        callback_url: URL for webhook callbacks.
+        call_id: Internal call identifier for correlation.
+        campaign_id: Campaign UUID for context.
+        contact_id: Contact UUID for context.
+        language: Language code for the call (en/it).
+        metadata: Additional metadata to include in callbacks.
+    """
 
-        Args:
-            to_number: Destination phone number (E.164 format).
-            from_number: Caller ID phone number.
-            callback_url: URL for webhook callbacks.
-            call_id: Internal call identifier.
-            campaign_id: Campaign UUID.
-            contact_id: Contact UUID.
-            language: Call language (en/it).
-            metadata: Additional metadata to pass to provider.
-        """
-        self.to_number = to_number
-        self.from_number = from_number
-        self.callback_url = callback_url
-        self.call_id = call_id
-        self.campaign_id = campaign_id
-        self.contact_id = contact_id
-        self.language = language
-        self.metadata = metadata or {}
+    to: str
+    from_number: str
+    callback_url: str
+    call_id: str
+    campaign_id: UUID
+    contact_id: UUID
+    language: str = "en"
+    metadata: dict[str, Any] = field(default_factory=dict)
 
+
+@dataclass(frozen=True)
 class CallInitiationResponse:
     """Response from call initiation."""
 
-    def __init__(
-        self,
-        provider_call_id: str,
-        status: str,
-        metadata: dict[str, Any] | None = None,
-    ) -> None:
-        """Initialize call initiation response.
+    provider_call_id: str
+    status: CallStatus
+    raw_response: dict[str, Any] = field(default_factory=dict)
 
-        Args:
-            provider_call_id: Provider's unique call identifier.
-            status: Initial call status from provider.
-            metadata: Additional response metadata.
-        """
-        self.provider_call_id = provider_call_id
-        self.status = status
-        self.metadata = metadata or {}
 
+@dataclass(frozen=True)
+class WebhookEvent:
+    """Standardized webhook event received from telephony providers."""
+
+    event_type: WebhookEventType
+    provider: str
+    provider_call_id: str
+    call_id: str | None
+    campaign_id: UUID | None
+    contact_id: UUID | None
+    status: CallStatus
+    timestamp: datetime
+    raw_payload: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class TelephonyProviderError(Exception):
     """Base exception for telephony provider errors."""
 
-    def __init__(
-        self,
-        message: str,
-        error_code: str | None = None,
-        provider_response: dict[str, Any] | None = None,
-    ) -> None:
-        """Initialize telephony provider error.
+    message: str
+    error_code: str
+    provider_response: dict[str, Any] = field(default_factory=dict)
 
-        Args:
-            message: Error message.
-            error_code: Provider-specific error code.
-            provider_response: Raw provider response.
-        """
-        super().__init__(message)
-        self.error_code = error_code
-        self.provider_response = provider_response or {}
+    def __post_init__(self) -> None:
+        # Ensure Exception base class carries the message for str(error)
+        Exception.__init__(self, self.message)
+
+    def __str__(self) -> str:
+        return self.message
+
 
 class TelephonyProvider(ABC):
-    """Abstract interface for telephony providers.
-
-    Defines the contract that all telephony provider adapters must implement.
-    This enables dependency injection and testing with mock providers.
-    """
+    """Abstract base class for telephony providers."""
 
     @abstractmethod
-    async def initiate_call(
+    def initiate_call(
         self,
         request: CallInitiationRequest,
     ) -> CallInitiationResponse:
-        """Initiate an outbound call.
-
-        Args:
-            request: Call initiation request with all required parameters.
-
-        Returns:
-            Response containing provider call ID and status.
-
-        Raises:
-            TelephonyProviderError: If call initiation fails.
-        """
-        ...
+        """Initiate an outbound call."""
 
     @abstractmethod
     def parse_webhook_event(
         self,
         payload: dict[str, Any],
-        headers: dict[str, str] | None = None,
-    ) -> CallEvent:
-        """Parse a webhook payload into a domain CallEvent.
-
-        Args:
-            payload: Raw webhook payload from provider.
-            headers: HTTP headers from webhook request (for signature validation).
-
-        Returns:
-            Parsed CallEvent domain object.
-
-        Raises:
-            ValueError: If payload cannot be parsed.
-            TelephonyProviderError: If signature validation fails.
-        """
-        ...
+    ) -> WebhookEvent:
+        """Parse incoming webhook payload into standardized event."""
 
     @abstractmethod
     def validate_webhook_signature(
@@ -139,14 +130,4 @@ class TelephonyProvider(ABC):
         signature: str,
         url: str | None = None,
     ) -> bool:
-        """Validate webhook signature if provider supports it.
-
-        Args:
-            payload: Raw request body bytes.
-            signature: Signature header value.
-            url: Request URL (some providers include in signature).
-
-        Returns:
-            True if signature is valid, False otherwise.
-        """
-        ...
+        """Validate webhook signature if provider supports it."""

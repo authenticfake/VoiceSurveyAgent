@@ -14,15 +14,27 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
-    func,
-)
+    func)
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.auth.models import Base
 
 if TYPE_CHECKING:
+    
+    from app.calls.models import CallAttempt
     from app.campaigns.models import Campaign
+    
+
+def _pg_enum(enum_cls, name: str) -> SQLEnum:
+    """Postgres enum che salva Enum.value (non Enum.name)."""
+    return SQLEnum(
+        enum_cls,
+        name=name,
+        create_type=False,
+        values_callable=lambda e: [m.value for m in e],
+        validate_strings=True,
+    )
 
 
 class ContactState(str, Enum):
@@ -53,15 +65,7 @@ class ContactOutcome(str, Enum):
     BUSY = "busy"
     FAILED = "failed"
 
-def _pg_enum(enum_cls, name: str) -> SQLEnum:
-    """Postgres enum that stores Enum.value (not Enum.name)."""
-    return SQLEnum(
-        enum_cls,
-        name=name,
-        create_type=False,
-        values_callable=lambda e: [m.value for m in e],
-        validate_strings=True,
-    )
+
 class Contact(Base):
     """Contact model matching the database schema from REQ-001."""
 
@@ -105,11 +109,13 @@ class Contact(Base):
         Boolean,
         nullable=False,
         default=False,
+        index=True,
     )
     state: Mapped[ContactState] = mapped_column(
         _pg_enum(ContactState, "contact_state"),
         nullable=False,
         default=ContactState.PENDING,
+        index=True,
     )
     attempts_count: Mapped[int] = mapped_column(
         Integer,
@@ -140,6 +146,13 @@ class Contact(Base):
     campaign: Mapped["Campaign"] = relationship(
         "Campaign",
         back_populates="contacts",
+        lazy="selectin",
+    )
+    call_attempts: Mapped[list["CallAttempt"]] = relationship(
+        "CallAttempt",
+        back_populates="contact",
+        lazy="selectin",
+        cascade="all, delete-orphan",
     )
 
     def __repr__(self) -> str:

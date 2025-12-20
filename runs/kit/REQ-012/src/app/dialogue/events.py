@@ -167,3 +167,80 @@ class DialogueEventPublisher:
 
         await self._bus.publish(self.TOPIC, event.to_dict())
         return event
+        # ------------------------------------------------------------------
+    # Sync wrappers (for deterministic unit tests)
+    # ------------------------------------------------------------------
+
+    def publish_refused_sync(
+        self,
+        campaign_id: str,
+        contact_id: str,
+        call_id: str,
+        attempt_count: int,
+    ) -> None:
+        import asyncio
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(
+                self.publish_refused(
+                    campaign_id=campaign_id,
+                    contact_id=contact_id,
+                    call_id=call_id,
+                    attempt_count=attempt_count,
+                )
+            )
+            return
+
+        raise RuntimeError(
+            "publish_refused_sync() cannot be called from a running event loop"
+        )
+
+    def publish_completed_sync(
+        self,
+        campaign_id: str,
+        contact_id: str,
+        call_id: str,
+    ) -> None:
+        import asyncio
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(
+                self.publish_completed(
+                    campaign_id=campaign_id,
+                    contact_id=contact_id,
+                    call_id=call_id,
+                )
+            )
+            return
+
+        raise RuntimeError(
+            "publish_completed_sync() cannot be called from a running event loop"
+        )
+
+    def publish_not_reached_sync(
+        self,
+        campaign_id: str,
+        contact_id: str,
+        call_id: str,
+    ) -> None:
+        import asyncio
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            asyncio.run(
+                self.publish_not_reached(
+                    campaign_id=campaign_id,
+                    contact_id=contact_id,
+                    call_id=call_id,
+                )
+            )
+            return
+
+        raise RuntimeError(
+            "publish_not_reached_sync() cannot be called from a running event loop"
+        )

@@ -1,16 +1,12 @@
 """
-Contact management module.
+Contacts package.
 
-REQ-005: Campaign validation service (contact repository protocol)
-REQ-006: Contact CSV upload and parsing
-REQ-010: Telephony webhook handler (Contact model with state)
+Keep import side-effect free: do not import repositories at import time.
 """
 
-from app.contacts.models import Contact, ContactState
-from app.contacts.repository import ContactRepository
+from __future__ import annotations
 
-__all__ = [
-    "Contact",
-    "ContactState",
-    "ContactRepository",
-]
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.contacts.repository import ContactRepository  # noqa: F401

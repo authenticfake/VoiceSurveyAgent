@@ -98,11 +98,13 @@ class CallAttempt(Base):
         String(50),
         nullable=True,
     )
-    metadata: Mapped[dict[str, Any] | None] = mapped_column(
+    meta: Mapped[dict[str, Any] | None] = mapped_column(
+        "metadata",
         JSONB,
         nullable=True,
         default=dict,
     )
+
 
     # Relationships
     contact: Mapped["Contact"] = relationship(
