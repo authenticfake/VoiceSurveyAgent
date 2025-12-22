@@ -2,10 +2,10 @@
   "snapshot": {
     "total": 24,
     "open": 0,
-    "in_progress": 12,
-    "done": 12,
+    "in_progress": 11,
+    "done": 13,
     "deferred": 0,
-    "progressPct": 50
+    "progressPct": 54
   },
   "reqs": [
     {
@@ -249,7 +249,7 @@
         "REQ-012"
       ],
       "track": "App",
-      "status": "in_progress",
+      "status": "done",
       "lane": "python",
       "test_profile": "app-core",
       "gate_policy_ref": "docs/harper/lane-guides/python.md"

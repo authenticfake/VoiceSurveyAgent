@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlencode
 
+import anyio
 import httpx
 
 from app.telephony.config import TelephonyConfig, get_telephony_config
@@ -30,12 +31,34 @@ from app.telephony.interface import (
 
 logger = logging.getLogger(__name__)
 
+TWILIO_STATUS_MAP: dict[str, CallStatus] = {
+    "queued": CallStatus.QUEUED,
+    "initiated": CallStatus.INITIATED,
+    "ringing": CallStatus.RINGING,
+    "in-progress": CallStatus.IN_PROGRESS,
+    "completed": CallStatus.COMPLETED,
+    "busy": CallStatus.BUSY,
+    "no-answer": CallStatus.NO_ANSWER,
+    "failed": CallStatus.FAILED,
+    "canceled": CallStatus.CANCELED,
+}
+
+TWILIO_EVENT_MAP: dict[str, WebhookEventType] = {
+    "initiated": WebhookEventType.CALL_INITIATED,
+    "ringing": WebhookEventType.CALL_RINGING,
+    "in-progress": WebhookEventType.CALL_ANSWERED,
+    "completed": WebhookEventType.CALL_COMPLETED,
+    "failed": WebhookEventType.CALL_FAILED,
+    "no-answer": WebhookEventType.CALL_NO_ANSWER,
+    "busy": WebhookEventType.CALL_BUSY,
+}
+
 
 class TwilioAdapter(TelephonyProvider):
     """Twilio telephony provider adapter.
 
-    Implements the TelephonyProvider interface for Twilio's REST API.
-    Uses httpx for synchronous HTTP requests.
+    Uses httpx for HTTP requests. The async entrypoint remains available
+    for backward compatibility and delegates to the sync implementation.
     """
 
     def __init__(
@@ -43,65 +66,39 @@ class TwilioAdapter(TelephonyProvider):
         config: TelephonyConfig | None = None,
         http_client: httpx.Client | None = None,
     ) -> None:
-        """Initialize Twilio adapter.
-
-        Args:
-            config: Telephony configuration. Uses default if not provided.
-            http_client: HTTP client for API calls. Creates new if not provided.
-        """
         self._config = config or get_telephony_config()
         self._http_client = http_client
         self._owns_client = http_client is None
 
     def _get_client(self) -> httpx.Client:
-        """Get or create HTTP client."""
         if self._http_client is None:
-            self._http_client = httpx.Client(
-                timeout=httpx.Timeout(30.0),
-            )
+            self._http_client = httpx.Client(timeout=httpx.Timeout(30.0))
         return self._http_client
 
     def close(self) -> None:
-        """Close HTTP client if owned by this adapter."""
         if self._owns_client and self._http_client is not None:
             self._http_client.close()
             self._http_client = None
 
     def _get_auth(self) -> tuple[str, str]:
-        """Get HTTP basic auth credentials."""
         return (self._config.twilio_account_sid, self._config.twilio_auth_token)
 
-    def _get_api_url(self, path: str) -> str:
-        """Build Twilio API URL for account."""
-        return (
-            f"https://api.twilio.com/2010-04-01/Accounts/"
-            f"{self._config.twilio_account_sid}{path}"
-        )
+    def _get_api_url(self, endpoint: str) -> str:
+        account_sid = self._config.twilio_account_sid
+        return f"https://api.twilio.com/2010-04-01/Accounts/{account_sid}{endpoint}"
 
-    def _map_status(self, status: str | None) -> CallStatus:
-        """Map Twilio status string to CallStatus enum."""
-        if not status:
-            return CallStatus.UNKNOWN
-
-        status_lower = status.lower()
-        mapping: dict[str, CallStatus] = {
-            "queued": CallStatus.QUEUED,
-            "initiated": CallStatus.INITIATED,
-            "ringing": CallStatus.RINGING,
-            "in-progress": CallStatus.IN_PROGRESS,
-            "completed": CallStatus.COMPLETED,
-            "failed": CallStatus.FAILED,
-            "busy": CallStatus.BUSY,
-            "no-answer": CallStatus.NO_ANSWER,
-            "canceled": CallStatus.CANCELED,
-        }
-        return mapping.get(status_lower, CallStatus.UNKNOWN)
-
-    def initiate_call(
+    async def initiate_call(
         self,
         request: CallInitiationRequest,
     ) -> CallInitiationResponse:
-        """Initiate an outbound call via Twilio."""
+        """Async wrapper for backward compatibility."""
+        return await anyio.to_thread.run_sync(self.initiate_call_sync, request)
+
+    def initiate_call_sync(
+        self,
+        request: CallInitiationRequest,
+    ) -> CallInitiationResponse:
+        """Initiate an outbound call via Twilio (sync)."""
         client = self._get_client()
 
         payload = {
@@ -110,8 +107,29 @@ class TwilioAdapter(TelephonyProvider):
             "StatusCallback": request.callback_url,
             "StatusCallbackEvent": ["initiated", "ringing", "answered", "completed"],
             "StatusCallbackMethod": "POST",
-            "Url": f"{request.callback_url}?{urlencode({'call_id': request.call_id, 'campaign_id': str(request.campaign_id), 'contact_id': str(request.contact_id)})}",
+            "Url": f"{self._config.webhook_base_url}/webhooks/telephony/twiml",
+            "Method": "POST",
         }
+
+        metadata = {
+            "call_id": request.call_id,
+            "campaign_id": str(request.campaign_id),
+            "contact_id": str(request.contact_id),
+            "language": request.language,
+            **request.metadata,
+        }
+
+        callback_with_meta = f"{request.callback_url}?{urlencode(metadata)}"
+        payload["StatusCallback"] = callback_with_meta
+
+        logger.info(
+            "Initiating Twilio call",
+            extra={
+                "to": request.to,
+                "call_id": request.call_id,
+                "campaign_id": str(request.campaign_id),
+            },
+        )
 
         try:
             response = client.post(
@@ -138,92 +156,127 @@ class TwilioAdapter(TelephonyProvider):
 
             data = response.json()
 
-            logger.info(
-                "Twilio call initiated successfully",
-                extra={
-                    "provider_call_id": data.get("sid"),
-                    "call_id": request.call_id,
-                    "status": data.get("status"),
-                },
-            )
-
             return CallInitiationResponse(
-                provider_call_id=str(data.get("sid", "")),
-                status=self._map_status(data.get("status")),
-                created_at=datetime.now(timezone.utc),
+                provider_call_id=data["sid"],
+                status=TWILIO_STATUS_MAP.get(data["status"], CallStatus.QUEUED),
+                created_at=datetime.fromisoformat(
+                    data["date_created"].replace("Z", "+00:00")
+                )
+                if data.get("date_created")
+                else datetime.now(timezone.utc),
                 raw_response=data,
             )
 
-        except httpx.HTTPError as exc:
-            logger.exception("Twilio API HTTP error", extra={"call_id": request.call_id})
+        except httpx.HTTPError as e:
+            logger.exception(
+                "HTTP error during Twilio call initiation",
+                extra={"call_id": request.call_id},
+            )
             raise CallInitiationError(
-                message=str(exc),
+                message=f"HTTP error: {e!s}",
                 error_code="HTTP_ERROR",
-                provider_response={},
+            ) from e
+
+    def parse_webhook_event(self, payload: dict[str, Any]) -> WebhookEvent:
+        try:
+            call_sid = payload.get("CallSid")
+            call_status = payload.get("CallStatus", "").lower()
+
+            if not call_sid:
+                raise WebhookParseError(
+                    message="Missing CallSid in webhook payload",
+                    error_code="MISSING_CALL_SID",
+                    provider_response=payload,
+                )
+
+            if not call_status:
+                raise WebhookParseError(
+                    message="Missing CallStatus in webhook payload",
+                    error_code="MISSING_CALL_STATUS",
+                    provider_response=payload,
+                )
+
+            event_type = TWILIO_EVENT_MAP.get(call_status) or WebhookEventType.CALL_COMPLETED
+            status = TWILIO_STATUS_MAP.get(call_status, CallStatus.COMPLETED)
+
+            call_id = payload.get("call_id")
+            campaign_id_str = payload.get("campaign_id")
+            contact_id_str = payload.get("contact_id")
+
+            from uuid import UUID
+
+            campaign_id = UUID(campaign_id_str) if campaign_id_str else None
+            contact_id = UUID(contact_id_str) if contact_id_str else None
+
+            duration_seconds = None
+            if call_status == "completed" and payload.get("CallDuration"):
+                try:
+                    duration_seconds = int(payload["CallDuration"])
+                except (ValueError, TypeError):
+                    pass
+
+            error_code = None
+            error_message = None
+            if call_status == "failed":
+                error_code = payload.get("ErrorCode")
+                error_message = payload.get("ErrorMessage")
+
+            timestamp = datetime.now(timezone.utc)
+            if payload.get("Timestamp"):
+                try:
+                    timestamp = datetime.fromisoformat(
+                        payload["Timestamp"].replace("Z", "+00:00")
+                    )
+                except (ValueError, TypeError):
+                    pass
+
+            return WebhookEvent(
+                event_type=event_type,
+                provider_call_id=call_sid,
+                call_id=call_id,
+                campaign_id=campaign_id,
+                contact_id=contact_id,
+                status=status,
+                timestamp=timestamp,
+                duration_seconds=duration_seconds,
+                error_code=error_code,
+                error_message=error_message,
+                raw_payload=payload,
             )
 
-    def parse_webhook_event(
-        self,
-        payload: dict[str, Any],
-    ) -> WebhookEvent:
-        """Parse Twilio webhook payload into standardized WebhookEvent."""
-        if "CallSid" not in payload:
+        except WebhookParseError:
+            raise
+        except Exception as e:
+            logger.exception("Error parsing Twilio webhook")
             raise WebhookParseError(
-                message="Missing CallSid in payload",
-                error_code="MISSING_CALL_SID",
+                message=f"Failed to parse webhook: {e!s}",
+                error_code="PARSE_ERROR",
                 provider_response=payload,
-            )
+            ) from e
 
-        if "CallStatus" not in payload:
-            raise WebhookParseError(
-                message="Missing CallStatus in payload",
-                error_code="MISSING_CALL_STATUS",
-                provider_response=payload,
-            )
+    def validate_webhook_signature(self, payload: bytes, signature: str, url: str) -> bool:
+        if not self._config.twilio_auth_token:
+            logger.warning("No auth token configured, skipping signature validation")
+            return True
 
-        provider_call_id = str(payload["CallSid"])
-        status = self._map_status(str(payload["CallStatus"]))
+        try:
+            from urllib.parse import parse_qs
 
-        status_to_event: dict[CallStatus, WebhookEventType] = {
-            CallStatus.INITIATED: WebhookEventType.CALL_INITIATED,
-            CallStatus.RINGING: WebhookEventType.CALL_RINGING,
-            CallStatus.IN_PROGRESS: WebhookEventType.CALL_ANSWERED,
-            CallStatus.COMPLETED: WebhookEventType.CALL_COMPLETED,
-            CallStatus.FAILED: WebhookEventType.CALL_FAILED,
-            CallStatus.BUSY: WebhookEventType.CALL_BUSY,
-            CallStatus.NO_ANSWER: WebhookEventType.CALL_NO_ANSWER,
-        }
-        event_type = status_to_event.get(status, WebhookEventType.CALL_COMPLETED)
+            params = parse_qs(payload.decode("utf-8"))
 
-        call_id = payload.get("call_id") or payload.get("CallId")
+            data_str = url
+            for key in sorted(params.keys()):
+                data_str += key + params[key][0]
 
-        campaign_id = None
-        contact_id = None
+            computed = hmac.new(
+                self._config.twilio_auth_token.encode("utf-8"),
+                data_str.encode("utf-8"),
+                hashlib.sha1,
+            ).digest()
 
-        return WebhookEvent(
-            event_type=event_type,
-            provider_call_id=provider_call_id,
-            call_id=str(call_id) if call_id else None,
-            campaign_id=campaign_id,
-            contact_id=contact_id,
-            status=status,
-            timestamp=datetime.now(timezone.utc),
-            raw_payload=payload,
-        )
+            computed_sig = b64encode(computed).decode("utf-8")
+            return hmac.compare_digest(computed_sig, signature)
 
-    def verify_twilio_signature(
-        self,
-        url: str,
-        params: dict[str, Any],
-        signature: str,
-    ) -> bool:
-        """Verify Twilio request signature (optional helper)."""
-        token = self._config.twilio_auth_token
-        if not token:
+        except Exception:
+            logger.exception("Error validating Twilio signature")
             return False
-
-        sorted_params = sorted((k, str(v)) for k, v in params.items())
-        data = url + "".join(k + v for k, v in sorted_params)
-        digest = hmac.new(token.encode("utf-8"), data.encode("utf-8"), hashlib.sha1).digest()
-        expected = b64encode(digest).decode("utf-8")
-        return hmac.compare_digest(expected, signature)

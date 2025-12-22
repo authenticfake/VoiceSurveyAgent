@@ -1,79 +1,94 @@
 """
-Tests for telephony provider factory.
+Tests for telephony configuration.
 
 REQ-009: Telephony provider adapter interface
 """
 
-import pytest
-
-from app.telephony.config import ProviderType, TelephonyConfig
-from app.telephony.factory import get_telephony_provider, reset_provider
-from app.telephony.mock_adapter import MockTelephonyAdapter
-from app.telephony.twilio_adapter import TwilioAdapter
-
-
-@pytest.fixture(autouse=True)
-def reset_provider_singleton() -> None:
-    """Reset provider singleton before each test."""
-    reset_provider()
+from app.telephony.config import (
+    ProviderConfig,
+    ProviderType,
+    TelephonyConfig,
+    config_from_provider_config,
+    get_telephony_config,
+)
 
 
-class TestGetTelephonyProvider:
-    """Tests for get_telephony_provider factory function."""
+class TestTelephonyConfig:
+    def test_default_values(self) -> None:
+        default = TelephonyConfig.model_fields["provider_type"].default
+        assert default == ProviderType.TWILIO
 
-    def test_get_twilio_provider(self) -> None:
-        """Test getting Twilio provider."""
+    def test_custom_values(self) -> None:
         config = TelephonyConfig(
+            provider_type=ProviderType.MOCK,
+            twilio_account_sid="AC_TEST",
+            twilio_auth_token="test_token",
+            twilio_from_number="+14155550000",
+            webhook_base_url="https://api.example.com",
+            max_concurrent_calls=20,
+            call_timeout_seconds=120,
+        )
+
+        assert config.provider_type == ProviderType.MOCK
+        assert config.twilio_account_sid == "AC_TEST"
+        assert config.twilio_auth_token == "test_token"
+        assert config.twilio_from_number == "+14155550000"
+        assert config.webhook_base_url == "https://api.example.com"
+        assert config.max_concurrent_calls == 20
+        assert config.call_timeout_seconds == 120
+
+    def test_get_webhook_url(self) -> None:
+        config = TelephonyConfig(
+            webhook_base_url="https://api.example.com",
+            twilio_account_sid="",
+            twilio_auth_token="",
+            twilio_from_number="",
+        )
+
+        assert config.get_webhook_url() == "https://api.example.com/webhooks/telephony/events"
+        assert config.get_webhook_url("/custom/path") == "https://api.example.com/custom/path"
+
+    def test_get_webhook_url_strips_trailing_slash(self) -> None:
+        config = TelephonyConfig(
+            webhook_base_url="https://api.example.com/",
+            twilio_account_sid="",
+            twilio_auth_token="",
+            twilio_from_number="",
+        )
+
+        assert config.get_webhook_url() == "https://api.example.com/webhooks/telephony/events"
+
+
+class TestProviderType:
+    def test_provider_types(self) -> None:
+        assert ProviderType.TWILIO.value == "twilio"
+        assert ProviderType.MOCK.value == "mock"
+
+
+class TestProviderConfigMapping:
+    def test_config_from_provider_config(self) -> None:
+        entity = ProviderConfig(
             provider_type=ProviderType.TWILIO,
             twilio_account_sid="AC_TEST",
             twilio_auth_token="test_token",
             twilio_from_number="+14155550000",
+            webhook_base_url="https://example.com",
+            max_concurrent_calls=5,
+            call_timeout_seconds=45,
         )
 
-        provider = get_telephony_provider(config=config, force_new=True)
+        cfg = config_from_provider_config(entity)
 
-        assert isinstance(provider, TwilioAdapter)
+        assert cfg.provider_type == ProviderType.TWILIO
+        assert cfg.twilio_account_sid == "AC_TEST"
+        assert cfg.twilio_auth_token == "test_token"
+        assert cfg.twilio_from_number == "+14155550000"
+        assert cfg.webhook_base_url == "https://example.com"
+        assert cfg.max_concurrent_calls == 5
+        assert cfg.call_timeout_seconds == 45
 
-    def test_get_mock_provider(self) -> None:
-        """Test getting mock provider."""
-        config = TelephonyConfig(
-            provider_type=ProviderType.MOCK,
-        )
 
-        provider = get_telephony_provider(config=config, force_new=True)
-
-        assert isinstance(provider, MockTelephonyAdapter)
-
-    def test_singleton_pattern(self) -> None:
-        """Test that factory returns same instance by default."""
-        config = TelephonyConfig(
-            provider_type=ProviderType.MOCK,
-        )
-
-        provider1 = get_telephony_provider(config=config)
-        provider2 = get_telephony_provider(config=config)
-
-        assert provider1 is provider2
-
-    def test_force_new_creates_new_instance(self) -> None:
-        """Test that force_new creates new instance."""
-        config = TelephonyConfig(
-            provider_type=ProviderType.MOCK,
-        )
-
-        provider1 = get_telephony_provider(config=config)
-        provider2 = get_telephony_provider(config=config, force_new=True)
-
-        assert provider1 is not provider2
-
-    def test_reset_provider_clears_singleton(self) -> None:
-        """Test that reset_provider clears singleton."""
-        config = TelephonyConfig(
-            provider_type=ProviderType.MOCK,
-        )
-
-        provider1 = get_telephony_provider(config=config)
-        reset_provider()
-        provider2 = get_telephony_provider(config=config)
-
-        assert provider1 is not provider2
+class TestGetTelephonyConfig:
+    def test_returns_config_instance(self) -> None:
+        config = get_telephony_config()
+        assert isinstance(config, TelephonyConfig)

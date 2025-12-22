@@ -15,6 +15,32 @@ from app.dialogue.llm.models import (
 from app.dialogue.llm.openai_adapter import OpenAIAdapter
 from app.dialogue.llm.anthropic_adapter import AnthropicAdapter
 from app.dialogue.llm.factory import create_llm_gateway
+from app.dialogue.consent import (
+    ConsentDetector,
+    ConsentFlowOrchestrator,
+    ConsentIntent,
+    ConsentResult,
+)
+from app.dialogue.events import (
+    DialogueEvent,
+    DialogueEventPublisher,
+    DialogueEventType,
+)
+
+from app.dialogue.models import (
+    CallContext,
+    ConsentState,
+    DialoguePhase,
+    DialogueSession,
+    DialogueSessionState,
+    QuestionState,
+)
+from app.dialogue.qa import (
+    AnswerResult,
+    QAOrchestrator,
+    QuestionDelivery,
+    UserIntent,
+)
 
 __all__ = [
     "LLMGateway",
@@ -26,4 +52,21 @@ __all__ = [
     "OpenAIAdapter",
     "AnthropicAdapter",
     "create_llm_gateway",
+    "CallContext",
+    "ConsentDetector",
+    "ConsentFlowOrchestrator",
+    "ConsentIntent",
+    "ConsentResult",
+    "ConsentState",
+    "DialogueEvent",
+    "DialogueEventPublisher",
+    "DialogueEventType",
+    "DialoguePhase",
+    "DialogueSession",
+    "DialogueSessionState",
+    "QuestionState",
+    "AnswerResult",
+    "QAOrchestrator",
+    "QuestionDelivery",
+    "UserIntent",
 ]

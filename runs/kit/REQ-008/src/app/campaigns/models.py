@@ -1,181 +1,118 @@
 """
-SQLAlchemy models for campaigns.
+SQLAlchemy models for contacts.
 
-REQ-004: Campaign CRUD API
-REQ-005: Campaign validation service (contacts relationship)
-REQ-008: Call scheduler service (call_attempts relationship)
+REQ-005: Campaign validation service (contact model)
+REQ-006: Contact CSV upload and parsing
+REQ-008: Call scheduler service (state management)
 """
 
-from datetime import datetime, time
+from datetime import datetime
 from enum import Enum
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import (
-    CheckConstraint,
-    DateTime,
-    Enum as SQLEnum,
-    ForeignKey,
-    Integer,
-    String,
-    Text,
-    Time,
-    func,
-)
+from sqlalchemy import Boolean, DateTime, Enum as SQLEnum, ForeignKey, Integer, String, func
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.auth.models import Base
-from app.email.models import EmailTemplate
-
 
 if TYPE_CHECKING:
-    from app.auth.models import User
     from app.calls.models import CallAttempt
-    from app.contacts.models import Contact
-
-def _pg_enum(enum_cls, name: str) -> SQLEnum:
-    """Postgres enum che salva Enum.value (non Enum.name)."""
-    return SQLEnum(
-        enum_cls,
-        name=name,
-        create_type=False,
-        values_callable=lambda e: [m.value for m in e],
-        validate_strings=True,
-    )
+    from app.campaigns.models import Campaign
 
 
-class CampaignStatus(str, Enum):
-    """Campaign lifecycle status."""
+class ContactState(str, Enum):
+    """Contact lifecycle state."""
 
-    DRAFT = "draft"
-    SCHEDULED = "scheduled"
-    RUNNING = "running"
-    PAUSED = "paused"
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
-    CANCELLED = "cancelled"
+    REFUSED = "refused"
+    NOT_REACHED = "not_reached"
+    EXCLUDED = "excluded"
 
 
-class CampaignLanguage(str, Enum):
-    """Supported campaign languages."""
+class ContactLanguage(str, Enum):
+    """Contact preferred language."""
 
     EN = "en"
     IT = "it"
+    AUTO = "auto"
 
 
-class QuestionType(str, Enum):
-    """Survey question answer types."""
+class ContactOutcome(str, Enum):
+    """Last call outcome for contact."""
 
-    FREE_TEXT = "free_text"
-    NUMERIC = "numeric"
-    SCALE = "scale"
-
-
-# Valid status transitions as per SPEC state machine
-VALID_STATUS_TRANSITIONS: dict[CampaignStatus, set[CampaignStatus]] = {
-    CampaignStatus.DRAFT: {CampaignStatus.SCHEDULED, CampaignStatus.RUNNING, CampaignStatus.CANCELLED},
-    CampaignStatus.SCHEDULED: {CampaignStatus.RUNNING, CampaignStatus.PAUSED, CampaignStatus.CANCELLED},
-    CampaignStatus.RUNNING: {CampaignStatus.PAUSED, CampaignStatus.COMPLETED, CampaignStatus.CANCELLED},
-    CampaignStatus.PAUSED: {CampaignStatus.RUNNING, CampaignStatus.COMPLETED, CampaignStatus.CANCELLED},
-    CampaignStatus.COMPLETED: set(),
-    CampaignStatus.CANCELLED: set(),
-}
+    COMPLETED = "completed"
+    REFUSED = "refused"
+    NO_ANSWER = "no_answer"
+    BUSY = "busy"
+    FAILED = "failed"
 
 
-class Campaign(Base):
-    """Campaign model matching the database schema from REQ-001."""
+class Contact(Base):
+    """Contact model matching the database schema from REQ-001."""
 
-    __tablename__ = "campaigns"
+    __tablename__ = "contacts"
 
     id: Mapped[UUID] = mapped_column(
         PGUUID(as_uuid=True),
         primary_key=True,
         default=uuid4,
     )
-    name: Mapped[str] = mapped_column(
+    campaign_id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("campaigns.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    external_contact_id: Mapped[str | None] = mapped_column(
         String(255),
+        nullable=True,
+    )
+    phone_number: Mapped[str] = mapped_column(
+        String(50),
         nullable=False,
         index=True,
     )
-    description: Mapped[str | None] = mapped_column(
-        Text,
+    email: Mapped[str | None] = mapped_column(
+        String(255),
         nullable=True,
     )
-    status: Mapped[CampaignStatus] = mapped_column(
-        _pg_enum(CampaignStatus, "campaign_status"),
+    preferred_language: Mapped[ContactLanguage] = mapped_column(
+        SQLEnum(ContactLanguage, name="contact_language", create_type=False),
         nullable=False,
-        default=CampaignStatus.DRAFT,
+        default=ContactLanguage.AUTO,
+    )
+    has_prior_consent: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+    )
+    do_not_call: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
         index=True,
     )
-    language: Mapped[CampaignLanguage] = mapped_column(
-        _pg_enum(CampaignLanguage, "campaign_language"),
+    state: Mapped[ContactState] = mapped_column(
+        SQLEnum(ContactState, name="contact_state", create_type=False),
         nullable=False,
-        default=CampaignLanguage.EN,
+        default=ContactState.PENDING,
+        index=True,
     )
-    intro_script: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
-    )
-    question_1_text: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
-    )
-    question_1_type: Mapped[QuestionType | None] = mapped_column(
-        _pg_enum(QuestionType, "question_type"),
-        nullable=True,
-    )
-    question_2_text: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
-    )
-    question_2_type: Mapped[QuestionType | None] = mapped_column(
-        _pg_enum(QuestionType, "question_type"),
-        nullable=True,
-    )
-    question_3_text: Mapped[str | None] = mapped_column(
-        Text,
-        nullable=True,
-    )
-    question_3_type: Mapped[QuestionType | None] = mapped_column(
-        _pg_enum(QuestionType, "question_type"),
-        nullable=True,
-    )
-    max_attempts: Mapped[int] = mapped_column(
+    attempts_count: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
-        default=3,
+        default=0,
     )
-    retry_interval_minutes: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        default=60,
-    )
-    allowed_call_start_local: Mapped[time | None] = mapped_column(
-        Time,
+    last_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
         nullable=True,
     )
-    allowed_call_end_local: Mapped[time | None] = mapped_column(
-        Time,
-        nullable=True,
-    )
-    email_completed_template_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True),
-        ForeignKey("email_templates.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    email_refused_template_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True),
-        ForeignKey("email_templates.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    email_not_reached_template_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True),
-        ForeignKey("email_templates.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-    created_by_user_id: Mapped[UUID | None] = mapped_column(
-        PGUUID(as_uuid=True),
-        ForeignKey("users.id", ondelete="SET NULL"),
+    last_outcome: Mapped[ContactOutcome | None] = mapped_column(
+        SQLEnum(ContactOutcome, name="contact_outcome", create_type=False),
         nullable=True,
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -191,40 +128,17 @@ class Campaign(Base):
     )
 
     # Relationships
-    created_by: Mapped["User | None"] = relationship(
-        "User",
-        back_populates="campaigns",
+    campaign: Mapped["Campaign"] = relationship(
+        "Campaign",
+        back_populates="contacts",
         lazy="selectin",
-    )
-    contacts: Mapped[list["Contact"]] = relationship(
-        "Contact",
-        back_populates="campaign",
-        lazy="selectin",
-        cascade="all, delete-orphan",
     )
     call_attempts: Mapped[list["CallAttempt"]] = relationship(
         "CallAttempt",
-        back_populates="campaign",
+        back_populates="contact",
         lazy="selectin",
         cascade="all, delete-orphan",
     )
 
-    # Table constraints
-    __table_args__ = (
-        CheckConstraint("max_attempts >= 1 AND max_attempts <= 5", name="check_max_attempts_range"),
-        CheckConstraint("retry_interval_minutes >= 1", name="check_retry_interval_positive"),
-    )
-
-    def can_transition_to(self, new_status: CampaignStatus) -> bool:
-        """Check if transition to new status is valid.
-
-        Args:
-            new_status: Target status.
-
-        Returns:
-            True if transition is valid, False otherwise.
-        """
-        return new_status in VALID_STATUS_TRANSITIONS.get(self.status, set())
-
     def __repr__(self) -> str:
-        return f"<Campaign(id={self.id}, name={self.name}, status={self.status})>"
+        return f"<Contact(id={self.id}, phone={self.phone_number}, state={self.state})>"

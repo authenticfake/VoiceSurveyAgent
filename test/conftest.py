@@ -1,9 +1,9 @@
 """
-REQ-008 test configuration.
+Minimal pytest configuration for REQ-008.
 
-Intentionally empty:
-- No async
-- No DB
-- No SQLAlchemy
-- No custom event loop
+REQ-008 requires LOGIC tests to be:
+- synchronous
+- fast
+- no DB
+- no SQLAlchemy
 """

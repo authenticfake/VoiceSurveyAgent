@@ -13,6 +13,8 @@ from enum import Enum
 from typing import Any
 from uuid import UUID
 
+import anyio
+
 
 class CallStatus(str, Enum):
     """Call status values."""
@@ -20,13 +22,12 @@ class CallStatus(str, Enum):
     QUEUED = "queued"
     INITIATED = "initiated"
     RINGING = "ringing"
-    IN_PROGRESS = "in-progress"
+    IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
-    FAILED = "failed"
     BUSY = "busy"
-    NO_ANSWER = "no-answer"
+    NO_ANSWER = "no_answer"
+    FAILED = "failed"
     CANCELED = "canceled"
-    UNKNOWN = "unknown"
 
 
 class WebhookEventType(str, Enum):
@@ -37,24 +38,13 @@ class WebhookEventType(str, Enum):
     CALL_ANSWERED = "call.answered"
     CALL_COMPLETED = "call.completed"
     CALL_FAILED = "call.failed"
+    CALL_NO_ANSWER = "call.no_answer"
     CALL_BUSY = "call.busy"
-    CALL_NO_ANSWER = "call.no-answer"
 
 
 @dataclass(frozen=True)
 class CallInitiationRequest:
-    """Request to initiate an outbound call.
-
-    Attributes:
-        to: Destination phone number in E.164 format.
-        from_number: Caller ID phone number in E.164 format.
-        callback_url: URL for webhook callbacks.
-        call_id: Internal call identifier for correlation.
-        campaign_id: Campaign UUID for context.
-        contact_id: Contact UUID for context.
-        language: Language code for the call (en/it).
-        metadata: Additional metadata to include in callbacks.
-    """
+    """Request to initiate an outbound call."""
 
     to: str
     from_number: str
@@ -68,14 +58,7 @@ class CallInitiationRequest:
 
 @dataclass(frozen=True)
 class CallInitiationResponse:
-    """Response from call initiation.
-
-    Attributes:
-        provider_call_id: Provider's unique call identifier.
-        status: Initial call status.
-        created_at: Timestamp when call was created.
-        raw_response: Raw provider response for debugging.
-    """
+    """Response from call initiation."""
 
     provider_call_id: str
     status: CallStatus
@@ -100,47 +83,71 @@ class WebhookEvent:
     raw_payload: dict[str, Any] = field(default_factory=dict)
 
 
-
-@dataclass(frozen=True)
 class TelephonyProviderError(Exception):
     """Base exception for telephony provider errors."""
 
-    message: str
-    error_code: str
-    provider_response: dict[str, Any] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        # Ensure Exception base class carries the message for str(error)
-        Exception.__init__(self, self.message)
-
-    def __str__(self) -> str:
-        return self.message
-
+    def __init__(
+        self,
+        message: str,
+        error_code: str | None = None,
+        provider_response: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+        self.provider_response = provider_response or {}
 
 
-@dataclass(frozen=True)
 class CallInitiationError(TelephonyProviderError):
-    """Raised when call initiation fails."""
+    """Error during call initiation."""
 
 
-@dataclass(frozen=True)
 class WebhookParseError(TelephonyProviderError):
-    """Raised when webhook parsing fails."""
+    """Error parsing webhook event."""
 
 
 class TelephonyProvider(ABC):
-    """Abstract base class for telephony providers."""
+    """Abstract interface for telephony providers.
 
-    @abstractmethod
-    def initiate_call(
+    Design choice for REQ-009:
+    - Keep `initiate_call` async for backward compatibility.
+    - Add `initiate_call_sync` as the source-of-truth for deterministic tests.
+    """
+
+    async def initiate_call(
         self,
         request: CallInitiationRequest,
     ) -> CallInitiationResponse:
-        """Initiate an outbound call."""
+        """Initiate an outbound call (async, backward compatible).
+
+        Default implementation delegates to the sync method in a worker thread.
+        """
+        return await anyio.to_thread.run_sync(self.initiate_call_sync, request)
+
+    @abstractmethod
+    def initiate_call_sync(
+        self,
+        request: CallInitiationRequest,
+    ) -> CallInitiationResponse:
+        """Initiate an outbound call (sync).
+
+        This is the source-of-truth used by sync-only tests.
+        """
+        ...
 
     @abstractmethod
     def parse_webhook_event(
         self,
         payload: dict[str, Any],
     ) -> WebhookEvent:
-        """Parse incoming webhook payload into standardized event."""
+        """Parse a webhook event from the provider."""
+        ...
+
+    @abstractmethod
+    def validate_webhook_signature(
+        self,
+        payload: bytes,
+        signature: str,
+        url: str,
+    ) -> bool:
+        """Validate webhook signature for authenticity."""
+        ...

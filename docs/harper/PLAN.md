@@ -2,8 +2,8 @@
 
 ## Plan Snapshot
 
-- **Counts:** total=24 / open=0 / in_progress=12 / done=12 / deferred=0
-- **Progress:** 50% complete
+- **Counts:** total=24 / open=0 / in_progress=11 / done=13 / deferred=0
+- **Progress:** 54% complete
 - **Checklist:**
   - [x] SPEC aligned
   - [x] Prior REQ reconciled
@@ -76,7 +76,7 @@
 | REQ-010 | Telephony webhook handler | POST /webhooks/telephony/events receives provider callbacks<br/>Events parsed into domain CallEvent objects<br/>call.answered triggers dialogue start<br/>call.no_answer updates attempt outcome and contact state<br/>Duplicate events handled idempotently via call_id | REQ-009 | App | done |
 | REQ-011 | LLM gateway integration | LLMGateway interface defines chat_completion method<br/>Gateway supports configurable provider (OpenAI, Anthropic)<br/>System prompt includes survey context and constraints<br/>Timeout handling with configurable duration<br/>Gateway errors logged with correlation ID | REQ-001 | App | done |
 | REQ-012 | Dialogue orchestrator consent flow | Intro script played immediately on call.answered<br/>Consent question asked after intro<br/>Positive consent proceeds to first question<br/>Negative consent triggers call termination within 10 seconds<br/>survey.refused event published on refusal | REQ-010, REQ-011 | App | done |
-| REQ-013 | Dialogue orchestrator Q&A flow | Questions asked sequentially after consent<br/>Each question text from campaign configuration<br/>Answer captured and stored in draft state<br/>Repeat request detected and question re-asked once<br/>All 3 answers captured before completion flow | REQ-012 | App | in_progress |
+| REQ-013 | Dialogue orchestrator Q&A flow | Questions asked sequentially after consent<br/>Each question text from campaign configuration<br/>Answer captured and stored in draft state<br/>Repeat request detected and question re-asked once<br/>All 3 answers captured before completion flow | REQ-012 | App | done |
 | REQ-014 | Survey response persistence | SurveyResponse created with all 3 answers<br/>Response linked to successful CallAttempt<br/>Contact state updated to completed<br/>Timestamps recorded for completion<br/>Transaction ensures atomicity of all updates | REQ-013 | App | in_progress |
 | REQ-015 | Event publisher service | EventPublisher interface defines publish method<br/>SQS adapter implements publish to configured queue<br/>Event schema includes event_type, campaign_id, contact_id, call_id<br/>Message deduplication via call_id<br/>Failed publishes retried with exponential backoff | REQ-014 | App | in_progress |
 | REQ-016 | Email worker service | Email worker polls SQS queue continuously<br/>survey.completed triggers completed email if template configured<br/>Template variables substituted from event payload<br/>EmailNotification record created with status<br/>Failed sends retried up to 3 times with backoff | REQ-015 | App | in_progress |

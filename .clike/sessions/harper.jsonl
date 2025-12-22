@@ -126,3 +126,5 @@
 {"ts":1766263588343,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-011/ci/LTC.json: PASS","model":"gpt-5.2"}
 {"ts":1766269857825,"mode":"harper","role":"user","content":"▶ GATE REQ-012 manual pass | mode=harper model=gpt-5.2","model":"gpt-5.2","attachments":[]}
 {"ts":1766269883737,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-012/ci/LTC.json: PASS","model":"gpt-5.2"}
+{"ts":1766314836771,"mode":"harper","role":"user","content":"▶ GATE REQ-013 manual pass | mode=harper model=gpt-5.2","model":"gpt-5.2","attachments":[]}
+{"ts":1766314852154,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-013/ci/LTC.json: PASS","model":"gpt-5.2"}
