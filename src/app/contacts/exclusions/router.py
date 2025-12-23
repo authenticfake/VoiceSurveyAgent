@@ -99,7 +99,7 @@ async def import_exclusions(
             "Exclusion CSV import completed",
             extra={
                 "user_id": str(current_user.id),
-                "filename": file.filename,
+                "exclusion_filename": file.filename,
                 "accepted": result.accepted_count,
                 "rejected": result.rejected_count,
                 "duplicates": result.duplicate_count,
@@ -113,7 +113,7 @@ async def import_exclusions(
             "Exclusion CSV import failed",
             extra={
                 "user_id": str(current_user.id),
-                "filename": file.filename,
+                "exclusion_filename": file.filename,
                 "error": str(e),
             },
         )

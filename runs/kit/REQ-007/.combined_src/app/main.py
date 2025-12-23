@@ -19,6 +19,8 @@ from app.config import get_settings
 from app.shared.database import db_manager
 from app.shared.exceptions import NotFoundError, ValidationError
 from app.shared.logging import get_logger, setup_logging
+from app.contacts.exclusions.router import router as exclusions_router
+from app.telephony.webhooks.router import router as telephony_webhooks_router
 
 import app.email.models  # noqa: F401
 
@@ -85,7 +87,7 @@ def create_app() -> FastAPI:
             },
         )
 
-    # CORS middleware
+    # CxORS middleware
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,
@@ -98,6 +100,8 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(campaigns_router)
     app.include_router(contacts_router)
+    app.include_router(exclusions_router)
+    app.include_router(telephony_webhooks_router)
 
     @app.get("/health")
     async def health_check() -> dict[str, str]:

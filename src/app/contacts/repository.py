@@ -60,6 +60,33 @@ class ContactRepository:
         result = await self._session.execute(stmt)
         count = result.scalar()
         return count if count is not None else 0  
+    
+    async def update_flags(
+        self,
+        contact: Contact,
+        *,
+        has_prior_consent: bool | None = None,
+        do_not_call: bool | None = None,
+    ) -> Contact:
+        """Update consent / DNC flags for a contact.
+
+        Args:
+            contact: ORM contact instance (must be attached to session).
+            has_prior_consent: New value or None to leave unchanged.
+            do_not_call: New value or None to leave unchanged.
+
+        Returns:
+            Updated contact.
+        """
+        if has_prior_consent is not None:
+            contact.has_prior_consent = has_prior_consent
+        if do_not_call is not None:
+            contact.do_not_call = do_not_call
+
+        await self._session.flush()
+        await self._session.refresh(contact)
+        return contact
+
 
     async def create(self, contact: Contact) -> Contact:
         """Create a single contact.

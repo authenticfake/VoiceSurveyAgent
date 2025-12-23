@@ -180,12 +180,14 @@ class CallAttempt(Base):
         String(100),
         nullable=True,
     )
-    metadata: Mapped[dict | None] = mapped_column(
+    extra_metadata: Mapped[dict | None] = mapped_column(
+        "metadata",
         JSONB,
         nullable=True,
     )
+    
 
-
+    
 class SurveyResponse(Base):
     """Survey response model matching the database schema."""
 

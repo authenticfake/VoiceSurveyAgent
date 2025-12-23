@@ -17,6 +17,7 @@ from app.contacts.schemas import (
     ContactListResponse,
     ContactResponse,
     CSVUploadResponse,
+    ContactUpdateFlags,
 )
 from app.contacts.service import ContactService
 from app.shared.database import get_db_session
@@ -77,7 +78,7 @@ async def upload_contacts_csv(
         extra={
             "campaign_id": str(campaign_id),
             "user_id": str(current_user.id),
-            "filename": file.filename,
+            "upload_filename": file.filename,
             "content_type": file.content_type,
         },
     )
@@ -155,6 +156,7 @@ async def list_contacts(
     description="Get details of a specific contact.",
 )
 async def get_contact(
+
     campaign_id: UUID,
     contact_id: UUID,
     service: Annotated[ContactService, Depends(get_contact_service)],
@@ -181,3 +183,24 @@ async def get_contact(
         raise NotFoundError(f"Contact {contact_id} not found in campaign {campaign_id}")
 
     return contact
+
+
+@router.patch(
+    "/{campaign_id}/contacts/{contact_id}",
+    response_model=ContactResponse,
+    summary="Update contact flags",
+    description="Update do_not_call and/or has_prior_consent for a contact.",
+)
+async def patch_contact_flags(
+    campaign_id: UUID,
+    contact_id: UUID,
+    update: ContactUpdateFlags,
+    service: Annotated[ContactService, Depends(get_contact_service)],
+    current_user: Annotated[CurrentUser, Depends(require_campaign_manager)],
+) -> ContactResponse:
+    """Patch consent/DNC flags for a single contact."""
+    return await service.update_contact_flags(
+        campaign_id=campaign_id,
+        contact_id=contact_id,
+        update=update,
+    )

@@ -74,7 +74,7 @@ class User(Base):
     campaigns: Mapped[list["Campaign"]] = relationship(
         "Campaign",
         back_populates="created_by",
-        lazy="selectin",
+        lazy="noload",
     )
 
     def __repr__(self) -> str:

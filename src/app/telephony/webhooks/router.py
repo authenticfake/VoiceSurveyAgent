@@ -6,8 +6,9 @@ REQ-010: Telephony webhook handler
 from __future__ import annotations
 
 from typing import Annotated, Any, Callable
+from urllib.parse import parse_qs
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.shared.database import get_db_session
@@ -15,6 +16,7 @@ from app.shared.logging import get_logger
 from app.telephony.adapters.twilio import TwilioAdapter
 from app.telephony.interface import TelephonyProvider
 from app.telephony.webhooks.handler import WebhookHandler
+from app.telephony.factory import get_telephony_provider as build_provider
 
 logger = get_logger(__name__)
 
@@ -25,23 +27,24 @@ router = APIRouter(prefix="/webhooks/telephony", tags=["webhooks"])
 ProviderFactory = Callable[[], Any]
 HandlerFactory = Callable[[], Any]
 
+def get_telephony_provider() -> TelephonyProvider:
+    """Runtime telephony provider dependency.
 
-def get_telephony_provider() -> Any:
+    Uses the central factory so we don't drift between routers/services.
+    In tests, this function can be monkeypatched.
     """
-    Return the configured telephony provider (runtime).
-    In tests we will monkeypatch/override this function to return a fake provider.
-    """
-    from app.telephony.twilio_adapter import TwilioProvider  # runtime import (safe)
-    return TwilioProvider()
+    return build_provider()
 
 
-def get_webhook_handler() -> Any:
+def get_webhook_handler(
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+) -> Any:
     """
     Return the configured webhook handler (runtime).
     In tests we will monkeypatch/override this function to return a fake handler.
     """
-    from app.telephony.webhooks.handler import WebhookHandler  # runtime import (safe)
-    return WebhookHandler()
+    return WebhookHandler(session=session)
+
 
 
 
@@ -83,7 +86,20 @@ async def receive_webhook_event(
     body = await request.body()
 
     # Parse form data (Twilio sends form-encoded data)
-    form_data = await request.form()
+    content_type = (request.headers.get("content-type") or "").lower()
+
+    if "application/x-www-form-urlencoded" in content_type:
+        raw = body.decode("utf-8", errors="replace")
+        form_data = {k: v[0] for k, v in parse_qs(raw, keep_blank_values=True).items()}
+    elif "application/json" in content_type:
+        form_data = await request.json()
+    else:
+        raw = body.decode("utf-8", errors="replace")
+        form_data = {k: v[0] for k, v in parse_qs(raw, keep_blank_values=True).items()} if raw else {}
+
+    if not form_data.get("CallSid"):
+        return Response(status_code=204)
+
     payload: dict[str, Any] = dict(form_data)
 
     # Add query parameters to payload (metadata passed via callback URL)
@@ -117,6 +133,9 @@ async def receive_webhook_event(
     # Parse webhook payload into domain event
     try:
         event = provider.parse_webhook_event(payload, headers)
+    except TypeError as e:
+        event = provider.parse_webhook_event(payload)
+
     except ValueError as e:
         logger.error(
             "Failed to parse webhook payload",

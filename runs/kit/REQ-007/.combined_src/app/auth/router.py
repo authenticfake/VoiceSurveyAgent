@@ -144,7 +144,7 @@ async def get_current_user_profile(
 
     Requires a valid access token.
     """
-    if current_user.user_id is None:
+    if current_user.id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
@@ -154,7 +154,7 @@ async def get_current_user_profile(
         )
 
     try:
-        return await service.get_user_profile(current_user.user_id)
+        return await service.get_user_profile(current_user.id)
     except UserNotFoundError as e:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -9,8 +9,11 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-
+from sqlalchemy import select
+from sqlalchemy.orm import noload
 from app.auth.models import User
+from sqlalchemy.orm import lazyload, raiseload
+
 
 
 class UserRepositoryProtocol(Protocol):
@@ -54,17 +57,13 @@ class UserRepository:
         )
         return result.scalar_one_or_none()
 
+
+
     async def get_by_oidc_sub(self, oidc_sub: str) -> User | None:
-        """Get user by OIDC subject identifier.
-
-        Args:
-            oidc_sub: OIDC subject identifier.
-
-        Returns:
-            User if found, None otherwise.
-        """
         result = await self._session.execute(
-            select(User).where(User.oidc_sub == oidc_sub)
+            select(User)
+            .options(lazyload("*"), raiseload("*"))
+            .where(User.oidc_sub == oidc_sub)
         )
         return result.scalar_one_or_none()
 
@@ -93,7 +92,7 @@ class UserRepository:
         """
         self._session.add(user)
         await self._session.flush()
-        await self._session.refresh(user)
+        
         return user
 
     async def update(self, user: User) -> User:

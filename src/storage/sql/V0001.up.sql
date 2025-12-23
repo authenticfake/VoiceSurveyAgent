@@ -151,6 +151,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
     retry_interval_minutes INTEGER NOT NULL DEFAULT 60,
     allowed_call_start_local TIME NOT NULL DEFAULT '09:00:00',
     allowed_call_end_local TIME NOT NULL DEFAULT '20:00:00',
+    completion_message TEXT NOT NULL DEFAULT 
     email_completed_template_id UUID REFERENCES email_templates(id) ON DELETE SET NULL,
     email_refused_template_id UUID REFERENCES email_templates(id) ON DELETE SET NULL,
     email_not_reached_template_id UUID REFERENCES email_templates(id) ON DELETE SET NULL,
@@ -158,6 +159,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
 );
+
 
 CREATE INDEX IF NOT EXISTS idx_campaigns_name ON campaigns(name);
 CREATE INDEX IF NOT EXISTS idx_campaigns_status ON campaigns(status);
@@ -377,6 +379,7 @@ DO $$ BEGIN
 EXCEPTION
     WHEN duplicate_object THEN NULL;
 END $$;
+
 
 -- ============================================================================
 -- MIGRATION LEDGER

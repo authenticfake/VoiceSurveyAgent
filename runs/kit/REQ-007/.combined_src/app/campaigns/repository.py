@@ -122,12 +122,8 @@ class CampaignRepository:
 
         logger.info(
             "Created campaign",
-            extra={
-                "campaign_id": str(campaign.id),
-                "name": campaign.name,
-                "status": campaign.status.value,
-            },
-        )
+            extra={"campaign_id": str(campaign.id), "campaign_name": campaign.name},
+       )
 
         return campaign
 
@@ -145,11 +141,8 @@ class CampaignRepository:
 
         logger.info(
             "Updated campaign",
-            extra={
-                "campaign_id": str(campaign.id),
-                "name": campaign.name,
-                "status": campaign.status.value,
-            },
+            extra={"campaign_id": str(campaign.id), "campaign_name": campaign.name},
+
         )
 
         return campaign
@@ -167,7 +160,7 @@ class CampaignRepository:
             "Soft deleted campaign",
             extra={
                 "campaign_id": str(campaign.id),
-                "name": campaign.name,
+                "campaign_name": campaign.name,
             },
         )
 

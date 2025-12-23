@@ -147,6 +147,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
     question_2_type question_type NOT NULL,
     question_3_text TEXT NOT NULL,
     question_3_type question_type NOT NULL,
+    completion_message TEXT NOT NULL DEFAULT 
     max_attempts INTEGER NOT NULL DEFAULT 3 CHECK (max_attempts >= 1 AND max_attempts <= 5),
     retry_interval_minutes INTEGER NOT NULL DEFAULT 60,
     allowed_call_start_local TIME NOT NULL DEFAULT '09:00:00',

@@ -180,14 +180,19 @@ async def list_campaigns(
     total_pages = math.ceil(total / page_size) if total > 0 else 0
 
     return CampaignListResponse(
-        items=[CampaignListItem.model_validate(c) for c in campaigns],
+        campaigns=campaigns ,
+        total=total,
         meta=PaginationMeta(
             total=total,
             page=page,
             page_size=page_size,
             total_pages=total_pages,
+            limit=page_size,
+            offset=(page - 1) * page_size,
         ),
     )
+
+    
 
 
 @router.get(
@@ -223,6 +228,17 @@ async def get_campaign(
 
 
 @router.put(
+    "/{campaign_id}",
+    response_model=CampaignResponse,
+    responses={
+        200: {"description": "Campaign updated successfully"},
+        400: {"model": ErrorResponse, "description": "Validation error or invalid update"},
+        401: {"model": ErrorResponse, "description": "Not authenticated"},
+        403: {"model": ErrorResponse, "description": "Insufficient permissions"},
+        404: {"model": ErrorResponse, "description": "Campaign not found"},
+    },
+)
+@router.patch(
     "/{campaign_id}",
     response_model=CampaignResponse,
     responses={
@@ -303,7 +319,9 @@ async def delete_campaign(
     )
 
     try:
-        await service.delete_campaign(campaign_id)
+        campaign = await service.delete_campaign(campaign_id)
+        return CampaignResponse.model_validate(campaign)
+
     except CampaignNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

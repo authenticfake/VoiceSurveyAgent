@@ -128,3 +128,8 @@
 {"ts":1766269883737,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-012/ci/LTC.json: PASS","model":"gpt-5.2"}
 {"ts":1766314836771,"mode":"harper","role":"user","content":"▶ GATE REQ-013 manual pass | mode=harper model=gpt-5.2","model":"gpt-5.2","attachments":[]}
 {"ts":1766314852154,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-013/ci/LTC.json: PASS","model":"gpt-5.2"}
+{"ts":1766439783192,"mode":"harper","role":"assistant","content":"Workspace: /Users/a.franco/dev/authenticfake/VoiceSurveyAgent","model":"system"}
+{"ts":1766439792641,"mode":"harper","role":"assistant","content":"Workspace: /Users/a.franco/dev/authenticfake/VoiceSurveyAgent","model":"system"}
+{"ts":1766439801276,"mode":"harper","role":"assistant","content":"Workspace: /Users/a.franco/dev/authenticfake/VoiceSurveyAgent","model":"system"}
+{"ts":1766441849728,"mode":"harper","role":"user","content":"▶ GATE REQ-014 manual pass | mode=harper model=claude-opus-4-5","model":"claude-opus-4-5","attachments":[]}
+{"ts":1766441872720,"mode":"harper","role":"system","content":"✔ Gate runs/kit/REQ-014/ci/LTC.json: PASS","model":"claude-opus-4-5"}

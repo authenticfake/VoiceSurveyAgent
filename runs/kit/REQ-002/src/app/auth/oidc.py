@@ -108,7 +108,10 @@ class OIDCClient:
         """
         # Use a well-known authorization endpoint pattern
         # In production, this would come from discovery
-        auth_endpoint = f"{self._settings.oidc_issuer_url}/authorize"
+        issuer = self._settings.oidc_issuer_url.rstrip("/")
+        auth_endpoint = f"{issuer}/protocol/openid-connect/auth"
+
+       
 
         params = {
             "response_type": "code",

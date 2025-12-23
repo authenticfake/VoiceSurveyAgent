@@ -1,9 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1" time="1.585" timestamp="2025-12-14T12:03:18.189804+01:00" hostname="AMAFRH96CL7RW"><testcase classname="" name="runs.kit.REQ-003.test.test_rbac" time="0.000"><error message="collection failure">ImportError while importing test module '/Users/a.franco/dev/authenticfake/VoiceSurveyAgent/runs/kit/REQ-003/test/test_rbac.py'.
-Hint: make sure your test modules/packages have valid Python names.
-Traceback:
-/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/importlib/__init__.py:90: in import_module
-    return _bootstrap._gcd_import(name[level:], package, level)
-           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-runs/kit/REQ-003/test/test_rbac.py:17: in &lt;module&gt;
-    from app.auth.rbac import (
-E   ModuleNotFoundError: No module named 'app.auth.rbac'</error></testcase></testsuite></testsuites>

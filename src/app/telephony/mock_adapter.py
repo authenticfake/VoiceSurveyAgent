@@ -109,9 +109,40 @@ class MockTelephonyAdapter(TelephonyProvider):
             },
         )
 
-    def parse_webhook_event(self, payload: dict[str, Any]) -> WebhookEvent:
+    def parse_webhook_event(
+    self,
+    payload: dict[str, Any],
+    headers: dict[str, str] | None = None,
+) -> WebhookEvent:
+        """Parse webhook payload.
+
+        Supports:
+        - "internal" mock payload: event_type + provider_call_id
+        - Twilio-like payload: CallSid + CallStatus (+ optional metadata)
+        """
         self._webhooks.append(payload)
 
+        # Normalize provider_call_id
+        if "provider_call_id" not in payload and payload.get("CallSid"):
+            payload["provider_call_id"] = payload.get("CallSid")
+
+        # Normalize event_type
+        if "event_type" not in payload:
+            call_status = (payload.get("CallStatus") or "").lower()
+            status_map = {
+                "initiated": WebhookEventType.CALL_INITIATED.value,
+                "ringing": WebhookEventType.CALL_RINGING.value,
+                "in-progress": WebhookEventType.CALL_ANSWERED.value,
+                "answered": WebhookEventType.CALL_ANSWERED.value,
+                "completed": WebhookEventType.CALL_COMPLETED.value,
+                "failed": WebhookEventType.CALL_FAILED.value,
+                "no-answer": WebhookEventType.CALL_NO_ANSWER.value,
+                "busy": WebhookEventType.CALL_BUSY.value,
+            }
+            if call_status:
+                payload["event_type"] = status_map.get(call_status, WebhookEventType.CALL_FAILED.value)
+
+        # Now enforce required fields
         if "event_type" not in payload:
             raise WebhookParseError(
                 message="Missing event_type in payload",
@@ -135,11 +166,13 @@ class MockTelephonyAdapter(TelephonyProvider):
                 provider_response=payload,
             )
 
-        status_str = payload.get("status", "completed")
+        status_str = payload.get("status") or payload.get("CallStatus") or "completed"
+        status_str = str(status_str).lower()
         try:
             status = CallStatus(status_str)
         except ValueError:
-            status = CallStatus.COMPLETED
+            # best-effort fallback
+            status = CallStatus.COMPLETED if status_str == "completed" else CallStatus.QUEUED
 
         campaign_id = None
         contact_id = None
@@ -163,10 +196,11 @@ class MockTelephonyAdapter(TelephonyProvider):
             status=status,
             timestamp=datetime.now(timezone.utc),
             duration_seconds=payload.get("duration_seconds"),
-            error_code=payload.get("error_code"),
-            error_message=payload.get("error_message"),
+            error_code=payload.get("error_code") or payload.get("ErrorCode"),
+            error_message=payload.get("error_message") or payload.get("ErrorMessage"),
             raw_payload=payload,
         )
+
 
     def validate_webhook_signature(self, payload: bytes, signature: str, url: str) -> bool:
         return True

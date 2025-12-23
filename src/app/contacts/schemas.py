@@ -49,6 +49,21 @@ class ContactCreate(ContactBase):
 
     pass
 
+class ContactUpdateFlags(BaseModel):
+    """Schema for updating consent / do-not-call flags.
+
+    This is intentionally minimal to keep PATCH semantics clear and stable.
+    """
+
+    has_prior_consent: bool | None = Field(
+        default=None,
+        description="Update prior consent flag (omit to leave unchanged)",
+    )
+    do_not_call: bool | None = Field(
+        default=None,
+        description="Update do-not-call flag (omit to leave unchanged)",
+    )
+
 
 class ContactResponse(BaseModel):
     """Schema for contact response."""

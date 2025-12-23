@@ -41,6 +41,7 @@ class CurrentUser(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     id: UUID = Field(..., description="User ID")
+
     oidc_sub: str = Field(..., description="OIDC subject identifier")
     email: str = Field(..., description="User email")
     name: str = Field(..., description="User display name")

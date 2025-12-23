@@ -164,7 +164,7 @@ class WebhookHandler:
         Returns:
             True if already processed.
         """
-        metadata = call_attempt.metadata or {}
+        metadata = call_attempt.extra_metadata or {}
         processed_events = metadata.get("processed_events", [])
         return event_type.value in processed_events
 
@@ -179,12 +179,12 @@ class WebhookHandler:
             call_attempt: The call attempt record.
             event_type: Event type to mark.
         """
-        metadata = dict(call_attempt.metadata or {})
+        metadata = dict(call_attempt.extra_metadata or {})
         processed_events = list(metadata.get("processed_events", []))
         if event_type.value not in processed_events:
             processed_events.append(event_type.value)
         metadata["processed_events"] = processed_events
-        call_attempt.metadata = metadata
+        call_attempt.extra_metadata = metadata
 
     async def _handle_initiated(
         self,
@@ -267,9 +267,9 @@ class WebhookHandler:
 
         # Store duration in metadata
         if event.duration_seconds is not None:
-            metadata = dict(call_attempt.metadata or {})
+            metadata = dict(call_attempt.extra_metadata or {})
             metadata["duration_seconds"] = event.duration_seconds
-            call_attempt.metadata = metadata
+            call_attempt.extra_metadata = metadata
 
         await self._mark_event_processed(call_attempt, event.event_type)
 
@@ -344,9 +344,9 @@ class WebhookHandler:
 
         # Store error message in metadata
         if event.error_message:
-            metadata = dict(call_attempt.metadata or {})
+            metadata = dict(call_attempt.extra_metadata or {})
             metadata["error_message"] = event.error_message
-            call_attempt.metadata = metadata
+            call_attempt.extra_metadata = metadata
 
         # Update contact state
         await self._update_contact_state(

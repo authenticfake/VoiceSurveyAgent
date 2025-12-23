@@ -85,9 +85,9 @@ class OIDCClient:
                 extra={"url": discovery_url, "error": str(e)},
             )
             raise OIDCError(
-                message="Failed to fetch OIDC discovery document",
-                details={"url": discovery_url, "error": str(e)},
+                message=f"Failed to fetch OIDC discovery document: url={discovery_url} error={e}"
             ) from e
+
 
     def generate_state(self) -> str:
         """Generate a cryptographically secure state parameter.
@@ -108,8 +108,9 @@ class OIDCClient:
         """
         # Use a well-known authorization endpoint pattern
         # In production, this would come from discovery
-        auth_endpoint = f"{self._settings.oidc_issuer_url}/authorize"
-
+        issuer = self._settings.oidc_issuer_url.rstrip("/")
+        auth_endpoint = f"{issuer}/protocol/openid-connect/auth"
+        
         params = {
             "response_type": "code",
             "client_id": self._settings.oidc_client_id,
@@ -134,9 +135,9 @@ class OIDCClient:
 
         if not auth_endpoint:
             raise OIDCError(
-                message="Authorization endpoint not found in discovery",
-                details={"discovery": discovery},
+                message="Authorization endpoint not found in discovery"
             )
+
 
         params = {
             "response_type": "code",
@@ -161,7 +162,9 @@ class OIDCClient:
             OIDCError: If token exchange fails.
         """
         # Use well-known token endpoint pattern
-        token_endpoint = f"{self._settings.oidc_issuer_url}/oauth/token"
+       
+        issuer = self._settings.oidc_issuer_url.rstrip("/")
+        token_endpoint = f"{issuer}/protocol/openid-connect/token"
 
         client = await self._get_http_client()
 
@@ -184,9 +187,7 @@ class OIDCClient:
                 extra={"error": str(e)},
             )
             raise OIDCError(
-                message="Failed to exchange authorization code",
-                details={"error": str(e)},
-            ) from e
+                message="Failed to exchange authorization code: {e}") from e
 
     async def exchange_code_with_discovery(self, code: str) -> OIDCTokenResponse:
         """Exchange authorization code using discovery document.
@@ -205,9 +206,7 @@ class OIDCClient:
 
         if not token_endpoint:
             raise OIDCError(
-                message="Token endpoint not found in discovery",
-                details={"discovery": discovery},
-            )
+                message="Token endpoint not found in discovery")
 
         client = await self._get_http_client()
 
@@ -230,8 +229,7 @@ class OIDCClient:
                 extra={"error": str(e)},
             )
             raise OIDCError(
-                message="Failed to exchange authorization code",
-                details={"error": str(e)},
+                message="Failed to exchange authorization code: : {e}"
             ) from e
 
     async def get_userinfo(self, access_token: str) -> OIDCUserInfo:
@@ -247,7 +245,9 @@ class OIDCClient:
             OIDCError: If userinfo request fails.
         """
         # Use well-known userinfo endpoint pattern
-        userinfo_endpoint = f"{self._settings.oidc_issuer_url}/userinfo"
+        issuer = self._settings.oidc_issuer_url.rstrip("/")
+        userinfo_endpoint = f"{issuer}/protocol/openid-connect/userinfo"
+
 
         client = await self._get_http_client()
 
@@ -263,10 +263,8 @@ class OIDCClient:
                 "OIDC userinfo request failed",
                 extra={"error": str(e)},
             )
-            raise OIDCError(
-                message="Failed to fetch user information",
-                details={"error": str(e)},
-            ) from e
+            raise OIDCError(message=f"Failed to fetch user information: {e}") from e
+
 
     async def get_userinfo_with_discovery(self, access_token: str) -> OIDCUserInfo:
         """Fetch user information using discovery document.
@@ -285,8 +283,7 @@ class OIDCClient:
 
         if not userinfo_endpoint:
             raise OIDCError(
-                message="Userinfo endpoint not found in discovery",
-                details={"discovery": discovery},
+                message="Userinfo endpoint not found in discovery"
             )
 
         client = await self._get_http_client()
@@ -303,10 +300,8 @@ class OIDCClient:
                 "OIDC userinfo request failed",
                 extra={"error": str(e)},
             )
-            raise OIDCError(
-                message="Failed to fetch user information",
-                details={"error": str(e)},
-            ) from e
+            raise OIDCError(message=f"Failed to fetch user information: {e}") from e
+
 
     async def refresh_token(self, refresh_token: str) -> OIDCTokenResponse:
         """Refresh access token using refresh token.
@@ -343,6 +338,5 @@ class OIDCClient:
                 extra={"error": str(e)},
             )
             raise OIDCError(
-                message="Failed to refresh token",
-                details={"error": str(e)},
+                message="Failed to refresh token: {e}"
             ) from e

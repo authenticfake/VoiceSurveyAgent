@@ -74,6 +74,14 @@ class CampaignBase(BaseModel):
         None,
         description="Email template ID for not reached contacts",
     )
+    completion_message: str = Field(
+        default="",
+        nullable=False,
+        min_length=1,
+        max_length=5000,
+        description="Message played/sent at completion",
+    )
+
 
     @model_validator(mode="after")
     def validate_time_window(self) -> "CampaignBase":
@@ -114,6 +122,9 @@ class CampaignUpdate(BaseModel):
     email_not_reached_template_id: UUID | None = Field(None, description="Not reached email template ID")
     allowed_call_start_local: Optional[time] = None
     allowed_call_end_local: Optional[time] = None
+    completion_message: str = Field("", max_length=5000, description="Message played at the end")
+
+
 
     @model_validator(mode="after")
     def validate_time_window_if_both_present(self) -> "CampaignUpdate":
@@ -160,6 +171,8 @@ class CampaignResponse(BaseModel):
     created_by_user_id: UUID = Field(..., description="Creator user ID")
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
+    completion_message: str = Field(..., description="Completion message")
+
 
 
 class CampaignListItem(BaseModel):
@@ -192,8 +205,7 @@ class CampaignListResponse(BaseModel):
 
     items: list[CampaignListItem] = Field(..., description="List of campaigns")
     meta: PaginationMeta = Field(..., description="Pagination metadata")
-
-
+ 
 class ErrorDetail(BaseModel):
     """Schema for error detail."""
     code: str = Field(..., description="Error code")

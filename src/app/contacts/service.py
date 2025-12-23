@@ -17,6 +17,7 @@ from app.contacts.schemas import (
     ContactResponse,
     CSVRowError,
     CSVUploadResponse,
+    ContactUpdateFlags,
 )
 from app.shared.exceptions import NotFoundError, ValidationError
 from app.shared.logging import get_logger
@@ -169,6 +170,37 @@ class ContactService:
             errors=errors,
             acceptance_rate=acceptance_rate,
         )
+
+    async def update_contact_flags(
+        self,
+        campaign_id: UUID,
+        contact_id: UUID,
+        update: ContactUpdateFlags,
+    ) -> ContactResponse:
+        """Update consent / DNC flags for a contact.
+
+        We keep this scoped to campaign for safety (no cross-campaign edits).
+        """
+        # Ensure campaign exists
+        campaign = await self._campaign_repo.get_by_id(campaign_id)
+        if not campaign:
+            raise NotFoundError(f"Campaign {campaign_id} not found")
+
+        contact = await self._contact_repo.get_by_id(contact_id)
+        if not contact:
+            raise NotFoundError(f"Contact {contact_id} not found")
+
+        if contact.campaign_id != campaign_id:
+            raise NotFoundError(f"Contact {contact_id} not found in campaign {campaign_id}")
+
+        updated = await self._contact_repo.update_flags(
+            contact,
+            has_prior_consent=update.has_prior_consent,
+            do_not_call=update.do_not_call,
+        )
+        await self._session.commit()
+        return ContactResponse.model_validate(updated)
+
 
     async def get_contacts(
         self,

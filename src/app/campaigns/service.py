@@ -137,6 +137,8 @@ class CampaignService:
             email_refused_template_id=data.email_refused_template_id,
             email_not_reached_template_id=data.email_not_reached_template_id,
             created_by_user_id=created_by_user_id,
+            completion_message=data.completion_message or "",
+
         )
 
         created = await self._repository.create(campaign)
@@ -145,8 +147,8 @@ class CampaignService:
             "Campaign created",
             extra={
                 "campaign_id": str(created.id),
-                "name": created.name,
-                "created_by": str(created_by_user_id),
+                "campaign_name": created.name,
+                "created_by_user_id": str(created_by_user_id),
             },
         )
 
@@ -184,10 +186,8 @@ class CampaignService:
 
         logger.info(
             "Campaign updated",
-            extra={
-                "campaign_id": str(updated.id),
-                "updated_fields": list(update_data.keys()),
-            },
+            extra={"campaign_id": str(updated.id), "campaign_name": updated.name},
+
         )
 
         return updated

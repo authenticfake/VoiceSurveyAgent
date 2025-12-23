@@ -245,6 +245,12 @@ class Campaign(Base):
         server_default=func.now(),
         onupdate=func.now(),
     )
+    completion_message: Mapped[str] = mapped_column(
+        String(5000),
+        nullable=False,
+        server_default="",
+    )
+
 
     # Relationships
     created_by: Mapped["User"] = relationship("User", foreign_keys=[created_by_user_id])
