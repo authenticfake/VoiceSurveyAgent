@@ -69,6 +69,13 @@ class CallAttemptRepository:
         """
         self._session = session
 
+    async def get_by_provider_call_id(self, provider_call_id: str) -> CallAttempt | None:
+        """Get call attempt by provider call identifier (e.g., Twilio CallSid)."""
+        stmt = select(CallAttempt).where(CallAttempt.provider_call_id == provider_call_id)
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+
     async def create(
         self,
         contact_id: UUID,
@@ -172,6 +179,29 @@ class CallAttemptRepository:
         await self._session.flush()
         await self._session.refresh(attempt)
         return attempt
+
+    async def update_extra_metadata(
+        self,
+        attempt_id: UUID,
+        extra_metadata: dict,
+    ) -> CallAttempt:
+        """Update extra_metadata atomically-ish (session flush + refresh)."""
+        attempt = await self.get_by_id(attempt_id)
+        if attempt is None:
+            raise ValueError(f"CallAttempt not found: {attempt_id}")
+
+        if hasattr(attempt, "extra_metadata"):
+            attempt.extra_metadata = extra_metadata
+        elif hasattr(attempt, "call_metadata"):
+            attempt.call_metadata = extra_metadata
+        else:
+            # fallback: non dovrebbe succedere, ma evita crash in prod
+            setattr(attempt, "extra_metadata", extra_metadata)
+
+        await self._session.flush()
+        await self._session.refresh(attempt)
+        return attempt
+
 
     async def get_by_contact(
         self,

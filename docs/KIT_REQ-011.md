@@ -117,6 +117,7 @@ Environment variables:
 - `ANTHROPIC_API_KEY` - Anthropic API key
 - `LOG_LEVEL` - Logging level (default: INFO)
 
+
 ## Future Enhancements
 
 - Streaming response support

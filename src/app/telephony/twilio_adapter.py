@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """
 Twilio telephony provider adapter.
 
@@ -16,6 +18,9 @@ from urllib.parse import urlencode
 
 import anyio
 import httpx
+from httpx import HTTPStatusError
+
+
 
 from app.telephony.config import TelephonyConfig, get_telephony_config
 from app.telephony.interface import (
@@ -100,6 +105,14 @@ class TwilioAdapter(TelephonyProvider):
     ) -> CallInitiationResponse:
         """Initiate an outbound call via Twilio (sync)."""
         client = self._get_client()
+                # NEW: single-flow voice webhook (deterministic)
+        # We pass call_id/campaign_id/contact_id in query string so /voice can resolve state
+        voice_url = (
+            f"{self._config.webhook_base_url}/webhooks/telephony/voice"
+            f"?call_id={request.call_id}"
+            f"&campaign_id={request.campaign_id}"
+            f"&contact_id={request.contact_id}"
+        )
 
         payload = {
             "To": request.to,
@@ -107,9 +120,10 @@ class TwilioAdapter(TelephonyProvider):
             "StatusCallback": request.callback_url,
             "StatusCallbackEvent": ["initiated", "ringing", "answered", "completed"],
             "StatusCallbackMethod": "POST",
-            "Url": f"{self._config.webhook_base_url}/webhooks/telephony/twiml",
+            "Url": voice_url,
             "Method": "POST",
         }
+
 
         metadata = {
             "call_id": request.call_id,
@@ -203,6 +217,16 @@ class TwilioAdapter(TelephonyProvider):
             campaign_id_str = payload.get("campaign_id")
             contact_id_str = payload.get("contact_id")
 
+
+            if not call_id:
+                logger.warning(
+                    "Twilio webhook missing correlation call_id in payload",
+                    extra={
+                        "provider_call_id": call_sid,
+                        "call_status": call_status,
+                        "payload_keys": sorted(list(payload.keys())),
+                    },
+                )
             from uuid import UUID
 
             campaign_id = UUID(campaign_id_str) if campaign_id_str else None
@@ -280,3 +304,191 @@ class TwilioAdapter(TelephonyProvider):
         except Exception:
             logger.exception("Error validating Twilio signature")
             return False
+
+from typing import Any
+
+import httpx
+
+from app.calls.repository import CallAttemptRepository
+from app.shared.database import db_manager
+from app.shared.logging import get_logger
+from app.telephony.config import TelephonyConfig
+
+logger = get_logger(__name__)
+
+# BEGIN FILE: src/app/telephony/twilio_adapter.py
+
+# ... (file invariato sopra)
+
+class TwilioTelephonyControl:
+    """
+    Twilio implementation of the dialogue TelephonyControlProtocol (production).
+
+    Design:
+    - play_text/hangup do NOT return TwiML directly.
+    - They persist a "next_tts" payload on CallAttempt.extra_metadata.
+    - Then they REST-update the live Twilio call to fetch /webhooks/telephony/twiml.
+    """
+
+    TWILIO_API_BASE = "https://api.twilio.com/2010-04-01"
+
+    def __init__(self, config: TelephonyConfig) -> None:
+        self._config = config
+
+        # Backward-compat: some older code might reference these attrs.
+        self._account_sid = config.twilio_account_sid
+        self._auth_token = config.twilio_auth_token
+
+    async def _resolve_provider_call_id(self, internal_call_id: str) -> str | None:
+        async with db_manager.session_factory() as session:
+            repo = CallAttemptRepository(session)
+            attempt = await repo.get_by_call_id(internal_call_id)
+            if attempt is None:
+                return None
+            return attempt.provider_call_id
+
+    async def _set_next_tts(self, internal_call_id: str, payload: dict[str, Any]) -> None:
+        async with db_manager.session_factory() as session:
+            repo = CallAttemptRepository(session)
+            attempt = await repo.get_by_call_id(internal_call_id)
+            if attempt is None:
+                return
+            meta = getattr(attempt, "extra_metadata", None) or getattr(attempt, "call_metadata", None) or {}
+            meta["twilio_next_tts"] = payload
+            await repo.update_extra_metadata(attempt.id, meta)
+            await session.commit()
+
+    def _build_twiml_url(self) -> str:
+        base = (self._config.webhook_base_url or "").rstrip("/")
+        if not base:
+            raise ValueError("TelephonyConfig.webhook_base_url is required to build TwiML URL")
+        return f"{base}/webhooks/telephony/twiml"
+
+    async def _twilio_call_redirect_to_twiml(self, provider_call_id: str, call_id: str) -> None:
+        twiml_url = self._build_twiml_url()
+        base = self.TWILIO_API_BASE
+        sid = self._config.twilio_account_sid
+        auth = (self._config.twilio_account_sid, self._config.twilio_auth_token)
+
+        call_url = f"{base}/Accounts/{sid}/Calls/{provider_call_id}.json"
+
+        logger.info(
+            "Redirecting call to TwiML",
+            extra={"provider_call_id": provider_call_id, "twiml_url": twiml_url},
+        )
+
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
+            # 1) PRE-FLIGHT: read call status
+            status_resp = await client.get(call_url, auth=auth, headers={"Accept": "application/json"})
+
+            if status_resp.status_code >= 400:
+                logger.error(
+                    "Twilio call status lookup failed",
+                    extra={
+                        "status_code": status_resp.status_code,
+                        "resp_text": status_resp.text,
+                        "provider_call_id": provider_call_id,
+                        "call_url": call_url,
+                    },
+                )
+                return
+
+            try:
+                call_status = (status_resp.json() or {}).get("status", "")
+            except Exception:
+                logger.error(
+                    "Twilio call status parse failed",
+                    extra={"resp_text": status_resp.text, "provider_call_id": provider_call_id},
+                )
+                return
+
+            if call_status != "in-progress":
+                logger.warning(
+                    "Skip redirect: call not in-progress",
+                    extra={
+                        "call_id": call_id,
+                        "provider_call_id": provider_call_id,
+                        "call_status": call_status,
+                        "twiml_url": twiml_url,
+                    },
+                )
+                return
+
+            # 2) UPDATE: redirect to TwiML
+            logger.info(
+                "Redirecting live call to TwiML",
+                extra={"call_id": call_id, "provider_call_id": provider_call_id, "twiml_url": twiml_url},
+            )
+            update_data = {"Url": twiml_url, "Method": "POST"}
+            update_resp = await client.post(
+                call_url,
+                data=update_data,  # form-encoded
+                auth=auth,
+                headers={"Accept": "application/json"},
+            )
+
+        if update_resp.status_code >= 400:
+            logger.error(
+                "Twilio call redirect failed",
+                extra={
+                    "status_code": update_resp.status_code,
+                    "resp_text": update_resp.text,
+                    "provider_call_id": provider_call_id,
+                    "twiml_url": twiml_url,
+                    "call_url": call_url,
+                },
+            )
+            return
+
+        logger.info(
+            "Twilio call redirect OK",
+            extra={"provider_call_id": provider_call_id, "twiml_url": twiml_url},
+        )
+
+        
+
+    async def play_text(self, call_id: str, text: str, language: str) -> None:
+        provider_call_id = await self._resolve_provider_call_id(call_id)
+        if provider_call_id:
+             logger.debug(
+                 "TwilioTelephonyControl: resolved provider_call_id",
+                 extra={"call_id": call_id, "provider_call_id": provider_call_id},
+             )
+        if not provider_call_id:
+            logger.warning(
+                "TwilioTelephonyControl: provider_call_id not found",
+                extra={"call_id": call_id},
+            )
+            return
+
+        await self._set_next_tts(
+            call_id,
+            {"type": "say_and_gather", "text": text, "language": language},
+        )
+
+        await self._twilio_call_redirect_to_twiml(provider_call_id, call_id)
+
+    async def hangup(self, call_id: str) -> None:
+        provider_call_id = await self._resolve_provider_call_id(call_id)
+        if not provider_call_id:
+            logger.warning(
+                "TwilioTelephonyControl: provider_call_id not found",
+                extra={"call_id": call_id},
+            )
+            return
+
+        auth = (self._config.twilio_account_sid, self._config.twilio_auth_token)
+        data = {"Status": "completed"}
+        url = (
+            f"{self.TWILIO_API_BASE}/Accounts/"
+            f"{self._config.twilio_account_sid}/Calls/{provider_call_id}.json"
+        )
+
+        async with httpx.AsyncClient(timeout=self._config.call_timeout_seconds) as client:
+            resp = await client.post(url, data=data, auth=auth)
+
+        resp.raise_for_status()
+
+# END FILE
+
+ 

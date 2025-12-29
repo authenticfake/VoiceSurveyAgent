@@ -5,6 +5,7 @@ REQ-011: LLM gateway integration
 """
 
 from abc import ABC, abstractmethod
+import asyncio
 from typing import Protocol, runtime_checkable
 
 from app.dialogue.llm.models import ChatRequest, ChatResponse, LLMProvider
@@ -108,7 +109,7 @@ class BaseLLMAdapter(ABC):
         Adapters may override this method with a truly async implementation
         if needed, but unit tests for REQ-011 will use `chat_completion_sync`.
         """
-        return self.chat_completion_sync(request)
+        return await asyncio.to_thread(self.chat_completion_sync, request)
 
     @abstractmethod
     def chat_completion_sync(self, request: ChatRequest) -> ChatResponse:

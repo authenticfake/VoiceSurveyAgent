@@ -123,16 +123,12 @@ class TelephonyProvider(ABC):
         """
         return await anyio.to_thread.run_sync(self.initiate_call_sync, request)
 
-    @abstractmethod
     def initiate_call_sync(
         self,
         request: CallInitiationRequest,
     ) -> CallInitiationResponse:
-        """Initiate an outbound call (sync).
+        raise NotImplementedError("sync only used in tests")
 
-        This is the source-of-truth used by sync-only tests.
-        """
-        ...
 
     @abstractmethod
     def parse_webhook_event(
@@ -151,3 +147,6 @@ class TelephonyProvider(ABC):
     ) -> bool:
         """Validate webhook signature for authenticity."""
         ...
+
+CallInfo = CallInitiationResponse
+

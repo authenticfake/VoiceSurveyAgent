@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import time
 from typing import Any, Callable, Protocol
+import asyncio
 
 import httpx
 
@@ -302,7 +303,7 @@ class AnthropicAdapter(BaseLLMAdapter):
 
         NOTE: tests for REQ-011 use `chat_completion_sync`.
         """
-        return self.chat_completion_sync(request)
+        return await asyncio.to_thread(self.chat_completion_sync, request)
 
     async def health_check(self) -> bool:
         """Check if Anthropic API is accessible (async, compatibility)."""

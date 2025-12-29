@@ -1,4 +1,3 @@
-*** BEGIN FILE: src/app/main.py
 """
 FastAPI application entry point.
 """
@@ -6,6 +5,7 @@ FastAPI application entry point.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import os
 from typing import AsyncGenerator
 import asyncio
 import hashlib
@@ -30,12 +30,26 @@ from app.telephony.webhooks.router import router as telephony_webhooks_router
 from app.calls.scheduler import CallScheduler, CallSchedulerConfig
 from app.telephony.config import get_telephony_config
 from app.telephony.factory import get_telephony_provider
-
+import logging
 import app.email.models  # noqa: F401
 
 logger = get_logger(__name__)
-
-
+logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.pool").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.dialects").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy").setLevel(logging.WARNING)
+logging.getLogger("sqlalchemy.orm").setLevel(logging.WARNING)
+for name in (
+    "sqlalchemy",
+    "sqlalchemy.engine",
+    "sqlalchemy.engine.Engine",
+    "sqlalchemy.pool",
+    "sqlalchemy.dialects",
+):
+    logging.getLogger(name).setLevel(logging.WARNING)
+    logging.getLogger(name).propagate = False
+    
 def _advisory_lock_id(key: str) -> int:
     """Derive a stable signed bigint lock id from an arbitrary string key."""
     digest = hashlib.blake2b(key.encode("utf-8"), digest_size=8).digest()
@@ -99,7 +113,8 @@ async def _scheduler_supervisor(app: FastAPI) -> None:
                             scheduler = CallScheduler(
                                 session=session,
                                 telephony_provider=provider,
-                                config=cfg,
+                                telephony_config=telephony_cfg,
+                                scheduler_config=cfg,
                                 callback_base_url=telephony_cfg.webhook_base_url,
                                 outbound_number=telephony_cfg.twilio_from_number or "+10000000000",
                             )
@@ -125,8 +140,31 @@ async def _scheduler_supervisor(app: FastAPI) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager."""
+    def _load_dotenv_if_present() -> None:
+        # Minimal .env loader (no external deps). Safe in prod: if .env missing, no-op.
+        env_path = os.path.join(os.getcwd(), ".env")
+        if not os.path.exists(env_path):
+            return
+
+        try:
+            with open(env_path, "r", encoding="utf-8") as f:
+                for raw_line in f:
+                    line = raw_line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, value = line.split("=", 1)
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    # Do not override real environment variables
+                    os.environ.setdefault(key, value)
+        except Exception:
+            # Never break startup because of local .env
+            return
+
     setup_logging()
+    _load_dotenv_if_present()
     settings = get_settings()
+
 
     logger.info("Application starting", extra={"env": settings.app_env})
 
@@ -226,4 +264,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-*** END FILE

@@ -5,6 +5,7 @@ REQ-011: LLM gateway integration
 """
 
 from __future__ import annotations
+import asyncio
 
 import time
 from typing import Any, Callable, Protocol
@@ -307,7 +308,7 @@ class OpenAIAdapter(BaseLLMAdapter):
         # Delegate to sync to avoid duplicate logic.
         # This is safe functionally, but blocks inside async contexts;
         # E2E can override or reintroduce true async later if needed.
-        return self.chat_completion_sync(request)
+        return await asyncio.to_thread(self.chat_completion_sync, request)
 
     async def health_check(self) -> bool:
         """Check if OpenAI API is accessible (async, compatibility)."""

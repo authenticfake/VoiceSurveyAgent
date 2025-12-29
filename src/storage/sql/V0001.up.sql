@@ -221,6 +221,7 @@ CREATE TABLE IF NOT EXISTS call_attempts (
     metadata JSONB DEFAULT '{}'::jsonb
 );
 
+
 CREATE INDEX IF NOT EXISTS idx_call_attempts_contact_id ON call_attempts(contact_id);
 CREATE INDEX IF NOT EXISTS idx_call_attempts_campaign_id ON call_attempts(campaign_id);
 CREATE INDEX IF NOT EXISTS idx_call_attempts_call_id ON call_attempts(call_id);
@@ -396,3 +397,10 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 INSERT INTO schema_migrations (version, checksum, status)
 VALUES ('V0001', 'initial_schema_v1', 'applied')
 ON CONFLICT (version) DO NOTHING;
+
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_call_attempts_contact_attempt
+ON call_attempts (contact_id, attempt_number);
+ALTER TABLE call_attempts
+ADD CONSTRAINT uq_call_attempts_contact_attempt UNIQUE (contact_id, attempt_number);
+

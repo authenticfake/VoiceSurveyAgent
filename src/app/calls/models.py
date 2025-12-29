@@ -80,7 +80,12 @@ class CallAttempt(Base):
         nullable=True,
     )
     outcome: Mapped[CallOutcome | None] = mapped_column(
-        SQLEnum(CallOutcome, name="call_outcome", create_type=False),
+        SQLEnum(
+            CallOutcome,
+            name="call_outcome",
+            create_type=False,
+            values_callable=lambda enum: [e.value for e in enum],
+        ),
         nullable=True,
     )
     provider_raw_status: Mapped[str | None] = mapped_column(

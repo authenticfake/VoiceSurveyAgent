@@ -4,7 +4,7 @@ Webhook event handler for processing telephony events.
 REQ-010: Telephony webhook handler
 """
 
-from typing import Protocol
+from typing import Any, Protocol
 from uuid import UUID
 
 from sqlalchemy import select, update
@@ -28,6 +28,39 @@ class DialogueStarterProtocol(Protocol):
     ) -> None:
         """Start dialogue for an answered call."""
         ...
+def _event_get(event, *names, default=None):
+    for n in names:
+        v = getattr(event, n, None)
+        if v is not None:
+            return v
+    payload = getattr(event, "payload", None) or getattr(event, "raw", None)
+    if isinstance(payload, dict):
+        for n in names:
+            if n in payload and payload[n] is not None:
+                return payload[n]
+    return default
+
+def _attempt_metadata(attempt: Any) -> dict[str, Any]:
+    # ordine di fallback: call_metadata -> metadata -> {}
+    val = getattr(attempt, "call_metadata", None)
+    if val is None:
+        val = getattr(attempt, "metadata", None)
+    if isinstance(val, dict):
+        return val
+    return {}
+
+def _attempt_metadata_get(call_attempt: Any) -> dict:
+    meta = getattr(call_attempt, "extra_metadata", None)
+    if meta is None:
+        meta = getattr(call_attempt, "call_metadata", None)
+    return meta or {}
+
+
+def _attempt_metadata_set(call_attempt: Any, meta: dict) -> None:
+    if hasattr(call_attempt, "extra_metadata"):
+        call_attempt.extra_metadata = meta
+    elif hasattr(call_attempt, "call_metadata"):
+        call_attempt.call_metadata = meta
 
 class WebhookHandler:
     """Handler for processing telephony webhook events.
@@ -66,7 +99,14 @@ class WebhookHandler:
         """
         # Create idempotency key from call_id and event_type
         idempotency_key = f"{event.call_id}:{event.event_type.value}"
-
+        logger.info(
+            "Processing telephony event",
+            extra={
+                "call_id": event.call_id,
+                "provider_call_id": event.provider_call_id,
+                "event_type": event.event_type.value,
+            },
+        )
         # Check in-memory cache first (for same-request duplicates)
         if idempotency_key in self._processed_events:
             logger.info(
@@ -85,6 +125,7 @@ class WebhookHandler:
                 "CallAttempt not found for event",
                 extra={
                     "call_id": event.call_id,
+                    "provider_call_id": event.provider_call_id,
                     "event_type": event.event_type.value,
                 },
             )
@@ -164,27 +205,17 @@ class WebhookHandler:
         Returns:
             True if already processed.
         """
-        metadata = call_attempt.extra_metadata or {}
+        metadata = _attempt_metadata_get(call_attempt)
         processed_events = metadata.get("processed_events", [])
         return event_type.value in processed_events
 
-    async def _mark_event_processed(
-        self,
-        call_attempt: CallAttempt,
-        event_type: CallEventType,
-    ) -> None:
-        """Mark event type as processed in call attempt metadata.
+    async def _mark_event_processed(self, call_attempt: CallAttempt, event_type: str) -> None:
+        metadata = dict(_attempt_metadata_get(call_attempt))
+        processed = dict(metadata.get("processed_events", {}))
+        processed[event_type] = True
+        metadata["processed_events"] = processed
+        _attempt_metadata_set(call_attempt, metadata)
 
-        Args:
-            call_attempt: The call attempt record.
-            event_type: Event type to mark.
-        """
-        metadata = dict(call_attempt.extra_metadata or {})
-        processed_events = list(metadata.get("processed_events", []))
-        if event_type.value not in processed_events:
-            processed_events.append(event_type.value)
-        metadata["processed_events"] = processed_events
-        call_attempt.extra_metadata = metadata
 
     async def _handle_initiated(
         self,
@@ -197,7 +228,12 @@ class WebhookHandler:
             call_attempt: The call attempt record.
             event: The call event.
         """
-        call_attempt.provider_raw_status = event.raw_status
+        call_attempt.provider_raw_status =_event_get(
+            event,
+            "raw_status", "provider_raw_status", "call_status", "status",
+            "CallStatus", "Status",
+            default=call_attempt.provider_raw_status,
+        )
         await self._mark_event_processed(call_attempt, event.event_type)
 
     async def _handle_ringing(
@@ -211,7 +247,13 @@ class WebhookHandler:
             call_attempt: The call attempt record.
             event: The call event.
         """
-        call_attempt.provider_raw_status = event.raw_status
+        call_attempt.provider_raw_status = _event_get(
+            event,
+            "raw_status", "provider_raw_status", "call_status", "status",
+            "CallStatus", "Status",
+            default=call_attempt.provider_raw_status,
+        )
+
         await self._mark_event_processed(call_attempt, event.event_type)
 
     async def _handle_answered(
@@ -229,7 +271,13 @@ class WebhookHandler:
             event: The call event.
         """
         call_attempt.answered_at = event.timestamp
-        call_attempt.provider_raw_status = event.raw_status
+        call_attempt.provider_raw_status = _event_get(
+            event,
+            "raw_status", "provider_raw_status", "call_status", "status",
+            "CallStatus", "Status",
+            default=call_attempt.provider_raw_status,
+        )
+
         await self._mark_event_processed(call_attempt, event.event_type)
 
         # Trigger dialogue start
@@ -263,13 +311,28 @@ class WebhookHandler:
             event: The call event.
         """
         call_attempt.ended_at = event.timestamp
-        call_attempt.provider_raw_status = event.raw_status
+        call_attempt.provider_raw_status = _event_get(
+            event,
+            "raw_status", "provider_raw_status", "call_status", "status",
+            "CallStatus", "Status",
+            default=call_attempt.provider_raw_status,
+        )
 
+        await self._update_contact_state(
+            contact_id=call_attempt.contact_id,
+            state=ContactState.NOT_REACHED,
+            last_outcome=call_attempt.outcome or CallOutcome.COMPLETED,
+        )
         # Store duration in metadata
         if event.duration_seconds is not None:
-            metadata = dict(call_attempt.extra_metadata or {})
+            metadata = dict(call_attempt.call_metadata or {})
             metadata["duration_seconds"] = event.duration_seconds
-            call_attempt.extra_metadata = metadata
+            if hasattr(call_attempt, "extra_metadata"):
+                call_attempt.extra_metadata = metadata
+            elif hasattr(call_attempt, "call_metadata"):
+                call_attempt.call_metadata = metadata
+            else:
+                call_attempt.metadata = metadata
 
         await self._mark_event_processed(call_attempt, event.event_type)
 
@@ -288,7 +351,13 @@ class WebhookHandler:
         """
         call_attempt.ended_at = event.timestamp
         call_attempt.outcome = CallOutcome.NO_ANSWER
-        call_attempt.provider_raw_status = event.raw_status
+        call_attempt.provider_raw_status = _event_get(
+            event,
+            "raw_status", "provider_raw_status", "call_status", "status",
+            "CallStatus", "Status",
+            default=call_attempt.provider_raw_status,
+        )
+
         await self._mark_event_processed(call_attempt, event.event_type)
 
         # Update contact state
@@ -313,7 +382,13 @@ class WebhookHandler:
         """
         call_attempt.ended_at = event.timestamp
         call_attempt.outcome = CallOutcome.BUSY
-        call_attempt.provider_raw_status = event.raw_status
+        call_attempt.provider_raw_status = _event_get(
+            event,
+            "raw_status", "provider_raw_status", "call_status", "status",
+            "CallStatus", "Status",
+            default=call_attempt.provider_raw_status,
+        )
+
         await self._mark_event_processed(call_attempt, event.event_type)
 
         # Update contact state
@@ -338,15 +413,26 @@ class WebhookHandler:
         """
         call_attempt.ended_at = event.timestamp
         call_attempt.outcome = CallOutcome.FAILED
-        call_attempt.provider_raw_status = event.raw_status
+        call_attempt.provider_raw_status = _event_get(
+            event,
+            "raw_status", "provider_raw_status", "call_status", "status",
+            "CallStatus", "Status",
+            default=call_attempt.provider_raw_status,
+        )
+
         call_attempt.error_code = event.error_code
         await self._mark_event_processed(call_attempt, event.event_type)
 
         # Store error message in metadata
         if event.error_message:
-            metadata = dict(call_attempt.extra_metadata or {})
+            metadata = dict(call_attempt.call_metadata or {})
             metadata["error_message"] = event.error_message
-            call_attempt.extra_metadata = metadata
+            if hasattr(call_attempt, "extra_metadata"):
+                call_attempt.extra_metadata = metadata
+            elif hasattr(call_attempt, "call_metadata"):
+                call_attempt.call_metadata = metadata
+            else:
+                call_attempt.metadata = metadata
 
         # Update contact state
         await self._update_contact_state(

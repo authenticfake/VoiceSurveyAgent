@@ -5,7 +5,6 @@ REQ-012: Dialogue orchestration
 REQ-013: Consent / refusal flow
 REQ-014: Survey response persistence (CapturedAnswer + captured_answers)
 """
-
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -21,9 +20,16 @@ from uuid import UUID, uuid4
 
 class DialoguePhase(str, Enum):
     INTRO = "intro"
+    CONSENT_REQUEST = "consent_request"
+    CONSENT_PROCESSING = "consent_processing"
     QUESTIONS = "questions"
     COMPLETION = "completion"
     TERMINATION = "termination"
+
+    # REQ-013 / consent + per-question phases
+    QUESTION_1 = "question_1"
+    QUESTION_2 = "question_2"
+    QUESTION_3 = "question_3"
 
 
 class ConsentState(str, Enum):
@@ -59,7 +65,22 @@ class CallContext:
     campaign_id: UUID
     contact_id: UUID
     call_attempt_id: UUID
+
+    # Optional routing / tracing
     language: str | None = None
+    correlation_id: str | None = None
+
+    # Campaign scripts / questions
+    intro_script: str | None = None
+
+    question_1_text: str | None = None
+    question_1_type: str | None = None
+
+    question_2_text: str | None = None
+    question_2_type: str | None = None
+
+    question_3_text: str | None = None
+    question_3_type: str | None = None
 
 
 @dataclass
@@ -167,3 +188,33 @@ class DialogueSession:
     def get_call_context(self) -> CallContext | None:
         """Prefer call_context, fallback to context."""
         return self.call_context or self.context
+
+    def add_utterance(self, role: str, text: str | None) -> None:
+        """
+        Backward-compatible alias.
+
+        Some flows (consent/orchestrator) call add_utterance(role, text).
+        Newer session models may expose a different API; we normalize here.
+        """
+        if not text:
+            return
+
+        # Prefer the newer canonical method/field if present.
+        if hasattr(self, "add_message"):
+            getattr(self, "add_message")(role, text)
+            return
+
+        if hasattr(self, "append_message"):
+            getattr(self, "append_message")(role, text)
+            return
+
+        if hasattr(self, "messages") and isinstance(getattr(self, "messages"), list):
+            getattr(self, "messages").append({"role": role, "content": text})
+            return
+
+        if hasattr(self, "turns") and isinstance(getattr(self, "turns"), list):
+            getattr(self, "turns").append({"role": role, "text": text})
+            return
+
+        # Fallback: use transcript (present in this model)
+        self.transcript.append({"role": role, "text": text})

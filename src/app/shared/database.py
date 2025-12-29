@@ -48,7 +48,7 @@ class DatabaseManager:
             settings = get_settings()
             self._engine = create_async_engine(
                 self._database_url,
-                echo=settings.debug,
+                echo=False,
                 pool_pre_ping=True,
                 pool_size=5,
                 max_overflow=10,
