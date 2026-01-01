@@ -1,0 +1,10 @@
+ASSISTANT: Buongiorno, parlo con il titolare del ristorante Due Scudi?
+USER: Sí, su novio.
+ASSISTANT: Perfetto, mi chiamo Sonia, sono un’assistente virtuale che collabora con Smoke Campaign. La chiamo per parlarle del servizio Prenota con Google, riguardo alle prenotazioni online del suo ristorante. C’è una promozione gratuita che Google fa per 1 mese. Ha un paio di minuti?
+USER: Non sono interessato, grazie, all'iniziativa.
+ASSISTANT: È un servizio in uso da decine di migliaia di ristoranti che per un mese Google consente di attivare gratuitamente e senza alcun impegno. Garantito da Google. Con l’attivazione riceverà una userid e una password con cui potrà vedere in autonomia le prenotazioni. Vuole provare il mese gratuito?
+USER: Ma non sono interessato, grazie.
+USER: No, no, non sono interessato.
+ASSISTANT: Grazie lo stesso, buon lavoro.
+USER: Grazie.
+ASSISTANT: SIGNAL: {"type":"refused"}

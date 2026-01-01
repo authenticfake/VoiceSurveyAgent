@@ -1,0 +1,5 @@
+{"type": "start", "ts": "2026-01-01T15:20:55+00:00Z", "call_sid": "CA578480a09ec5c29bbfb07937fa03a7ce", "stream_sid": "MZ86c255deb790a48eb58d39585de909f9", "call_id": "760ccaba-c4ca-4a38-80e3-b8690163f300", "campaign_id": "53fd9acd-af11-4a76-83e7-4b8dc1c8c530", "contact_id": "b347d095-0015-43df-a984-fa3d159a3dae", "language": "it"}
+{"type": "assistant", "ts": "2026-01-01T15:21:00+00:00Z", "text": "Buongiorno, parlo con il titolare del ristorante?"}
+{"type": "user", "ts": "2026-01-01T15:21:04+00:00Z", "text": "Ja."}
+{"type": "assistant", "ts": "2026-01-01T15:21:08+00:00Z", "text": "Può dirmi a che ora trovo il titolare?"}
+{"type": "user", "ts": "2026-01-01T15:21:13+00:00Z", "text": "Domani pomeriggio alle quattro."}

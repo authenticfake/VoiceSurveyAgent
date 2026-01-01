@@ -8,7 +8,7 @@ from functools import lru_cache
 import os
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -27,17 +27,37 @@ class Settings(BaseSettings):
     app_env: Literal["dev", "qa", "uat", "prod"] = "dev"
     debug: bool = False
     log_level: str = "INFO"
-
+     # ---- OpenAI (Realtime / speech-to-speech)
+    openai_api_key: str = ""
+    openai_realtime_model: str = "gpt-realtime"
+    openai_realtime_voice: str = "marin"
+    openai_realtime_input_format: str = "audio/pcmu"
+    openai_realtime_output_format: str = "audio/pcmu"
+    llm_provider: str = "openai"
+    # ---- ANTHRPIC (Realtime / speech-to-speech)
+    anthropic_api_key: str = ""
+    # ----WS Streaming Channel  & HTTPs PUBLIC Channel
+    media_streams_ws_public_url: str = "wss://localhost:8880/realtime"
+    public_base_url: str = "" 
     # Database
     database_url: str = Field(
         default="postgresql+asyncpg://postgres:postgres@localhost:5432/voicesurveyag3ent",
         description="PostgreSQL connection URL",
     )
+    # Realtime: enable text channel (for SIGNAL + transcript persistence) and user transcription
+    openai_realtime_text_enabled: bool = False
+    openai_realtime_transcription_enabled: bool = True
+    openai_realtime_transcription_model: str = "whisper-1"
 
     # Redis
     redis_url: str = Field(
         default="redis://localhost:6379/0",
         description="Redis connection URL",
+    )
+    call_artifacts_dir: str = Field(
+        default="var/calls",
+        description="Directory where call artifacts (transcripts, signals, debug) are stored",
+        validation_alias=AliasChoices("VSA_CALL_ARTIFACTS_DIR", "CALL_ARTIFACTS_DIR"),
     )
 
     # OIDC Configuration
@@ -99,6 +119,10 @@ class Settings(BaseSettings):
     scheduler_lock_key: str = Field(
         default="voicesurveyagent_scheduler_v1",
         description="Stable key used to derive the Postgres advisory lock id.",
+    )
+    scheduler_requeue_stale_minutes: int = Field(
+        default=15,
+        description="Minutes used to requeue stale calls.",
     )
 
     @field_validator("oidc_scopes", mode="before")

@@ -46,3 +46,5 @@ mypy>=1.10.0
 bandit>=1.7.
 
 python-multipart>=0.0.9
+redis>=4.2.0
+websockets<=15.01

@@ -27,6 +27,7 @@ EMAIL_PATTERN = re.compile(
 REQUIRED_HEADERS = {"phone_number"}
 OPTIONAL_HEADERS = {
     "external_contact_id",
+    "name",
     "email",
     "language",
     "has_prior_consent",
@@ -37,6 +38,10 @@ ALL_HEADERS = REQUIRED_HEADERS | OPTIONAL_HEADERS
 # Header aliases for flexibility
 HEADER_ALIASES: dict[str, str] = {
     "phone": "phone_number",
+    "full_name": "name",
+    "contact_name": "name",
+    "restaurant": "name",
+    "company": "name",
     "telephone": "phone_number",
     "tel": "phone_number",
     "mobile": "phone_number",
@@ -293,6 +298,7 @@ class CSVParser:
         try:
             parsed = CSVRowData(
                 external_contact_id=row.get("external_contact_id", "").strip() or None,
+                name=row.get("name", "").strip() or None,
                 phone_number=phone_normalized,  # type: ignore
                 email=email_normalized,
                 language=parse_language(row.get("language")),

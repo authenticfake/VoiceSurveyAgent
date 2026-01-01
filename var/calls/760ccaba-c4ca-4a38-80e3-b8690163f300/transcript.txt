@@ -1,0 +1,4 @@
+ASSISTANT: Buongiorno, parlo con il titolare del ristorante?
+USER: Ja.
+ASSISTANT: Può dirmi a che ora trovo il titolare?
+USER: Domani pomeriggio alle quattro.

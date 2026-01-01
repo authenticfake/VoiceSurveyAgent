@@ -80,6 +80,10 @@ class Contact(Base):
         String(255),
         nullable=True,
     )
+    name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
     phone_number: Mapped[str] = mapped_column(
         String(50),
         nullable=False,

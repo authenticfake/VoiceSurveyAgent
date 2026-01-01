@@ -404,3 +404,7 @@ ON call_attempts (contact_id, attempt_number);
 ALTER TABLE call_attempts
 ADD CONSTRAINT uq_call_attempts_contact_attempt UNIQUE (contact_id, attempt_number);
 
+ALTER TABLE contacts
+  ADD COLUMN IF NOT EXISTS name VARCHAR(255);
+
+ALTER TYPE call_outcome ADD VALUE IF NOT EXISTS 'callback_requested';

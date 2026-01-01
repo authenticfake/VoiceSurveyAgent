@@ -28,6 +28,8 @@ class CallOutcome(str, Enum):
     NO_ANSWER = "no_answer"
     BUSY = "busy"
     FAILED = "failed"
+    CALLBACK_REQUESTED = "callback_requested"
+
 
 
 class CallAttempt(Base):

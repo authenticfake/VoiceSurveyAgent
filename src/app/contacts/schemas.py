@@ -21,6 +21,11 @@ class ContactBase(BaseModel):
         max_length=255,
         description="External reference ID for the contact",
     )
+    name: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Optional display name (e.g., restaurant/owner)",
+    )
     phone_number: str = Field(
         ...,
         max_length=50,
@@ -133,6 +138,7 @@ class CSVRowData(BaseModel):
     """Schema for parsed CSV row data."""
 
     external_contact_id: str | None = None
+    name: str | None = None
     phone_number: str
     email: str | None = None
     language: ContactLanguage = ContactLanguage.AUTO

@@ -82,6 +82,10 @@ class Contact(Base):
         nullable=False,
         index=True,
     )
+    name: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
     external_contact_id: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,

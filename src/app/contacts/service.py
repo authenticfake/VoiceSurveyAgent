@@ -135,6 +135,7 @@ class ContactService:
                     external_contact_id=parsed.external_contact_id,
                     phone_number=parsed.phone_number,
                     email=parsed.email,
+                    name=parsed.name,
                     preferred_language=parsed.language,
                     has_prior_consent=parsed.has_prior_consent,
                     do_not_call=parsed.do_not_call,
