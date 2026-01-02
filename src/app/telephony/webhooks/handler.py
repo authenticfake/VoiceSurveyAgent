@@ -1,475 +1,284 @@
-"""
-Webhook event handler for processing telephony events.
+# BEGIN FILE: src/app/telephony/webhooks/handler.py
+"""Telephony webhook event handler.
 
-REQ-010: Telephony webhook handler
+Responsibilities
+- Update CallAttempt lifecycle fields (started_at, ended_at, provider status).
+- Finalize persistence exactly once (single choke point):
+    - read artifacts from filesystem (transcript/realtime)
+    - read realtime SIGNAL + hints from Redis (if enabled)
+    - persist outcome/summary/transcript references into DB (call_attempt.call_metadata)
+    - update Contact state/outcome in a way that does NOT clobber dialogue truth
+
+Key rule
+Dialogue/orchestrator is the source of truth for survey outcomes
+(REFUSED / SURVEY_COMPLETED / CALLBACK_REQUESTED).
+Telephony completion events must NOT overwrite a non-null CallAttempt.outcome already set by dialogue.
+
+We still allow a fallback inference (e.g. no_answer/busy/failed) when outcome is missing.
 """
 
-from typing import Any, Protocol
-from uuid import UUID
+from __future__ import annotations
 
 import json
-import time
+import os
+import re
+from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any, Iterable, Optional
+from uuid import UUID
 
-import redis.asyncio as redis
-
-from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.calls.models import CallAttempt, CallOutcome
+from app.config import get_settings
 from app.contacts.models import Contact, ContactOutcome, ContactState
 from app.shared.logging import get_logger
 from app.telephony.events import CallEvent, CallEventType
-from app.config import get_settings
-from app.dialogue.llm.factory import create_llm_gateway
-from app.dialogue.llm.models import ChatMessage, ChatRequest, LLMProvider
+
+LOG = get_logger(__name__)
 
 
-logger = get_logger(__name__)
-
-_REDIS: redis.Redis | None = None
-
-
-async def _get_redis() -> redis.Redis:
-    global _REDIS
-    if _REDIS is not None:
-        return _REDIS
-    settings = get_settings()
-    _REDIS = redis.from_url(settings.redis_url, decode_responses=True)
-    return _REDIS
+# -----------------------------
+# Helpers
+# -----------------------------
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
-def _rk_call_meta(call_sid: str) -> str:
-    return f"call:{call_sid}:meta"
+def _utc_now_iso_z() -> str:
+    return _utc_now().isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
-def _rk_call_transcript(call_sid: str) -> str:
-    return f"call:{call_sid}:transcript"
-
-
-async def _redis_call_meta_get(call_sid: str) -> dict:
-    r = await _get_redis()
-    return await r.hgetall(_rk_call_meta(call_sid))
-
-
-async def _redis_transcript_get(call_sid: str, limit: int = 2000) -> list[dict]:
-    r = await _get_redis()
-    raw = await r.lrange(_rk_call_transcript(call_sid), max(0, -limit), -1)
-    out: list[dict] = []
-    for item in raw:
-        try:
-            out.append(json.loads(item))
-        except Exception:
-            continue
-    return out
-
-
-def _call_artifacts_dir(call_id: str) -> Path:
-    settings = get_settings()
-    base = Path(settings.call_artifacts_dir)
-    safe_call_id = re.sub(r"[^a-zA-Z0-9_-]", "_", call_id)
-    return base / safe_call_id
-
-
-def _read_transcript_fallback(call_id: str) -> str:
-    p = _call_artifacts_dir(call_id) / "transcript.txt"
-    if not p.exists():
-        return ""
-    try:
-        return p.read_text(encoding="utf-8", errors="ignore")
-    except Exception:
-        return ""
-
-
-def _coerce_outcome(value: str) -> str:
-    v = (value or "").strip().lower()
-    mapping = {
-        "completed": "completed",
-        "consent_declined": "consent_declined",
-        "not_reached": "not_reached",
-        "busy": "busy",
-        "failed": "failed",
-        "callback_requested": "callback_requested",
-    }
-    return mapping.get(v, "failed")
-
-
-async def _post_call_finalize(call_attempt: CallAttempt, meta: dict) -> tuple[str, dict]:
-    call_sid = call_attempt.call_sid or ""
-    call_id = str(call_attempt.id)
-
-    rows = await _redis_transcript_get(call_sid) if call_sid else []
-    if rows:
-        lines = []
-        for r in rows:
-            role = (r.get("role") or "").upper()
-            text = (r.get("text") or "").strip()
-            if text:
-                lines.append(f"{role}: {text}")
-        transcript_text = "\n".join(lines)
-    else:
-        transcript_text = _read_transcript_fallback(call_id)
-
-    last_signal = meta.get("last_signal") or ""
-    last_signal_at = meta.get("last_signal_at") or ""
-
-    system = (
-        "Sei un motore di post-call analysis per una chiamata di survey. "
-        "Dato il transcript, devi determinare l'OUTCOME finale della chiamata e produrre un breve riassunto. "
-        "Rispondi ESCLUSIVAMENTE con un JSON valido (niente testo fuori dal JSON).\n\n"
-        "Schema JSON richiesto:\n"
-        "{\n"
-        '  "final_outcome": one of [completed, consent_declined, not_reached, busy, failed, callback_requested],\n'
-        '  "summary": string (max 400 chars),\n'
-        '  "callback_datetime_iso": string|null,\n'
-        '  "evidence": { "quotes": [string, ...] }\n'
-        "}\n\n"
-        "Regole:\n"
-        "- Se l'utente chiede esplicitamente di essere richiamato in un momento specifico -> callback_requested.\n"
-        "- Se l'utente rifiuta il consenso -> consent_declined.\n"
-        "- Se transcript è vuoto/inutile -> not_reached o failed (scegli il più plausibile).\n"
-        "- Usa last_signal se utile ma NON fidarti solo di quello."
-    )
-
-    user = (
-        f"call_id={call_id}\n"
-        f"call_sid={call_sid}\n"
-        f"last_signal_at={last_signal_at}\n"
-        f"last_signal={last_signal}\n\n"
-        f"TRANSCRIPT:\n{transcript_text}"
-    )
-
-    gateway = create_llm_gateway()
-    req = ChatRequest(
-        adapter_type=LLMProvider.OPENAI,
-        model=os.getenv("OPENAI_REALTIME_MODEL", "gpt-4o-mini"),
-        messages=[
-            ChatMessage(role="system", content=system),
-            ChatMessage(role="user", content=user),
-        ],
-        temperature=0,
-        max_tokens=400,
-    )
-    resp = await gateway.chat_completion(req)
-
-    raw = (resp.content or "").strip()
-    m = re.search(r"\{.*\}", raw, flags=re.S)
-    payload = {}
-    if m:
-        try:
-            payload = json.loads(m.group(0))
-        except Exception:
-            payload = {}
-
-    final_outcome = _coerce_outcome(str(payload.get("final_outcome") or "failed"))
-    patch = {
-        "post_call": {
-            "final_outcome": final_outcome,
-            "summary": payload.get("summary"),
-            "callback_datetime_iso": payload.get("callback_datetime_iso"),
-            "evidence": payload.get("evidence"),
-            "raw": raw[:2000],
-        },
-        "meta": {
-            "last_signal": last_signal,
-            "last_signal_at": last_signal_at,
-        },
-    }
-    return final_outcome, patch
-
-class DialogueStarterProtocol(Protocol):
-    """Protocol for dialogue orchestrator to start dialogue on call.answered."""
-
-    async def start_dialogue(
-        self,
-        call_id: str,
-        campaign_id: UUID,
-        contact_id: UUID,
-    ) -> None:
-        """Start dialogue for an answered call."""
-        ...
-def _event_get(event, *names, default=None):
-    for n in names:
-        v = getattr(event, n, None)
-        if v is not None:
-            return v
-    payload = getattr(event, "payload", None) or getattr(event, "raw", None)
-    if isinstance(payload, dict):
-        for n in names:
-            if n in payload and payload[n] is not None:
-                return payload[n]
+def _event_get(event: CallEvent, *keys: str, default: Any = None) -> Any:
+    """Fetch first present key from event.payload (tries original/lower/upper)."""
+    payload = event.payload or {}
+    for k in keys:
+        if k in payload:
+            return payload[k]
+        kl = k.lower()
+        ku = k.upper()
+        if kl in payload:
+            return payload[kl]
+        if ku in payload:
+            return payload[ku]
     return default
 
-def _attempt_metadata(attempt: Any) -> dict[str, Any]:
-    # ordine di fallback: call_metadata -> metadata -> {}
-    val = getattr(attempt, "call_metadata", None)
-    if val is None:
-        val = getattr(attempt, "metadata", None)
-    if isinstance(val, dict):
-        return val
-    return {}
 
-def _attempt_metadata_get(call_attempt: Any) -> dict:
-    meta = getattr(call_attempt, "extra_metadata", None)
-    if meta is None:
-        meta = getattr(call_attempt, "call_metadata", None)
-    return meta or {}
+def _artifacts_root() -> Path:
+    # Keep same default convention as router.py
+    base = os.getenv("VSA_CALL_ARTIFACTS_DIR", "var/calls")
+    return Path(base)
 
 
-def _attempt_metadata_set(call_attempt: Any, meta: dict) -> None:
-    if hasattr(call_attempt, "extra_metadata"):
-        call_attempt.extra_metadata = meta
-    elif hasattr(call_attempt, "call_metadata"):
-        call_attempt.call_metadata = meta
+def _call_artifacts_dir(call_id: UUID | str) -> Path:
+    return _artifacts_root() / str(call_id)
 
-class WebhookHandler:
-    """Handler for processing telephony webhook events.
 
-    Processes CallEvent objects and updates database state accordingly.
-    Handles idempotency via call_id to prevent duplicate processing.
+def _safe_read_text(path: Path, max_chars: int = 400_000) -> str:
+    try:
+        txt = path.read_text(encoding="utf-8", errors="replace")
+        return txt[:max_chars]
+    except FileNotFoundError:
+        return ""
+    except Exception:
+        LOG.exception("Failed reading text file: %s", path)
+        return ""
+
+
+def _extract_signal_from_text(text: str) -> Optional[str]:
+    """Extract a one-    SIGNAL from transcript (best-effort)."""
+    if not text:
+        return None
+    m = re.search(r"SIGNAL:\s*\{.*?\}", text, flags=re.MULTILINE)
+    if not m:
+        return None
+    return ("SIGNAL: " + m.group(1).strip()).strip()
+
+
+def _infer_outcome_if_missing(event: CallEvent, call_attempt: CallAttempt) -> Optional[CallOutcome]:
+    """Infer telephony-level outcome only if dialogue didn't already set one."""
+    if call_attempt.outcome is not None:
+        return None
+
+    et = event.event_type
+    if et == CallEventType.NO_ANSWER:
+        return CallOutcome.NO_ANSWER
+    if et == CallEventType.BUSY:
+        return CallOutcome.BUSY
+    if et == CallEventType.FAILED:
+        return CallOutcome.FAILED
+    if et == CallEventType.CANCELED:
+        return CallOutcome.CANCELED
+    if et in (CallEventType.COMPLETED, CallEventType.STOPPED):
+        # telephony completed but no dialogue-level outcome -> generic completed
+        return CallOutcome.COMPLETED
+    return None
+
+
+def _map_call_outcome_to_contact(outcome: CallOutcome) -> tuple[ContactState, ContactOutcome]:
+    """Translate CallOutcome to (ContactState, ContactOutcome)."""
+    if outcome == CallOutcome.SURVEY_COMPLETED:
+        return (ContactState.COMPLETED, ContactOutcome.COMPLETED)
+    if outcome == CallOutcome.REFUSED:
+        return (ContactState.REFUSED, ContactOutcome.REFUSED)
+    if outcome == CallOutcome.CALLBACK_REQUESTED:
+        # Non è "completed", ma è un esito positivo “operativo”
+        return (ContactState.COMPLETED, ContactOutcome.COMPLETED)
+
+    if outcome == CallOutcome.NO_ANSWER:
+        return (ContactState.NOT_REACHED, ContactOutcome.NO_ANSWER)
+    if outcome == CallOutcome.BUSY:
+        return (ContactState.NOT_REACHED, ContactOutcome.BUSY)
+    if outcome == CallOutcome.FAILED:
+        return (ContactState.NOT_REACHED, ContactOutcome.FAILED)
+    if outcome == CallOutcome.CANCELED:
+        return (ContactState.NOT_REACHED, ContactOutcome.CANCELED)
+
+    return (ContactState.NOT_REACHED, ContactOutcome.NOT_REACHED)
+
+
+def _try_parse_json(value: str) -> Optional[dict[str, Any]]:
+    try:
+        return json.loads(value)
+    except Exception:
+        return None
+
+
+async def _redis_get_call_meta(call_id: str) -> dict[str, str]:
+    """Fetch redis hash call:meta:<call_id> if Redis configured; else {}.
+
+    Router writes:
+      - call:meta:<call_id> -> signal (JSON str)
     """
+    settings = get_settings()
+    if not (settings.redis_enabled and settings.redis_url):
+        return {}
 
-    def __init__(
-        self,
-        session: AsyncSession,
-        dialogue_starter: DialogueStarterProtocol | None = None,
-    ) -> None:
-        """Initialize webhook handler.
+    try:
+        import redis.asyncio as redis  # type: ignore
+    except Exception:
+        LOG.warning("redis not available (missing dependency). Skipping redis meta read.")
+        return {}
 
-        Args:
-            session: Async database session.
-            dialogue_starter: Optional dialogue orchestrator for call.answered events.
-        """
+    try:
+        client = redis.from_url(settings.redis_url, encoding="utf-8", decode_responses=True)
+        key = f"call:meta:{call_id}"
+        meta: dict[str, str] = await client.hgetall(key)
+        # non close() hard: redis client is lightweight; but we can disconnect politely
+        try:
+            await client.aclose()
+        except Exception:
+            pass
+        return meta or {}
+    except Exception:
+        LOG.exception("Failed reading redis call meta for call_id=%s", call_id)
+        return {}
+
+
+def _infer_outcome_from_signal(signal_obj: dict[str, Any]) -> Optional[CallOutcome]:
+    """Best-effort mapping from SIGNAL JSON to CallOutcome.
+
+    We support flexible shapes:
+      { "outcome": "refused" | "survey_completed" | "callback_requested" ... }
+      { "consent": true/false }
+      { "callback": {...} } or { "callback_at": "..."} etc.
+    """
+    outcome_raw = (signal_obj.get("outcome") or signal_obj.get("call_outcome") or "").strip().lower()
+    if outcome_raw:
+        mapping = {
+            "refused": CallOutcome.REFUSED,
+            "declined": CallOutcome.REFUSED,
+            "survey_completed": CallOutcome.SURVEY_COMPLETED,
+            "completed": CallOutcome.SURVEY_COMPLETED,
+            "callback_requested": CallOutcome.CALLBACK_REQUESTED,
+            "callback": CallOutcome.CALLBACK_REQUESTED,
+            "no_answer": CallOutcome.NO_ANSWER,
+            "busy": CallOutcome.BUSY,
+            "failed": CallOutcome.FAILED,
+            "canceled": CallOutcome.CANCELED,
+        }
+        if outcome_raw in mapping:
+            return mapping[outcome_raw]
+
+    # consent false => refused
+    if "consent" in signal_obj and signal_obj.get("consent") in (False, "false", "no", "NO", 0):
+        return CallOutcome.REFUSED
+
+    # callback hints => callback requested
+    if any(k in signal_obj for k in ("callback", "callback_at", "callback_time", "callback_when")):
+        return CallOutcome.CALLBACK_REQUESTED
+
+    return None
+
+
+# -----------------------------
+# Handler
+# -----------------------------
+class WebhookHandler:
+    def __init__(self, session: AsyncSession):
         self._session = session
-        self._dialogue_starter = dialogue_starter
-        self._processed_events: set[str] = set()
 
     async def handle_event(self, event: CallEvent) -> bool:
-        """Handle a telephony call event.
+        """Handle a webhook event.
 
-        Processes the event and updates database state. Handles idempotency
-        by checking if the event has already been processed for this call_id
-        and event_type combination.
-
-        Args:
-            event: Parsed CallEvent from webhook.
-
-        Returns:
-            True if event was processed, False if it was a duplicate.
+        Returns True if handled (even if idempotently), False if unknown call_id.
         """
-        # Create idempotency key from call_id and event_type
-        idempotency_key = f"{event.call_id}:{event.event_type.value}"
-        logger.info(
-            "Processing telephony event",
-            extra={
-                "call_id": event.call_id,
-                "provider_call_id": event.provider_call_id,
-                "event_type": event.event_type.value,
-            },
-        )
-        # Check in-memory cache first (for same-request duplicates)
-        if idempotency_key in self._processed_events:
-            logger.info(
-                "Duplicate event skipped (in-memory)",
-                extra={
-                    "call_id": event.call_id,
-                    "event_type": event.event_type.value,
-                },
-            )
-            return False
-
-        # Check database for existing processing
-        call_attempt = await self._get_call_attempt(event.call_id)
+        call_attempt = await self._load_call_attempt(event.call_id)
         if call_attempt is None:
-            logger.warning(
-                "CallAttempt not found for event",
-                extra={
-                    "call_id": event.call_id,
-                    "provider_call_id": event.provider_call_id,
-                    "event_type": event.event_type.value,
-                },
-            )
+            LOG.warning("Webhook event for unknown call_id=%s type=%s", event.call_id, event.event_type)
             return False
 
-        # Check if this event type has already been processed
-        if await self._is_event_processed(call_attempt, event.event_type):
-            logger.info(
-                "Duplicate event skipped (database)",
-                extra={
-                    "call_id": event.call_id,
-                    "event_type": event.event_type.value,
-                },
-            )
-            return False
+        # Idempotency guard: don't re-handle same event type
+        if self._is_event_processed(call_attempt, event.event_type.value):
+            LOG.info("Skipping already-processed event=%s call_id=%s", event.event_type, event.call_id)
+            return True
 
-        # Process based on event type
-        logger.info(
-            "Processing telephony event",
-            extra={
-                "call_id": event.call_id,
-                "event_type": event.event_type.value,
-                "provider_call_id": event.provider_call_id,
-            },
-        )
+        if event.event_type == CallEventType.ANSWERED:
+            await self._handle_answered(call_attempt, event)
+        elif event.event_type in (
+            CallEventType.COMPLETED,
+            CallEventType.STOPPED,
+            CallEventType.FAILED,
+            CallEventType.NO_ANSWER,
+            CallEventType.BUSY,
+            CallEventType.CANCELED,
+        ):
+            await self._handle_terminal(call_attempt, event)
+        else:
+            await self._handle_non_terminal(call_attempt, event)
 
-        match event.event_type:
-            case CallEventType.INITIATED:
-                await self._handle_initiated(call_attempt, event)
-            case CallEventType.RINGING:
-                await self._handle_ringing(call_attempt, event)
-            case CallEventType.ANSWERED:
-                await self._handle_answered(call_attempt, event)
-            case CallEventType.COMPLETED:
-                await self._handle_completed(call_attempt, event)
-            case CallEventType.NO_ANSWER:
-                await self._handle_no_answer(call_attempt, event)
-            case CallEventType.BUSY:
-                await self._handle_busy(call_attempt, event)
-            case CallEventType.FAILED:
-                await self._handle_failed(call_attempt, event)
-
-        # Mark as processed
-        self._processed_events.add(idempotency_key)
-
-        # Commit changes
+        self._mark_event_processed(call_attempt, event.event_type.value)
         await self._session.commit()
-
         return True
 
-    async def _get_call_attempt(self, call_id: str) -> CallAttempt | None:
-        """Get CallAttempt by internal call_id.
+    # -------- DB loaders --------
+    async def _load_call_attempt(self, call_id: str) -> Optional[CallAttempt]:
+        try:
+            uuid = UUID(call_id)
+        except Exception:
+            return None
+        return await self._session.get(CallAttempt, uuid)
 
-        Args:
-            call_id: Internal call identifier.
+    async def _load_contact(self, contact_id: UUID) -> Optional[Contact]:
+        return await self._session.get(Contact, contact_id)
 
-        Returns:
-            CallAttempt if found, None otherwise.
-        """
-        stmt = select(CallAttempt).where(CallAttempt.call_id == call_id)
-        result = await self._session.execute(stmt)
-        return result.scalar_one_or_none()
+    # -------- processed flags --------
+    def _is_event_processed(self, call_attempt: CallAttempt, event_type: str) -> bool:
+        meta = dict(call_attempt.call_metadata or {})
+        processed: Iterable[str] = meta.get("processed_events") or []
+        return event_type in set(processed)
 
-    async def _is_event_processed(
-        self,
-        call_attempt: CallAttempt,
-        event_type: CallEventType,
-    ) -> bool:
-        """Check if event type has already been processed for this call.
+    def _mark_event_processed(self, call_attempt: CallAttempt, event_type: str) -> None:
+        meta = dict(call_attempt.call_metadata or {})
+        processed = list(meta.get("processed_events") or [])
+        if event_type not in processed:
+            processed.append(event_type)
+        meta["processed_events"] = processed
+        call_attempt.call_metadata = meta
 
-        Uses the call attempt's metadata to track processed events.
-
-        Args:
-            call_attempt: The call attempt record.
-            event_type: Event type to check.
-
-        Returns:
-            True if already processed.
-        """
-        metadata = _attempt_metadata_get(call_attempt)
-        processed_events = metadata.get("processed_events", [])
-        return event_type.value in processed_events
-
-    async def _mark_event_processed(self, call_attempt: CallAttempt, event_type: str) -> None:
-        metadata = dict(_attempt_metadata_get(call_attempt))
-        processed = dict(metadata.get("processed_events", {}))
-        processed[event_type] = True
-        metadata["processed_events"] = processed
-        _attempt_metadata_set(call_attempt, metadata)
-
-
-    async def _handle_initiated(
-        self,
-        call_attempt: CallAttempt,
-        event: CallEvent,
-    ) -> None:
-        """Handle call.initiated event.
-
-        Args:
-            call_attempt: The call attempt record.
-            event: The call event.
-        """
-        call_attempt.provider_raw_status =_event_get(
-            event,
-            "raw_status", "provider_raw_status", "call_status", "status",
-            "CallStatus", "Status",
-            default=call_attempt.provider_raw_status,
-        )
-        await self._mark_event_processed(call_attempt, event.event_type)
-
-    async def _handle_ringing(
-        self,
-        call_attempt: CallAttempt,
-        event: CallEvent,
-    ) -> None:
-        """Handle call.ringing event.
-
-        Args:
-            call_attempt: The call attempt record.
-            event: The call event.
-        """
-        call_attempt.provider_raw_status = _event_get(
-            event,
-            "raw_status", "provider_raw_status", "call_status", "status",
-            "CallStatus", "Status",
-            default=call_attempt.provider_raw_status,
-        )
-
-        await self._mark_event_processed(call_attempt, event.event_type)
-
-    async def _handle_answered(
-        self,
-        call_attempt: CallAttempt,
-        event: CallEvent,
-    ) -> None:
-        """Handle call.answered event.
-
-        Updates call attempt with answered timestamp and triggers
-        dialogue start if dialogue_starter is configured.
-
-        Args:
-            call_attempt: The call attempt record.
-            event: The call event.
-        """
-        call_attempt.answered_at = event.timestamp
-        call_attempt.provider_raw_status = _event_get(
-            event,
-            "raw_status", "provider_raw_status", "call_status", "status",
-            "CallStatus", "Status",
-            default=call_attempt.provider_raw_status,
-        )
-
-        await self._mark_event_processed(call_attempt, event.event_type)
-
-        # Trigger dialogue start
-        if self._dialogue_starter is not None:
-            logger.info(
-                "Triggering dialogue start",
-                extra={
-                    "call_id": event.call_id,
-                    "campaign_id": str(event.campaign_id),
-                    "contact_id": str(event.contact_id),
-                },
-            )
-            await self._dialogue_starter.start_dialogue(
-                call_id=event.call_id,
-                campaign_id=event.campaign_id,
-                contact_id=event.contact_id,
-            )
-
-    async def _handle_completed(
-        self,
-        call_attempt: CallAttempt,
-        event: CallEvent,
-    ) -> None:
-        """Handle call.completed event.
-
-        Qui facciamo il finalize post-call (Decisione 2):
-        - outcome finale (da last SIGNAL + transcript)
-        - summary finale (se abilitata)
-        - transcript_ref / artifact path
-        - update contatto in modo compatibile con enum DB contact_outcome
-        """
-        call_attempt.ended_at = event.timestamp
+    # -------- event handlers --------
+    async def _handle_answered(self, call_attempt: CallAttempt, event: CallEvent) -> None:
+        call_attempt.started_at = event.timestamp or call_attempt.started_at or _utc_now()
         call_attempt.provider_raw_status = _event_get(
             event,
             "raw_status",
@@ -481,274 +290,145 @@ class WebhookHandler:
             default=call_attempt.provider_raw_status,
         )
 
-        # duration -> metadata
+        contact = await self._load_contact(call_attempt.contact_id)
+        if contact:
+            contact.state = ContactState.IN_PROGRESS
+            contact.last_attempt_at = call_attempt.started_at
+            contact.attempts_count = (contact.attempts_count or 0) + 1
+
+    async def _handle_non_terminal(self, call_attempt: CallAttempt, event: CallEvent) -> None:
+        # Store provider status for observability
+        call_attempt.provider_raw_status = _event_get(
+            event,
+            "raw_status",
+            "provider_raw_status",
+            "call_status",
+            "status",
+            "CallStatus",
+            "Status",
+            default=call_attempt.provider_raw_status,
+        )
+
+    async def _handle_terminal(self, call_attempt: CallAttempt, event: CallEvent) -> None:
+        """Terminal events: update outcome + finalize artifacts + update contact.
+
+        This is the SINGLE choke point for final persistence.
+        """
+        call_attempt.ended_at = event.timestamp or call_attempt.ended_at or _utc_now()
+        call_attempt.provider_raw_status = _event_get(
+            event,
+            "raw_status",
+            "provider_raw_status",
+            "call_status",
+            "status",
+            "CallStatus",
+            "Status",
+            default=call_attempt.provider_raw_status,
+        )
+
+        # 1) If dialogue already set an outcome, keep it.
+        # 2) Else try to derive from Redis SIGNAL JSON
+        # 3) Else infer from telephony event type (no_answer/busy/failed/etc.)
+        await self._maybe_apply_signal_outcome(call_attempt)
+
+        inferred = _infer_outcome_if_missing(event, call_attempt)
+        if inferred is not None:
+            call_attempt.outcome = inferred
+
+        # duration metadata
         if event.duration_seconds is not None:
-            md = dict(call_attempt.call_metadata or {})
-            md["duration_seconds"] = event.duration_seconds
-            call_attempt.call_metadata = md
+            meta = dict(call_attempt.call_metadata or {})
+            meta["duration_seconds"] = event.duration_seconds
+            call_attempt.call_metadata = meta
 
-        # ---- POST-CALL FINALIZE (idempotente) ----
-        # Non facciamo fallire l'evento completed se il finalize fallisce:
-        # meglio chiudere telephony e loggare, poi si può rilanciare manualmente.
-        try:
-            call_md = dict(call_attempt.call_metadata or {})
-            final_outcome_str, call_md = await _post_call_finalize(call_attempt, call_md)
+        # Finalize artifacts into DB (idempotent)
+        await self._finalize_persistence(call_attempt)
 
-            # outcome finale sull'attempt
-            final_outcome = _coerce_outcome(final_outcome_str)
-            if final_outcome is not None:
-                call_attempt.outcome = final_outcome
-            call_attempt.call_metadata = call_md
+        # Update contact state based on final outcome
+        if call_attempt.outcome is not None:
+            await self._apply_outcome_to_contact(call_attempt)
 
-            # update contact state/outcome (compat DB)
-            await self._apply_final_outcome_to_contact(
-                contact_id=call_attempt.contact_id,
-                final_outcome=call_attempt.outcome,
-                call_metadata=call_md,
-            )
+    async def _maybe_apply_signal_outcome(self, call_attempt: CallAttempt) -> None:
+        """Read redis signal JSON (if any) and apply outcome ONLY if outcome is missing."""
+        if call_attempt.outcome is not None:
+            return
 
-        except Exception:
-            log.exception(
-                "post-call finalize failed (continuing). call_id=%s attempt_id=%s",
-                call_attempt.call_id,
-                call_attempt.id,
-            )
-            # fallback: la chiamata è comunque avvenuta -> COMPLETED “coarse”
-            await self._update_contact_state(
-                contact_id=call_attempt.contact_id,
-                state=ContactState.COMPLETED,
-                last_outcome=ContactOutcome.COMPLETED,
-            )
+        redis_meta = await _redis_get_call_meta(str(call_attempt.id))
+        signal_raw = (redis_meta.get("signal") or "").strip()
+        if not signal_raw:
+            return
 
-        await self._mark_event_processed(call_attempt, event.event_type)
+        signal_obj = _try_parse_json(signal_raw)
+        if not signal_obj:
+            # Store raw anyway for debugging
+            meta = dict(call_attempt.call_metadata or {})
+            meta["signal_raw"] = signal_raw[:2000]
+            call_attempt.call_metadata = meta
+            return
 
-    async def _apply_final_outcome_to_contact(
-        self,
-        *,
-        contact_id: UUID,
-        final_outcome: CallOutcome | None,
-        call_metadata: dict[str, object],
-    ) -> None:
-        """Mappa outcome (CallOutcome) -> (ContactState, ContactOutcome) compatibili col DB."""
-        state: ContactState = ContactState.COMPLETED
-        last_outcome: ContactOutcome = ContactOutcome.COMPLETED
+        inferred = _infer_outcome_from_signal(signal_obj)
+        meta = dict(call_attempt.call_metadata or {})
+        meta["signal_json"] = signal_obj
+        meta["signal_raw"] = signal_raw[:2000]
+        call_attempt.call_metadata = meta
 
-        if final_outcome == CallOutcome.CONSENT_DECLINED:
-            state = ContactState.REFUSED
-            last_outcome = ContactOutcome.NOT_REACHED
-        elif final_outcome == CallOutcome.CALLBACK_REQUESTED:
-            state = ContactState.CALLBACK_PENDING
-            last_outcome = ContactOutcome.NOT_REACHED
-        elif final_outcome in (CallOutcome.NO_ANSWER, CallOutcome.BUSY, CallOutcome.FAILED):
-            state = ContactState.NOT_REACHED
-            last_outcome = ContactOutcome.NOT_REACHED
-        elif final_outcome in (CallOutcome.CONSENTED, CallOutcome.COMPLETED):
-            state = ContactState.COMPLETED
-            last_outcome = ContactOutcome.COMPLETED
+        if inferred is not None:
+            call_attempt.outcome = inferred
 
-        await self._update_contact_state(
-            contact_id=contact_id,
-            state=state,
-            last_outcome=last_outcome,
-        )
-
-        # opzionale ma utile: dettagli in extra_metadata (non rompe schema)
-        try:
-            contact = await self.contact_repo.get_by_id(contact_id)
-            extra = dict(getattr(contact, "extra_metadata", None) or {})
-            extra["final_call_outcome"] = final_outcome.value if final_outcome else None
-            extra["final_signal"] = call_metadata.get("final_signal")
-            extra["summary"] = call_metadata.get("summary")
-            extra["transcript_ref"] = call_metadata.get("transcript_ref") or call_metadata.get("transcript_path")
-            contact.extra_metadata = extra
-            await self.contact_repo.save(contact)
-        except Exception:
-            log.exception("failed to persist contact.extra_metadata (continuing). contact_id=%s", contact_id)
-
-    async def _handle_no_answer(
-        self,
-        call_attempt: CallAttempt,
-        event: CallEvent,
-    ) -> None:
-        call_attempt.ended_at = event.timestamp
-        call_attempt.outcome = CallOutcome.NO_ANSWER
-        await self._update_contact_state(
-            contact_id=call_attempt.contact_id,
-            state=ContactState.NOT_REACHED,
-            last_outcome=ContactOutcome.NOT_REACHED,
-        )
-        await self._mark_event_processed(call_attempt, event.event_type)
-
-    async def _handle_busy(
-        self,
-        call_attempt: CallAttempt,
-        event: CallEvent,
-    ) -> None:
-        call_attempt.ended_at = event.timestamp
-        call_attempt.outcome = CallOutcome.BUSY
-        await self._update_contact_state(
-            contact_id=call_attempt.contact_id,
-            state=ContactState.NOT_REACHED,
-            last_outcome=ContactOutcome.NOT_REACHED,
-        )
-        await self._mark_event_processed(call_attempt, event.event_type)
-
-    async def _handle_failed(
-        self,
-        call_attempt: CallAttempt,
-        event: CallEvent,
-    ) -> None:
-        call_attempt.ended_at = event.timestamp
-        call_attempt.outcome = CallOutcome.FAILED
-        await self._update_contact_state(
-            contact_id=call_attempt.contact_id,
-            state=ContactState.NOT_REACHED,
-            last_outcome=ContactOutcome.NOT_REACHED,
-        )
-        await self._mark_event_processed(call_attempt, event.event_type)
-
-    async def _update_contact_state(
-        self,
-        contact_id: UUID,
-        state: ContactState,
-        last_outcome: ContactOutcome,
-    ) -> None:
-        contact = await self.contact_repo.get_by_id(contact_id)
-        contact.state = state
-        contact.last_outcome = last_outcome.value  # enum DB contact_outcome
-        await self.contact_repo.save(contact)
-
-    async def _mark_event_processed(self, call_attempt: CallAttempt, event_type: CallEventType) -> None:
-        processed = set(call_attempt.processed_events or [])
-        processed.add(event_type.value)
-        call_attempt.processed_events = sorted(processed)
-        await self.call_attempt_repo.save(call_attempt)
-
-
-    async def _handle_no_answer(
-        self,
-        call_attempt: CallAttempt,
-        event: CallEvent,
-    ) -> None:
-        """Handle call.no_answer event.
-
-        Updates call attempt outcome and contact state.
-
-        Args:
-            call_attempt: The call attempt record.
-            event: The call event.
+    async def _finalize_persistence(self, call_attempt: CallAttempt) -> None:
+        """Single-point finalize:
+        - FS: transcript/realtime jsonl paths + excerpt
+        - SIGNAL: prefer redis JSON if present; else extract from transcript text line
+        - summary_text: deterministic placeholder (or derived from signal), can be improved later
         """
-        call_attempt.ended_at = event.timestamp
-        call_attempt.outcome = CallOutcome.NO_ANSWER
-        call_attempt.provider_raw_status = _event_get(
-            event,
-            "raw_status", "provider_raw_status", "call_status", "status",
-            "CallStatus", "Status",
-            default=call_attempt.provider_raw_status,
-        )
+        meta = dict(call_attempt.call_metadata or {})
+        if meta.get("finalized_at"):
+            return
 
-        await self._mark_event_processed(call_attempt, event.event_type)
+        call_dir = _call_artifacts_dir(call_attempt.id)
+        transcript_path = call_dir / "transcript.txt"
+        realtime_jsonl_path = call_dir / "realtime.jsonl"
 
-        # Update contact state
-        await self._update_contact_state(
-            contact_id=event.contact_id,
-            state=ContactState.NOT_REACHED,
-            last_outcome=CallOutcome.NO_ANSWER,
-        )
+        transcript_text = _safe_read_text(transcript_path)
+        signal_line_from_transcript = _extract_signal_from_text(transcript_text)
 
-    async def _handle_busy(
-        self,
-        call_attempt: CallAttempt,
-        event: CallEvent,
-    ) -> None:
-        """Handle call.busy event.
+        # Attach FS references (paths are very useful in prod debugging)
+        meta["artifacts_dir"] = str(call_dir)
+        if transcript_path.exists():
+            meta["transcript_path"] = str(transcript_path)
+            meta["transcript_chars"] = len(transcript_text)
+            meta["transcript_excerpt"] = transcript_text[:4000]
+        if realtime_jsonl_path.exists():
+            meta["realtime_jsonl_path"] = str(realtime_jsonl_path)
 
-        Updates call attempt outcome and contact state.
+        # Prefer redis SIGNAL JSON if present in call_metadata (set by _maybe_apply_signal_outcome)
+        signal_raw = (meta.get("signal_raw") or "").strip()
+        if signal_raw and "signal_text" not in meta:
+            # Keep a human-friendly version too
+            meta["signal_text"] = f"SIGNAL: {signal_raw}"
 
-        Args:
-            call_attempt: The call attempt record.
-            event: The call event.
-        """
-        call_attempt.ended_at = event.timestamp
-        call_attempt.outcome = CallOutcome.BUSY
-        call_attempt.provider_raw_status = _event_get(
-            event,
-            "raw_status", "provider_raw_status", "call_status", "status",
-            "CallStatus", "Status",
-            default=call_attempt.provider_raw_status,
-        )
+        if (not meta.get("signal_text")) and signal_line_from_transcript:
+            meta["signal_text"] = signal_line_from_transcript
 
-        await self._mark_event_processed(call_attempt, event.event_type)
-
-        # Update contact state
-        await self._update_contact_state(
-            contact_id=event.contact_id,
-            state=ContactState.NOT_REACHED,
-            last_outcome=CallOutcome.BUSY,
-        )
-
-    async def _handle_failed(
-        self,
-        call_attempt: CallAttempt,
-        event: CallEvent,
-    ) -> None:
-        """Handle call.failed event.
-
-        Updates call attempt with error information and contact state.
-
-        Args:
-            call_attempt: The call attempt record.
-            event: The call event.
-        """
-        call_attempt.ended_at = event.timestamp
-        call_attempt.outcome = CallOutcome.FAILED
-        call_attempt.provider_raw_status = _event_get(
-            event,
-            "raw_status", "provider_raw_status", "call_status", "status",
-            "CallStatus", "Status",
-            default=call_attempt.provider_raw_status,
-        )
-
-        call_attempt.error_code = event.error_code
-        await self._mark_event_processed(call_attempt, event.event_type)
-
-        # Store error message in metadata
-        if event.error_message:
-            metadata = dict(call_attempt.call_metadata or {})
-            metadata["error_message"] = event.error_message
-            if hasattr(call_attempt, "extra_metadata"):
-                call_attempt.extra_metadata = metadata
-            elif hasattr(call_attempt, "call_metadata"):
-                call_attempt.call_metadata = metadata
+        # summary_text: keep deterministic, avoid LLM here (per tuo desiderata tuning dopo)
+        if "summary_text" not in meta:
+            # If signal JSON exists, keep compact summary
+            if isinstance(meta.get("signal_json"), dict):
+                meta["summary_text"] = json.dumps(meta["signal_json"], ensure_ascii=False)[:2000]
             else:
-                call_attempt.metadata = metadata
+                meta["summary_text"] = meta.get("signal_text") or ""
 
-        # Update contact state
-        await self._update_contact_state(
-            contact_id=event.contact_id,
-            state=ContactState.NOT_REACHED,
-            last_outcome=CallOutcome.FAILED,
-        )
+        meta["finalized_at"] = _utc_now_iso_z()
+        call_attempt.call_metadata = meta
 
-    async def _update_contact_state(
-        self,
-        contact_id: UUID,
-        state: ContactState,
-        last_outcome: CallOutcome,
-    ) -> None:
-        """Update contact state and last outcome.
+    async def _apply_outcome_to_contact(self, call_attempt: CallAttempt) -> None:
+        contact = await self._load_contact(call_attempt.contact_id)
+        if not contact or call_attempt.outcome is None:
+            return
 
-        Args:
-            contact_id: Contact UUID.
-            state: New contact state.
-            last_outcome: Last call outcome.
-        """
-        stmt = (
-            update(Contact)
-            .where(Contact.id == contact_id)
-            .values(
-                state=state,
-                last_outcome=last_outcome.value,
-            )
-        )
-        await self._session.execute(stmt)
+        state, last_outcome = _map_call_outcome_to_contact(call_attempt.outcome)
+
+        contact.state = state
+        contact.last_outcome = last_outcome
+        contact.last_attempt_at = call_attempt.ended_at or contact.last_attempt_at
+
